@@ -1,0 +1,42 @@
+import os
+from datetime import datetime
+
+GITHUB_USER = "millxing"
+GITHUB_BRANCH = "main"
+DATA_REPO = "NBA_Data"
+MODEL_REPO = "NBA_alpha"
+
+DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
+MODEL_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{MODEL_REPO}/{GITHUB_BRANCH}"
+
+CACHE_TTL_SECONDS = 3600
+CACHE_MAX_SIZE = 50
+
+SEASON_START_YEAR = 2000
+
+def get_current_season() -> str:
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    if month >= 10:
+        start_year = year
+    else:
+        start_year = year - 1
+    end_year = start_year + 1
+    return f"{start_year}-{str(end_year)[-2:]}"
+
+def get_available_seasons() -> list:
+    current = get_current_season()
+    current_start = int(current.split("-")[0])
+    seasons = []
+    for start_year in range(SEASON_START_YEAR, current_start + 1):
+        end_year = start_year + 1
+        season_str = f"{start_year}-{str(end_year)[-2:]}"
+        seasons.append(season_str)
+    return seasons
+
+AVAILABLE_MODELS = [
+    {"id": "2021-2025", "name": "2021-2025 Model", "file": "models/2021-2025.json"},
+    {"id": "2020-2025", "name": "2020-2025 Model", "file": "models/2020-2025.json"},
+    {"id": "2019-2025", "name": "2019-2025 Model", "file": "models/2019-2025.json"},
+]

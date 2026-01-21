@@ -1,0 +1,320 @@
+import { useState, useEffect } from 'react'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
+import { getSeasons, getGames, getModels, getDecomposition } from '../api'
+import './FourFactor.css'
+
+function FourFactor() {
+  const [seasons, setSeasons] = useState([])
+  const [games, setGames] = useState([])
+  const [models, setModels] = useState([])
+  const [selectedSeason, setSelectedSeason] = useState('')
+  const [selectedGame, setSelectedGame] = useState('')
+  const [selectedModel, setSelectedModel] = useState('')
+  const [factorType, setFactorType] = useState('four_factors')
+  const [decomposition, setDecomposition] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    async function loadInitialData() {
+      try {
+        const [seasonsRes, modelsRes] = await Promise.all([getSeasons(), getModels()])
+        setSeasons(seasonsRes.seasons)
+        setModels(modelsRes.models)
+        if (seasonsRes.seasons.length > 0) {
+          setSelectedSeason(seasonsRes.seasons[0])
+        }
+        if (modelsRes.models.length > 0) {
+          setSelectedModel(modelsRes.models[0].id)
+        }
+      } catch (err) {
+        setError(err.message)
+      }
+    }
+    loadInitialData()
+  }, [])
+
+  useEffect(() => {
+    async function loadGames() {
+      if (!selectedSeason) return
+      try {
+        const gamesRes = await getGames(selectedSeason)
+        setGames(gamesRes.games)
+        setSelectedGame('')
+        setDecomposition(null)
+      } catch (err) {
+        setError(err.message)
+      }
+    }
+    loadGames()
+  }, [selectedSeason])
+
+  useEffect(() => {
+    async function loadDecomposition() {
+      if (!selectedSeason || !selectedGame || !selectedModel) return
+      setLoading(true)
+      setError(null)
+      try {
+        const data = await getDecomposition(selectedSeason, selectedGame, selectedModel, factorType)
+        setDecomposition(data)
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
+    loadDecomposition()
+  }, [selectedSeason, selectedGame, selectedModel, factorType])
+
+  const getContributionChartData = () => {
+    if (!decomposition) return []
+    const contributions = decomposition.contributions
+    return Object.entries(contributions).map(([factor, value]) => ({
+      factor,
+      value,
+      fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+    }))
+  }
+
+  const formatFactorValue = (value) => {
+    if (value === null || value === undefined) return '-'
+    return typeof value === 'number' ? value.toFixed(1) : value
+  }
+
+  return (
+    <div className="four-factor container">
+      <h1 className="page-title">Four-Factor Game Decomposition</h1>
+      <p className="page-description">
+        Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
+      </p>
+
+      <div className="controls card">
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">Season</label>
+            <select
+              className="form-select"
+              value={selectedSeason}
+              onChange={(e) => setSelectedSeason(e.target.value)}
+            >
+              <option value="">Select season...</option>
+              {seasons.map((season) => (
+                <option key={season} value={season}>{season}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Game</label>
+            <select
+              className="form-select"
+              value={selectedGame}
+              onChange={(e) => setSelectedGame(e.target.value)}
+              disabled={!selectedSeason || games.length === 0}
+            >
+              <option value="">Select game...</option>
+              {games.map((game) => (
+                <option key={game.game_id} value={game.game_id}>{game.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Model</label>
+            <select
+              className="form-select"
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+            >
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>{model.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Factor Type</label>
+            <select
+              className="form-select"
+              value={factorType}
+              onChange={(e) => setFactorType(e.target.value)}
+            >
+              <option value="four_factors">Four Factors</option>
+              <option value="eight_factors">Eight Factors</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {error && <div className="error">{error}</div>}
+
+      {loading && (
+        <div className="loading">
+          <div className="loading-spinner"></div>
+          Loading analysis...
+        </div>
+      )}
+
+      {decomposition && !loading && (
+        <div className="results">
+          <div className="game-header card">
+            <div className="matchup">
+              <div className="team road-team">
+                <span className="team-abbr">{decomposition.road_team}</span>
+                <span className="team-score">{decomposition.road_pts}</span>
+              </div>
+              <div className="at-symbol">@</div>
+              <div className="team home-team">
+                <span className="team-abbr">{decomposition.home_team}</span>
+                <span className="team-score">{decomposition.home_pts}</span>
+              </div>
+            </div>
+            <div className="game-info">
+              <span className="game-date">{decomposition.game_date}</span>
+              <span className="margin-info">
+                Actual Margin: <strong className={decomposition.actual_margin >= 0 ? 'text-positive' : 'text-negative'}>
+                  {decomposition.actual_margin > 0 ? '+' : ''}{decomposition.actual_margin}
+                </strong>
+                {' | '}
+                Predicted: <strong>{decomposition.predicted_margin > 0 ? '+' : ''}{decomposition.predicted_margin.toFixed(1)}</strong>
+              </span>
+            </div>
+          </div>
+
+          <div className="analysis-grid">
+            <div className="factors-table card">
+              <h2 className="card-title">Factor Comparison</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Factor</th>
+                    <th className="text-center">{decomposition.home_team} (Home)</th>
+                    <th className="text-center">{decomposition.road_team} (Road)</th>
+                    <th className="text-center">Differential</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>eFG%</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_factors.efg)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_factors.efg)}</td>
+                    <td className={`text-center ${(decomposition.home_factors.efg - decomposition.road_factors.efg) >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {formatFactorValue(decomposition.home_factors.efg - decomposition.road_factors.efg)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Ball Handling</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_factors.ball_handling)}</td>
+                    <td className={`text-center ${(decomposition.home_factors.ball_handling - decomposition.road_factors.ball_handling) >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {formatFactorValue(decomposition.home_factors.ball_handling - decomposition.road_factors.ball_handling)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>OREB%</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_factors.oreb)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_factors.oreb)}</td>
+                    <td className={`text-center ${(decomposition.home_factors.oreb - decomposition.road_factors.oreb) >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {formatFactorValue(decomposition.home_factors.oreb - decomposition.road_factors.oreb)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>FT Rate</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_factors.ft_rate)}</td>
+                    <td className={`text-center ${(decomposition.home_factors.ft_rate - decomposition.road_factors.ft_rate) >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {formatFactorValue(decomposition.home_factors.ft_rate - decomposition.road_factors.ft_rate)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="ratings-table card">
+              <h2 className="card-title">Game Ratings</h2>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th className="text-center">{decomposition.home_team}</th>
+                    <th className="text-center">{decomposition.road_team}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Offensive Rating</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.offensive_rating)}</td>
+                  </tr>
+                  <tr>
+                    <td>Defensive Rating</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.defensive_rating)}</td>
+                  </tr>
+                  <tr>
+                    <td>Net Rating</td>
+                    <td className={`text-center ${decomposition.home_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {decomposition.home_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.home_ratings.net_rating)}
+                    </td>
+                    <td className={`text-center ${decomposition.road_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {decomposition.road_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.road_ratings.net_rating)}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Possessions</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.possessions)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.possessions)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="contributions-chart card">
+            <h2 className="card-title">Factor Contributions to Predicted Margin</h2>
+            <p className="chart-subtitle">
+              Positive values favor the home team ({decomposition.home_team}), negative values favor the road team ({decomposition.road_team})
+            </p>
+            <div className="chart-container">
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart
+                  data={getContributionChartData()}
+                  layout="vertical"
+                  margin={{ top: 20, right: 30, left: 120, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                  <XAxis type="number" tick={{ fill: 'var(--color-text-secondary)' }} />
+                  <YAxis
+                    type="category"
+                    dataKey="factor"
+                    tick={{ fill: 'var(--color-text-secondary)' }}
+                    width={110}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-background)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--border-radius-sm)',
+                    }}
+                    formatter={(value) => [value.toFixed(2), 'Contribution']}
+                  />
+                  <ReferenceLine x={0} stroke="var(--color-neutral)" />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                    {getContributionChartData().map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="intercept-info">
+              <span>Home Court Advantage (Intercept): <strong>{decomposition.intercept > 0 ? '+' : ''}{decomposition.intercept.toFixed(2)}</strong></span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default FourFactor
