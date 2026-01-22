@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: nba-analytics-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://nba-analytics-frontend.onrender.com,http://localhost:5173
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  - type: web
+    name: nba-analytics-frontend
+    runtime: static
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://nba-analytics-api.onrender.com
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
