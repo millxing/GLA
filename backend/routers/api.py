@@ -30,6 +30,17 @@ from schemas.models import (
     TrendPoint,
 )
 
+STAT_ALIASES = {
+    "ORTG": "ortg",
+    "DRTG": "drtg",
+    "NET_RTG": "net_rtg",
+    "EFG": "efg_pct",
+    "EFG%": "efg_pct",
+    "FG2P": "fg2p",
+    "FG3P": "fg3p",
+    "PACE": "pace",
+}
+
 router = APIRouter(prefix="/api")
 
 STAT_LABELS = {
@@ -233,10 +244,17 @@ async def get_trends(
     if team not in df["team"].unique():
         raise HTTPException(status_code=404, detail="Team not found")
 
-    if stat not in STAT_LABELS:
-        raise HTTPException(status_code=400, detail=f"Invalid stat: {stat}")
+    stat_key = stat.upper()
 
-    trend_df = compute_trend_series(df, team, stat)
+if stat_key in STAT_ALIASES:
+    stat_internal = STAT_ALIASES[stat_key]
+else:
+    stat_internal = stat.lower()
+
+if stat_internal not in STAT_LABELS:
+    raise HTTPException(status_code=400, detail=f"Invalid stat: {stat}")
+
+trend_df = compute_trend_series(df, team, stat_internal)
 
     data = []
     for _, row in trend_df.iterrows():
@@ -256,7 +274,7 @@ async def get_trends(
     return TrendsResponse(
         team=team,
         stat=stat,
-        stat_label=STAT_LABELS.get(stat, stat),
+        stat_label=STAT_LABELS.get(stat_internal, stat),
         data=data,
         season_average=season_average,
     )
