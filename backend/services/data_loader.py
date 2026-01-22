@@ -134,7 +134,7 @@ async def get_games_list(season: str) -> list:
     for _, row in games_df.iterrows():
         date_str = row["game_date"].strftime("%Y-%m-%d") if pd.notna(row["game_date"]) else ""
         games.append({
-            "game_id": row["game_id"],
+            "game_id": str(row["game_id"]),
             "date": date_str,
             "home_team": row["team"],
             "road_team": row["opponent"],
