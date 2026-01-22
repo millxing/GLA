@@ -20,6 +20,14 @@ EIGHT_FACTOR_NAMES = {
     "away_ft_rate": "Away FT Rate",
 }
 
+# Model coefficient keys -> internal factor keys
+MODEL_FACTOR_MAP = {
+    "shooting": "efg",
+    "ball_handling": "ball_handling",
+    "orebounding": "oreb",
+    "free_throws": "ft_rate",
+}
+
 def compute_four_factors(team_row: Dict, opponent_row: Dict) -> Dict[str, float]:
     fgm = team_row.get("fgm", 0) or 0
     fga = team_row.get("fga", 0) or 0
@@ -92,22 +100,19 @@ def compute_decomposition(
         coefficients = model_data.get("coefficients", {})
         intercept = model_data.get("intercept", 0)
 
-        factor_mapping = {
-            "efg": "eFG%",
-            "ball_handling": "Ball Handling",
-            "oreb": "OREB%",
-            "ft_rate": "FT Rate",
-        }
-
         contributions = {}
         total_contribution = intercept
 
-        for internal_key, model_key in factor_mapping.items():
+        # Iterate over model keys to internal keys
+        for model_key, internal_key in MODEL_FACTOR_MAP.items():
             if model_key not in coefficients:
                 raise ValueError(f"Missing model factor: {model_key}")
+
             coef = coefficients[model_key]
-            diff = differentials.get(internal_key, 0)
+            diff_pct = differentials.get(internal_key, 0)
+            diff = diff_pct / 100.0
             contribution = coef * diff
+
             contributions[model_key] = round(contribution, 2)
             total_contribution += contribution
 
@@ -116,70 +121,87 @@ def compute_decomposition(
             "contributions": contributions,
             "intercept": round(intercept, 2),
             "predicted_margin": round(total_contribution, 2),
-            "differentials": {factor_mapping.get(k, k): v for k, v in differentials.items() if k in factor_mapping},
+            "differentials": {k: v for k, v in differentials.items() if k in MODEL_FACTOR_MAP.values()},
         }
 
     elif factor_type == "eight_factors":
+        # Symmetrical-coefficient eight-factors mode:
+        # Break prediction into HOME and ROAD contributions by centering on league averages.
+        #
+        # home_contribution = coef * (home_value - league_avg)
+        # road_contribution = coef * (road_value - league_avg)
+        # predicted = intercept + sum(home_contribution) - sum(road_contribution)
+
         model_data = model.get("eight_factors", {})
         coefficients = model_data.get("coefficients", {})
         intercept = model_data.get("intercept", 0)
-        model_league_avgs = model_data.get("league_averages", {})
+        model_league_avgs = model_data.get("league_averages", {}) or {}
 
-        if league_averages is None:
-            league_averages = model_league_avgs
+        if home_factors is None or away_factors is None:
+            raise ValueError("Eight factors requires home_factors and away_factors")
 
-        factor_mapping = {
-            "efg": "eFG%",
-            "ball_handling": "Ball Handling",
-            "oreb": "OREB%",
-            "ft_rate": "FT Rate",
+        model_to_internal = MODEL_FACTOR_MAP
+
+        model_to_league_key = {
+            "shooting": "efg",
+            "ball_handling": "ball_handling",
+            "orebounding": "oreb_pct",
+            "free_throws": "ft_rate",
         }
 
-        contributions = {}
-        total_contribution = intercept
+        contributions: Dict[str, float] = {}
+        factor_values: Dict[str, float] = {}
+        total_home = 0.0
+        total_road = 0.0
 
-        for internal_key, display_key in factor_mapping.items():
-            home_key = f"Home {display_key}"
-            away_key = f"Away {display_key}"
+        for model_factor, internal_key in model_to_internal.items():
+            if model_factor not in coefficients:
+                raise ValueError(f"Missing model factor: {model_factor}")
 
-            if home_key not in coefficients:
-                raise ValueError(f"Missing model factor: {home_key}")
-            if away_key not in coefficients:
-                raise ValueError(f"Missing model factor: {away_key}")
+            coef = float(coefficients[model_factor])
 
-            home_coef = coefficients[home_key]
-            away_coef = coefficients[away_key]
+            home_val = float(home_factors.get(internal_key, 0) or 0)
+            road_val = float(away_factors.get(internal_key, 0) or 0)
 
-            home_val = home_factors.get(internal_key, 0) if home_factors else 0
-            away_val = away_factors.get(internal_key, 0) if away_factors else 0
+            league_key = model_to_league_key.get(model_factor)
+            league_avg = float(model_league_avgs.get(league_key, 0) or 0)
 
-            league_avg = league_averages.get(display_key, 0)
+            # Convert league averages from proportion scale (0-1) to percent scale (0-100)
+            # to match compute_four_factors output.
+            if 0 <= league_avg <= 1.5:
+                league_avg *= 100.0
 
-            home_centered = home_val - league_avg
-            away_centered = away_val - league_avg
+            home_centered = (home_val - league_avg) / 100.0
+            road_centered = (road_val - league_avg) / 100.0
 
-            home_contribution = home_coef * home_centered
-            away_contribution = away_coef * away_centered
+            home_contrib = coef * home_centered
+            road_contrib = coef * road_centered
 
-            contributions[home_key] = round(home_contribution, 2)
-            contributions[away_key] = round(away_contribution, 2)
+            contributions[f"home_{model_factor}"] = round(home_contrib, 2)
+            contributions[f"road_{model_factor}"] = round(road_contrib, 2)
 
-            total_contribution += home_contribution + away_contribution
+            factor_values[f"home_{model_factor}"] = round(home_val, 2)
+            factor_values[f"road_{model_factor}"] = round(road_val, 2)
 
-        factor_values = {}
-        for internal_key, display_key in factor_mapping.items():
-            home_val = home_factors.get(internal_key, 0) if home_factors else 0
-            away_val = away_factors.get(internal_key, 0) if away_factors else 0
-            factor_values[f"Home {display_key}"] = round(home_val, 2)
-            factor_values[f"Away {display_key}"] = round(away_val, 2)
+            total_home += home_contrib
+            total_road += road_contrib
+
+        predicted = float(intercept) + total_home - total_road
+
+        league_avgs_out: Dict[str, float] = {}
+        for k, v in model_league_avgs.items():
+            vv = float(v or 0)
+            if 0 <= vv <= 1.5:
+                vv *= 100.0
+            league_avgs_out[k] = round(vv, 2)
 
         return {
             "factor_type": "eight_factors",
             "contributions": contributions,
-            "intercept": round(intercept, 2),
-            "predicted_margin": round(total_contribution, 2),
+            "intercept": round(float(intercept), 2),
+            "predicted_margin": round(predicted, 2),
             "factor_values": factor_values,
-            "league_averages": {k: round(v, 2) for k, v in league_averages.items()},
+            "league_averages": league_avgs_out,
         }
 
     else:

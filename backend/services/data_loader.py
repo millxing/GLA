@@ -158,6 +158,11 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
     if df is None:
         return None
 
+    # ensure consistent types
+    df = df.copy()
+    df["game_id"] = df["game_id"].astype(str)
+    game_id = str(game_id)
+
     game_df = df[df["game_id"] == game_id]
     if len(game_df) != 2:
         return None
