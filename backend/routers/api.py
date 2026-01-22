@@ -31,9 +31,9 @@ from schemas.models import (
 )
 
 STAT_ALIASES = {
-    "ORTG": "ortg",
-    "DRTG": "drtg",
-    "NET_RTG": "net_rtg",
+    "ORTG": "off_rating",
+    "DRTG": "def_rating",
+    "NET_RTG": "net_rating",
     "EFG": "efg_pct",
     "EFG%": "efg_pct",
     "FG2P": "fg2p",
