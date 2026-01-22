@@ -241,7 +241,7 @@ async def get_trends(
     data = []
     for _, row in trend_df.iterrows():
         data.append(TrendPoint(
-            game_id=row["game_id"],
+            game_id=str(row["game_id"]),
             game_date=row["game_date"],
             opponent=row["opponent"],
             home_away=row["home_away"],
