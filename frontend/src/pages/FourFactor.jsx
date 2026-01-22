@@ -81,6 +81,56 @@ function FourFactor() {
     return typeof value === 'number' ? value.toFixed(1) : value
   }
 
+  <div style={{ marginBottom: "1rem" }}>
+    <label>
+      Season:&nbsp;
+      <select
+        value={selectedSeason}
+        onChange={(e) => setSelectedSeason(e.target.value)}
+      >
+        {seasons.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+      </select>
+    </label>
+
+    &nbsp;&nbsp;
+
+    <label>
+      Game:&nbsp;
+      <select
+        value={selectedGame}
+        onChange={(e) => setSelectedGame(e.target.value)}
+        disabled={!games.length}
+      >
+        <option value="">-- select game --</option>
+        {games.map((g) => (
+          <option key={g.game_id} value={g.game_id}>
+            {g.label}
+          </option>
+        ))}
+      </select>
+    </label>
+
+    &nbsp;&nbsp;
+
+    <label>
+      Model:&nbsp;
+      <select
+        value={selectedModel}
+        onChange={(e) => setSelectedModel(e.target.value)}
+      >
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  </div>
+
   return (
     <div className="four-factor container">
       <h1 className="page-title">Four-Factor Game Decomposition</h1>

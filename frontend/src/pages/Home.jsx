@@ -1,7 +1,32 @@
+import { useEffect, useState } from "react";
+import { getSeasons } from "../api";
 import { Link } from 'react-router-dom'
 import './Home.css'
 
 function Home() {
+
+  const [seasons, setSeasons] = useState([]);
+  const [loadingSeasons, setLoadingSeasons] = useState(true);
+  const [seasonsError, setSeasonsError] = useState(null);
+  const [selectedSeason, setSelectedSeason] = useState("");
+
+  useEffect(() => {
+    getSeasons()
+      .then((data) => {
+        setSeasons(data.seasons);
+        // auto-select the most recent season
+        if (data.seasons.length > 0) {
+          setSelectedSeason(data.seasons[0]);
+        }
+
+        setLoadingSeasons(false);
+      })
+      .catch((err) => {
+        setSeasonsError(err.message);
+        setLoadingSeasons(false);
+      });
+  }, []);
+
   return (
     <div className="home container">
       <div className="hero">
