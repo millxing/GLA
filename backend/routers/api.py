@@ -246,15 +246,15 @@ async def get_trends(
 
     stat_key = stat.upper()
 
-if stat_key in STAT_ALIASES:
-    stat_internal = STAT_ALIASES[stat_key]
-else:
-    stat_internal = stat.lower()
+    if stat_key in STAT_ALIASES:
+        stat_internal = STAT_ALIASES[stat_key]
+    else:
+        stat_internal = stat.lower()
 
-if stat_internal not in STAT_LABELS:
-    raise HTTPException(status_code=400, detail=f"Invalid stat: {stat}")
+    if stat_internal not in STAT_LABELS:
+        raise HTTPException(status_code=400, detail=f"Invalid stat: {stat}")
 
-trend_df = compute_trend_series(df, team, stat_internal)
+    trend_df = compute_trend_series(df, team, stat_internal)
 
     data = []
     for _, row in trend_df.iterrows():
