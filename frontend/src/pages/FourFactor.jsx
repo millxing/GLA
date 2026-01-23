@@ -227,29 +227,29 @@ function FourFactor() {
       {decomposition && !loading && (
         <div className="results">
           <div className="game-header card">
-            <div className="matchup">
-              <div className="team road-team">
-                <span className="team-abbr">{decomposition.road_team}</span>
-                <span className="team-score">{decomposition.road_pts}</span>
+            <div className="game-header-content">
+              <div className="matchup-left">
+                <div className="team road-team">
+                  <span className="team-abbr">{decomposition.road_team}</span>
+                  <span className="team-score">{decomposition.road_pts}</span>
+                </div>
+                <div className="at-symbol">@</div>
+                <div className="team home-team">
+                  <span className="team-abbr">{decomposition.home_team}</span>
+                  <span className="team-score">{decomposition.home_pts}</span>
+                </div>
               </div>
-              <div className="at-symbol">@</div>
-              <div className="team home-team">
-                <span className="team-abbr">{decomposition.home_team}</span>
-                <span className="team-score">{decomposition.home_pts}</span>
+              <div className="game-info-right">
+                <div className="game-date">{decomposition.game_date}</div>
+                <div className="margin-info">
+                  Actual Margin: <strong className={decomposition.actual_margin >= 0 ? 'text-positive' : 'text-negative'}>
+                    {decomposition.actual_margin > 0 ? '+' : ''}{decomposition.actual_margin}
+                  </strong>
+                </div>
+                <div className="predicted-info">
+                  Predicted: <strong>{decomposition.predicted_margin > 0 ? '+' : ''}{decomposition.predicted_margin.toFixed(1)}</strong>
+                </div>
               </div>
-            </div>
-            <div className="game-info-horizontal">
-              <span className="game-date">{decomposition.game_date}</span>
-              <span className="info-separator">•</span>
-              <span className="margin-info">
-                Actual Margin: <strong className={decomposition.actual_margin >= 0 ? 'text-positive' : 'text-negative'}>
-                  {decomposition.actual_margin > 0 ? '+' : ''}{decomposition.actual_margin}
-                </strong>
-              </span>
-              <span className="info-separator">•</span>
-              <span className="predicted-info">
-                Predicted: <strong>{decomposition.predicted_margin > 0 ? '+' : ''}{decomposition.predicted_margin.toFixed(1)}</strong>
-              </span>
             </div>
           </div>
 
@@ -352,7 +352,7 @@ function FourFactor() {
                 <BarChart
                   data={getContributionChartData()}
                   layout="vertical"
-                  margin={{ top: 20, right: 30, left: 120, bottom: 40 }}
+                  margin={{ top: 20, right: 30, left: 160, bottom: 40 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                   <XAxis
@@ -369,7 +369,7 @@ function FourFactor() {
                     type="category"
                     dataKey="factor"
                     tick={{ fill: 'var(--color-text-secondary)' }}
-                    width={110}
+                    width={150}
                   />
                   <Tooltip
                     contentStyle={{
