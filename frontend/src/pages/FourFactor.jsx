@@ -14,6 +14,7 @@ function FourFactor() {
   const [decomposition, setDecomposition] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [glossaryExpanded, setGlossaryExpanded] = useState(false)
 
   useEffect(() => {
     async function loadInitialData() {
@@ -69,8 +70,26 @@ function FourFactor() {
   const getContributionChartData = () => {
     if (!decomposition) return []
     const contributions = decomposition.contributions
+
+    // Map factor names to display labels with team abbreviations
+    const factorLabels = {
+      'shooting': `eFG%`,
+      'ball_handling': `Ball Handling`,
+      'orebounding': `OREB%`,
+      'free_throws': `FT Rate`,
+      // Eight factors mode
+      'home_shooting': `${decomposition.home_team} eFG%`,
+      'road_shooting': `${decomposition.road_team} eFG%`,
+      'home_ball_handling': `${decomposition.home_team} Ball Handling`,
+      'road_ball_handling': `${decomposition.road_team} Ball Handling`,
+      'home_orebounding': `${decomposition.home_team} OREB%`,
+      'road_orebounding': `${decomposition.road_team} OREB%`,
+      'home_free_throws': `${decomposition.home_team} FT Rate`,
+      'road_free_throws': `${decomposition.road_team} FT Rate`,
+    }
+
     return Object.entries(contributions).map(([factor, value]) => ({
-      factor,
+      factor: factorLabels[factor] || factor,
       value,
       fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
     }))
@@ -219,13 +238,16 @@ function FourFactor() {
                 <span className="team-score">{decomposition.home_pts}</span>
               </div>
             </div>
-            <div className="game-info">
+            <div className="game-info-horizontal">
               <span className="game-date">{decomposition.game_date}</span>
+              <span className="info-separator">•</span>
               <span className="margin-info">
                 Actual Margin: <strong className={decomposition.actual_margin >= 0 ? 'text-positive' : 'text-negative'}>
                   {decomposition.actual_margin > 0 ? '+' : ''}{decomposition.actual_margin}
                 </strong>
-                {' | '}
+              </span>
+              <span className="info-separator">•</span>
+              <span className="predicted-info">
                 Predicted: <strong>{decomposition.predicted_margin > 0 ? '+' : ''}{decomposition.predicted_margin.toFixed(1)}</strong>
               </span>
             </div>
@@ -330,10 +352,19 @@ function FourFactor() {
                 <BarChart
                   data={getContributionChartData()}
                   layout="vertical"
-                  margin={{ top: 20, right: 30, left: 120, bottom: 20 }}
+                  margin={{ top: 20, right: 30, left: 120, bottom: 40 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis type="number" tick={{ fill: 'var(--color-text-secondary)' }} />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: 'var(--color-text-secondary)' }}
+                    label={{
+                      value: 'Contribution',
+                      position: 'bottom',
+                      offset: 10,
+                      style: { fill: 'var(--color-text)', fontWeight: 600 }
+                    }}
+                  />
                   <YAxis
                     type="category"
                     dataKey="factor"
@@ -357,9 +388,78 @@ function FourFactor() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
-            <div className="intercept-info">
-              <span>Home Court Advantage (Intercept): <strong>{decomposition.intercept > 0 ? '+' : ''}{decomposition.intercept.toFixed(2)}</strong></span>
-            </div>
+          </div>
+
+          <div className="glossary-section card">
+            <button
+              className="glossary-toggle"
+              onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+              aria-expanded={glossaryExpanded}
+            >
+              <span>Glossary</span>
+              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
+            </button>
+
+            {glossaryExpanded && (
+              <div className="glossary-content">
+                <div className="glossary-grid">
+                  <div className="glossary-section-group">
+                    <h3>Four Factors</h3>
+                    <dl>
+                      <dt>eFG% (Effective Field Goal %)</dt>
+                      <dd>Adjusts field goal percentage to account for the added value of three-pointers. Formula: (FGM + 0.5 × 3PM) / FGA × 100</dd>
+
+                      <dt>Ball Handling</dt>
+                      <dd>A team's ability to take care of the ball, calculated as 100 − TOV%. Higher is better. TOV% = TOV / (FGA + 0.44×FTA + TOV) × 100</dd>
+
+                      <dt>OREB% (Offensive Rebounding %)</dt>
+                      <dd>The percentage of available offensive rebounds a team grabs. Formula: OREB / (OREB + OPP_DREB) × 100</dd>
+
+                      <dt>FT Rate (Free Throw Rate)</dt>
+                      <dd>Measures how often a team gets to the free throw line relative to field goal attempts. Formula: FTM / FGA × 100</dd>
+                    </dl>
+                  </div>
+
+                  <div className="glossary-section-group">
+                    <h3>Ratings</h3>
+                    <dl>
+                      <dt>Offensive Rating (ORtg)</dt>
+                      <dd>Points scored per 100 possessions. Formula: (Points / Possessions) × 100</dd>
+
+                      <dt>Defensive Rating (DRtg)</dt>
+                      <dd>Points allowed per 100 possessions. Formula: (Opponent Points / Opponent Possessions) × 100. Lower is better.</dd>
+
+                      <dt>Net Rating (NRtg)</dt>
+                      <dd>The difference between Offensive Rating and Defensive Rating. Formula: ORtg − DRtg</dd>
+
+                      <dt>Possessions</dt>
+                      <dd>Estimated number of possessions in the game. Formula: FGA + 0.44×FTA − OREB + TOV</dd>
+                    </dl>
+                  </div>
+
+                  <div className="glossary-section-group full-width">
+                    <h3>How the Model Works</h3>
+                    <p>
+                      This tool uses a linear regression model trained on historical NBA games to predict the final margin based on the Four Factors. The model calculates:
+                    </p>
+                    <ol>
+                      <li><strong>Factor Differentials:</strong> For each of the Four Factors, we calculate the difference between the home team and road team performance.</li>
+                      <li><strong>Weighted Contributions:</strong> Each differential is multiplied by a coefficient that represents its importance in predicting game outcomes. These coefficients are learned from historical data.</li>
+                      <li><strong>Predicted Margin:</strong> The sum of all weighted contributions gives us the predicted point margin.</li>
+                    </ol>
+                    <p>
+                      <strong>Four Factors Mode:</strong> Uses differentials (Home − Road) for each factor.
+                    </p>
+                    <p>
+                      <strong>Eight Factors Mode:</strong> Analyzes home and road team factors separately, centering each around league averages for more nuanced analysis.
+                    </p>
+                    <p className="model-formula">
+                      Formula: <code>Predicted Margin = Intercept + Σ(Coefficient × Factor Differential)</code>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -26,6 +26,7 @@
 
 .game-header {
   text-align: center;
+  padding: var(--spacing-md) var(--spacing-lg);
 }
 
 .matchup {
@@ -33,7 +34,7 @@
   align-items: center;
   justify-content: center;
   gap: var(--spacing-lg);
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
 }
 
 .team {
@@ -67,19 +68,30 @@
   font-weight: 500;
 }
 
-.game-info {
+.game-info-horizontal {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  color: var(--color-text-secondary);
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
 }
 
 .game-date {
-  font-size: 0.875rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
-.margin-info {
-  font-size: 0.875rem;
+.margin-info,
+.predicted-info {
+  font-size: 1.125rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.info-separator {
+  color: var(--color-text-secondary);
+  font-weight: 300;
 }
 
 .analysis-grid {
@@ -108,17 +120,119 @@
   min-height: 400px;
 }
 
-.intercept-info {
-  text-align: center;
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--color-border);
-  margin-top: var(--spacing-md);
-  font-size: 0.875rem;
+.glossary-section {
+  margin-top: var(--spacing-lg);
+}
+
+.glossary-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-md);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  transition: background-color 0.2s;
+}
+
+.glossary-toggle:hover {
+  background-color: var(--color-background-alt);
+}
+
+.toggle-icon {
+  font-size: 1.5rem;
+  font-weight: 300;
   color: var(--color-text-secondary);
+}
+
+.glossary-content {
+  padding: var(--spacing-lg);
+  border-top: 1px solid var(--color-border);
+}
+
+.glossary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--spacing-lg);
+}
+
+.glossary-section-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.glossary-section-group.full-width {
+  grid-column: 1 / -1;
+}
+
+.glossary-section-group h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--spacing-xs);
+  padding-bottom: var(--spacing-xs);
+  border-bottom: 2px solid var(--color-primary);
+}
+
+.glossary-section-group dl {
+  margin: 0;
+}
+
+.glossary-section-group dt {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-top: var(--spacing-sm);
+  margin-bottom: var(--spacing-xs);
+}
+
+.glossary-section-group dd {
+  margin: 0;
+  margin-bottom: var(--spacing-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.glossary-section-group p {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin-bottom: var(--spacing-sm);
+}
+
+.glossary-section-group ol {
+  margin: var(--spacing-sm) 0;
+  padding-left: var(--spacing-lg);
+  color: var(--color-text-secondary);
+}
+
+.glossary-section-group ol li {
+  margin-bottom: var(--spacing-sm);
+  line-height: 1.6;
+}
+
+.model-formula {
+  background-color: var(--color-background-alt);
+  padding: var(--spacing-md);
+  border-radius: var(--border-radius-sm);
+  margin-top: var(--spacing-md);
+  font-family: monospace;
+}
+
+.model-formula code {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 @media (max-width: 768px) {
   .analysis-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .glossary-grid {
     grid-template-columns: 1fr;
   }
 
@@ -132,5 +246,20 @@
 
   .team-score {
     font-size: 2rem;
+  }
+
+  .game-info-horizontal {
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .info-separator {
+    display: none;
+  }
+
+  .game-date,
+  .margin-info,
+  .predicted-info {
+    font-size: 1rem;
   }
 }
