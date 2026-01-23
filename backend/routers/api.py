@@ -15,6 +15,7 @@ from services.calculations import (
     compute_decomposition,
     compute_league_aggregates,
     compute_trend_series,
+    compute_league_average,
 )
 from schemas.models import (
     SeasonResponse,
@@ -54,9 +55,21 @@ STAT_LABELS = {
     "reb": "Total Rebounds",
     "tov": "Turnovers",
     "tov_pct": "TOV%",
-    "off_rating": "Offensive Rating",
-    "def_rating": "Defensive Rating",
+    "off_rating": "ORtg",
+    "def_rating": "DRtg",
     "net_rating": "Net Rating",
+    "ball_handling": "BH",
+    "oreb_pct": "OREB%",
+    "ft_rate": "FT Rate",
+    "opp_efg_pct": "Opp eFG%",
+    "opp_ball_handling": "Opp BH",
+    "opp_oreb_pct": "Opp OREB%",
+    "opp_ft_rate": "Opp FT Rate",
+    "fg2_pct": "FG2%",
+    "fg3a_rate": "FG3A Rate",
+    "opp_fg2_pct": "Opp FG2%",
+    "opp_fg3_pct": "Opp FG3%",
+    "opp_fg3a_rate": "Opp FG3A Rate",
 }
 
 @router.get("/seasons", response_model=SeasonResponse)
@@ -189,6 +202,10 @@ async def get_league_summary(
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
+    # Get date bounds for the season
+    first_game_date = df["game_date"].min().strftime("%Y-%m-%d") if len(df) > 0 else None
+    last_game_date = df["game_date"].max().strftime("%Y-%m-%d") if len(df) > 0 else None
+
     team_stats_df = compute_league_aggregates(df, start_date, end_date)
 
     teams = []
@@ -215,6 +232,8 @@ async def get_league_summary(
             net_rating=float(row["net_rating"]),
             opp_efg_pct=float(row["opp_efg_pct"]),
             opp_tov_pct=float(row["opp_tov_pct"]),
+            opp_ball_handling=float(row["opp_ball_handling"]),
+            opp_oreb_pct=float(row["opp_oreb_pct"]),
             opp_ft_rate=float(row["opp_ft_rate"]),
         ))
 
@@ -229,7 +248,12 @@ async def get_league_summary(
         if col in team_stats_df.columns:
             league_averages[col] = round(team_stats_df[col].mean(), 1)
 
-    return LeagueSummaryResponse(teams=teams, league_averages=league_averages)
+    return LeagueSummaryResponse(
+        teams=teams,
+        league_averages=league_averages,
+        first_game_date=first_game_date,
+        last_game_date=last_game_date,
+    )
 
 @router.get("/trends", response_model=TrendsResponse)
 async def get_trends(
@@ -270,6 +294,7 @@ async def get_trends(
         ))
 
     season_average = round(trend_df["value"].mean(), 1) if len(trend_df) > 0 else 0
+    league_average = compute_league_average(df, stat_internal)
 
     return TrendsResponse(
         team=team,
@@ -277,4 +302,5 @@ async def get_trends(
         stat_label=STAT_LABELS.get(stat_internal, stat),
         data=data,
         season_average=season_average,
+        league_average=league_average,
     )

@@ -31,8 +31,8 @@
 .game-header-content {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--spacing-xl);
+  justify-content: center;
+  gap: 10rem;
 }
 
 .matchup-left {
@@ -102,6 +102,11 @@
 .factors-table,
 .ratings-table {
   overflow-x: auto;
+}
+
+.factors-table td.text-center,
+.ratings-table td.text-center {
+  font-family: var(--font-family-mono);
 }
 
 .contributions-chart {

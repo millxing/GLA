@@ -73,11 +73,15 @@ class TeamStats(BaseModel):
     net_rating: float
     opp_efg_pct: float
     opp_tov_pct: float
+    opp_ball_handling: float
+    opp_oreb_pct: float
     opp_ft_rate: float
 
 class LeagueSummaryResponse(BaseModel):
     teams: List[TeamStats]
     league_averages: Dict[str, float]
+    first_game_date: Optional[str] = None
+    last_game_date: Optional[str] = None
 
 class TrendPoint(BaseModel):
     game_id: str
@@ -95,3 +99,4 @@ class TrendsResponse(BaseModel):
     stat_label: str
     data: List[TrendPoint]
     season_average: float
+    league_average: float

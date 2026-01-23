@@ -10,7 +10,7 @@ function FourFactor() {
   const [selectedSeason, setSelectedSeason] = useState('')
   const [selectedGame, setSelectedGame] = useState('')
   const [selectedModel, setSelectedModel] = useState('')
-  const [factorType, setFactorType] = useState('four_factors')
+  const [factorType, setFactorType] = useState('eight_factors')
   const [decomposition, setDecomposition] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -41,7 +41,12 @@ function FourFactor() {
       try {
         const gamesRes = await getGames(selectedSeason)
         setGames(gamesRes.games)
-        setSelectedGame('')
+        // Default to most recent game (first in list, sorted by date descending)
+        if (gamesRes.games.length > 0) {
+          setSelectedGame(gamesRes.games[0].game_id)
+        } else {
+          setSelectedGame('')
+        }
         setDecomposition(null)
       } catch (err) {
         setError(err.message)
@@ -152,7 +157,7 @@ function FourFactor() {
 
   return (
     <div className="four-factor container">
-      <h1 className="page-title">Four-Factor Game Decomposition</h1>
+      <h1 className="page-title">Factor Game Decomposition</h1>
       <p className="page-description">
         Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
       </p>

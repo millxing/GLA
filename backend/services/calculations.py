@@ -40,7 +40,7 @@ def compute_four_factors(team_row: Dict, opponent_row: Dict) -> Dict[str, float]
     opp_dreb = opponent_row.get("dreb", 0) or 0
 
     efg = (fgm + 0.5 * fg3m) / fga * 100 if fga > 0 else 0
-    tov_pct = tov / (fga + 0.44 * fta + tov) * 100 if (fga + 0.44 * fta + tov) > 0 else 0
+    tov_pct = tov / (fga + 0.32 * fta + tov) * 100 if (fga + 0.32 * fta + tov) > 0 else 0
     ball_handling = 100 - tov_pct
     oreb_pct = oreb / (oreb + opp_dreb) * 100 if (oreb + opp_dreb) > 0 else 0
     ft_rate = ftm / fga * 100 if fga > 0 else 0
@@ -59,7 +59,7 @@ def compute_possessions(team_row: Dict) -> float:
     oreb = team_row.get("oreb", 0) or 0
     tov = team_row.get("tov", 0) or 0
 
-    possessions = fga + 0.44 * fta - oreb + tov
+    possessions = fga + 0.32 * fta - oreb + tov
     return round(possessions, 2)
 
 def compute_game_ratings(team_row: Dict, opponent_row: Dict) -> Dict[str, float]:
@@ -253,14 +253,14 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
     team_stats["oreb_pct"] = (team_stats["oreb"] / (team_stats["oreb"] + team_stats["opp_dreb"]) * 100).round(1)
     team_stats["dreb_pct"] = (team_stats["dreb"] / (team_stats["dreb"] + team_stats["opp_oreb"]) * 100).round(1)
 
-    tov_denom = team_stats["fga"] + 0.44 * team_stats["fta"] + team_stats["tov"]
+    tov_denom = team_stats["fga"] + 0.32 * team_stats["fta"] + team_stats["tov"]
     team_stats["tov_pct"] = (team_stats["tov"] / tov_denom * 100).round(1)
     team_stats["ball_handling"] = (100 - team_stats["tov_pct"]).round(1)
 
     team_stats["ft_rate"] = (team_stats["ftm"] / team_stats["fga"] * 100).round(1)
 
-    team_stats["possessions"] = (team_stats["fga"] + 0.44 * team_stats["fta"] - team_stats["oreb"] + team_stats["tov"]).round(1)
-    team_stats["opp_possessions"] = (team_stats["opp_fga"] + 0.44 * team_stats["opp_fta"] - team_stats["opp_oreb"] + team_stats["opp_tov"]).round(1)
+    team_stats["possessions"] = (team_stats["fga"] + 0.32 * team_stats["fta"] - team_stats["oreb"] + team_stats["tov"]).round(1)
+    team_stats["opp_possessions"] = (team_stats["opp_fga"] + 0.32 * team_stats["opp_fta"] - team_stats["opp_oreb"] + team_stats["opp_tov"]).round(1)
 
     team_stats["off_rating"] = (team_stats["pts"] / team_stats["possessions"] * 100).round(1)
     team_stats["def_rating"] = (team_stats["opp_pts"] / team_stats["opp_possessions"] * 100).round(1)
@@ -270,67 +270,114 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
     team_stats["opp_ppg"] = (team_stats["opp_pts"] / team_stats["games"]).round(1)
 
     team_stats["opp_efg_pct"] = ((team_stats["opp_fgm"] + 0.5 * team_stats["opp_fg3m"]) / team_stats["opp_fga"] * 100).round(1)
-    opp_tov_denom = team_stats["opp_fga"] + 0.44 * team_stats["opp_fta"] + team_stats["opp_tov"]
+    opp_tov_denom = team_stats["opp_fga"] + 0.32 * team_stats["opp_fta"] + team_stats["opp_tov"]
     team_stats["opp_tov_pct"] = (team_stats["opp_tov"] / opp_tov_denom * 100).round(1)
+    team_stats["opp_ball_handling"] = (100 - team_stats["opp_tov_pct"]).round(1)
     team_stats["opp_ft_rate"] = (team_stats["opp_ftm"] / team_stats["opp_fga"] * 100).round(1)
+    # Opponent OREB% = 100 - your DREB% (since DREB% + Opp OREB% = 100 for the same rebound pool)
+    team_stats["opp_oreb_pct"] = (100 - team_stats["dreb_pct"]).round(1)
 
-    wins = filtered_df[filtered_df["wl"] == "W"].groupby("team").size().reset_index(name="wins")
+    # Determine wins/losses from points (wl column may be missing for road games)
+    filtered_df = filtered_df.copy()
+    filtered_df["is_win"] = filtered_df["pts"] > filtered_df["opp_pts"]
+    wins = filtered_df[filtered_df["is_win"]].groupby("team").size().reset_index(name="wins")
     team_stats = team_stats.merge(wins, on="team", how="left")
     team_stats["wins"] = team_stats["wins"].fillna(0).astype(int)
     team_stats["losses"] = team_stats["games"] - team_stats["wins"]
-    team_stats["win_pct"] = (team_stats["wins"] / team_stats["games"] * 100).round(1)
+    team_stats["win_pct"] = (team_stats["wins"] / team_stats["games"] * 100).where(team_stats["games"] > 0, 0).round(1)
 
     return team_stats
+
+def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
+    """Compute a stat value for each row in the dataframe."""
+    if stat == "pts":
+        return df["pts"]
+    elif stat == "fg_pct":
+        return (df["fgm"] / df["fga"] * 100).round(1)
+    elif stat == "fg3_pct":
+        return (df["fg3m"] / df["fg3a"] * 100).round(1)
+    elif stat == "ft_pct":
+        return (df["ftm"] / df["fta"] * 100).round(1)
+    elif stat == "efg_pct":
+        return ((df["fgm"] + 0.5 * df["fg3m"]) / df["fga"] * 100).round(1)
+    elif stat == "oreb":
+        return df["oreb"]
+    elif stat == "dreb":
+        return df["dreb"]
+    elif stat == "reb":
+        return df["oreb"] + df["dreb"]
+    elif stat == "tov":
+        return df["tov"]
+    elif stat == "tov_pct":
+        denom = df["fga"] + 0.32 * df["fta"] + df["tov"]
+        return (df["tov"] / denom * 100).round(1)
+    elif stat == "off_rating":
+        poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+        return (df["pts"] / poss * 100).round(1)
+    elif stat == "def_rating":
+        opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        return (df["opp_pts"] / opp_poss * 100).round(1)
+    elif stat == "net_rating":
+        poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+        opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        off_rtg = df["pts"] / poss * 100
+        def_rtg = df["opp_pts"] / opp_poss * 100
+        return (off_rtg - def_rtg).round(1)
+    elif stat == "ball_handling":
+        denom = df["fga"] + 0.32 * df["fta"] + df["tov"]
+        tov_pct = df["tov"] / denom * 100
+        return (100 - tov_pct).round(1)
+    elif stat == "oreb_pct":
+        return (df["oreb"] / (df["oreb"] + df["opp_dreb"]) * 100).round(1)
+    elif stat == "ft_rate":
+        return (df["ftm"] / df["fga"] * 100).round(1)
+    elif stat == "opp_efg_pct":
+        return ((df["opp_fgm"] + 0.5 * df["opp_fg3m"]) / df["opp_fga"] * 100).round(1)
+    elif stat == "opp_ball_handling":
+        opp_denom = df["opp_fga"] + 0.32 * df["opp_fta"] + df["opp_tov"]
+        opp_tov_pct = df["opp_tov"] / opp_denom * 100
+        return (100 - opp_tov_pct).round(1)
+    elif stat == "opp_oreb_pct":
+        return (df["opp_oreb"] / (df["opp_oreb"] + df["dreb"]) * 100).round(1)
+    elif stat == "opp_ft_rate":
+        return (df["opp_ftm"] / df["opp_fga"] * 100).round(1)
+    elif stat == "fg2_pct":
+        fg2m = df["fgm"] - df["fg3m"]
+        fg2a = df["fga"] - df["fg3a"]
+        return (fg2m / fg2a * 100).round(1)
+    elif stat == "fg3a_rate":
+        return (df["fg3a"] / df["fga"] * 100).round(1)
+    elif stat == "opp_fg2_pct":
+        opp_fg2m = df["opp_fgm"] - df["opp_fg3m"]
+        opp_fg2a = df["opp_fga"] - df["opp_fg3a"]
+        return (opp_fg2m / opp_fg2a * 100).round(1)
+    elif stat == "opp_fg3_pct":
+        return (df["opp_fg3m"] / df["opp_fg3a"] * 100).round(1)
+    elif stat == "opp_fg3a_rate":
+        return (df["opp_fg3a"] / df["opp_fga"] * 100).round(1)
+    else:
+        return pd.Series([0] * len(df), index=df.index)
+
+
+def compute_league_average(df: pd.DataFrame, stat: str) -> float:
+    """Compute the league-wide average for a stat across all games."""
+    df_copy = df.copy()
+    values = _compute_stat_value(df_copy, stat)
+    return round(values.mean(), 1) if len(values) > 0 else 0.0
+
 
 def compute_trend_series(df: pd.DataFrame, team: str, stat: str) -> pd.DataFrame:
     team_df = df[df["team"] == team].copy()
     team_df = team_df.sort_values("game_date")
 
-    stat_map = {
-        "pts": "pts",
-        "fg_pct": None,
-        "fg3_pct": None,
-        "ft_pct": None,
-        "efg_pct": None,
-        "oreb": "oreb",
-        "dreb": "dreb",
-        "reb": None,
-        "tov": "tov",
-        "tov_pct": None,
-        "off_rating": None,
-        "def_rating": None,
-        "net_rating": None,
-    }
+    team_df["value"] = _compute_stat_value(team_df, stat)
 
-    if stat in stat_map and stat_map[stat] is not None:
-        team_df["value"] = team_df[stat_map[stat]]
-    elif stat == "fg_pct":
-        team_df["value"] = (team_df["fgm"] / team_df["fga"] * 100).round(1)
-    elif stat == "fg3_pct":
-        team_df["value"] = (team_df["fg3m"] / team_df["fg3a"] * 100).round(1)
-    elif stat == "ft_pct":
-        team_df["value"] = (team_df["ftm"] / team_df["fta"] * 100).round(1)
-    elif stat == "efg_pct":
-        team_df["value"] = ((team_df["fgm"] + 0.5 * team_df["fg3m"]) / team_df["fga"] * 100).round(1)
-    elif stat == "reb":
-        team_df["value"] = team_df["oreb"] + team_df["dreb"]
-    elif stat == "tov_pct":
-        denom = team_df["fga"] + 0.44 * team_df["fta"] + team_df["tov"]
-        team_df["value"] = (team_df["tov"] / denom * 100).round(1)
-    elif stat == "off_rating":
-        poss = team_df["fga"] + 0.44 * team_df["fta"] - team_df["oreb"] + team_df["tov"]
-        team_df["value"] = (team_df["pts"] / poss * 100).round(1)
-    elif stat == "def_rating":
-        opp_poss = team_df["opp_fga"] + 0.44 * team_df["opp_fta"] - team_df["opp_oreb"] + team_df["opp_tov"]
-        team_df["value"] = (team_df["opp_pts"] / opp_poss * 100).round(1)
-    elif stat == "net_rating":
-        poss = team_df["fga"] + 0.44 * team_df["fta"] - team_df["oreb"] + team_df["tov"]
-        opp_poss = team_df["opp_fga"] + 0.44 * team_df["opp_fta"] - team_df["opp_oreb"] + team_df["opp_tov"]
-        off_rtg = team_df["pts"] / poss * 100
-        def_rtg = team_df["opp_pts"] / opp_poss * 100
-        team_df["value"] = (off_rtg - def_rtg).round(1)
-    else:
-        team_df["value"] = 0
+    # Determine win/loss from points if wl is missing
+    team_df["wl"] = team_df.apply(
+        lambda row: row["wl"] if pd.notna(row["wl"]) and row["wl"] in ["W", "L"]
+        else ("W" if row["pts"] > row["opp_pts"] else "L"),
+        axis=1
+    )
 
     team_df["ma_5"] = team_df["value"].rolling(window=5, min_periods=1).mean().round(1)
     team_df["ma_10"] = team_df["value"].rolling(window=10, min_periods=1).mean().round(1)
