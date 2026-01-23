@@ -353,7 +353,7 @@ function FourFactor() {
               Positive values favor the home team ({decomposition.home_team}), negative values favor the road team ({decomposition.road_team})
             </p>
             <div className="chart-container">
-              <ResponsiveContainer width="100%" height={400}>
+              <ResponsiveContainer width="100%" height={550}>
                 <BarChart
                   data={getContributionChartData()}
                   layout="vertical"
