@@ -31,6 +31,7 @@ const STAT_OPTIONS = [
   { value: 'opp_fg2_pct', label: 'Opp 2-Point FG%' },
   { value: 'opp_fg3_pct', label: 'Opp 3-Point FG%' },
   { value: 'opp_fg3a_rate', label: 'Opp 3-Point Attempt Rate' },
+  { value: 'pace', label: 'Pace' },
 ]
 
 const GLOSSARY_ITEMS = [
@@ -45,6 +46,7 @@ const GLOSSARY_ITEMS = [
   { term: 'FG3%', definition: '3-Point Field Goal Percentage - 3PT FGM / 3PT FGA × 100.' },
   { term: 'FG3A Rate', definition: '3-Point Attempt Rate - Percentage of field goal attempts that are 3-pointers (3PA / FGA × 100).' },
   { term: 'Opp', definition: 'Opponent statistics - What your opponents shoot/do against you.' },
+  { term: 'Pace', definition: 'Average possessions per game for both teams. Higher pace indicates a faster-paced game.' },
 ]
 
 function Trends() {
@@ -119,6 +121,27 @@ function Trends() {
       ...game,
       xLabel: `${game.home_away === 'road' ? '@' : ''}${game.opponent} on ${game.game_date}`,
     }))
+  }, [data])
+
+  // Calculate Y-axis ticks at multiples of 5
+  const yAxisConfig = useMemo(() => {
+    if (!data?.data || data.data.length === 0) return { ticks: [], domain: [0, 100] }
+
+    const values = data.data.map(d => d.value)
+    const minVal = Math.min(...values)
+    const maxVal = Math.max(...values)
+
+    // Round down to nearest 5 for min, round up for max, with small padding
+    const tickMin = Math.floor((minVal - 2) / 5) * 5
+    const tickMax = Math.ceil((maxVal + 2) / 5) * 5
+
+    // Generate ticks at every 5
+    const ticks = []
+    for (let t = tickMin; t <= tickMax; t += 5) {
+      ticks.push(t)
+    }
+
+    return { ticks, domain: [tickMin, tickMax] }
   }, [data])
 
   // Table data sorted by most recent first
@@ -246,7 +269,8 @@ function Trends() {
                   />
                   <YAxis
                     tick={{ fill: 'var(--color-text-secondary)' }}
-                    domain={['auto', 'auto']}
+                    domain={yAxisConfig.domain}
+                    ticks={yAxisConfig.ticks}
                     label={{
                       value: data.stat_label,
                       angle: -90,

@@ -21,6 +21,7 @@ const COLUMNS = [
   { key: 'opp_ball_handling', label: 'BH', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
   { key: 'opp_oreb_pct', label: 'OREB%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
   { key: 'opp_ft_rate', label: 'FT Rate', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'pace', label: 'Pace', labelLine2: '', sortable: true, higherBetter: null },
 ]
 
 const GLOSSARY_ITEMS = [
@@ -35,13 +36,25 @@ const GLOSSARY_ITEMS = [
   { term: 'OREB%', definition: 'Offensive Rebounding Percentage - Percentage of available offensive rebounds grabbed' },
   { term: 'FT Rate', definition: 'Free Throw Rate - Free throws made per field goal attempt (FTM / FGA × 100)' },
   { term: 'Opp', definition: 'Opponent statistics - For defensive stats, lower opponent values are better for your team' },
+  { term: 'Pace', definition: 'Average possessions per game. Higher pace indicates a faster-paced playing style.' },
+]
+
+const DATE_RANGE_OPTIONS = [
+  { value: 'season', label: 'Season-to-Date' },
+  { value: 'month', label: 'Month-to-Date' },
+  { value: 'last30', label: 'Last 30 Days' },
+  { value: 'last60', label: 'Last 60 Days' },
+  { value: 'last90', label: 'Last 90 Days' },
+  { value: 'custom', label: 'Custom Date Range' },
 ]
 
 function LeagueSummary() {
   const [seasons, setSeasons] = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [dateRangePreset, setDateRangePreset] = useState('season')
+  const [customStartDate, setCustomStartDate] = useState('')
+  const [customEndDate, setCustomEndDate] = useState('')
+  const [seasonBounds, setSeasonBounds] = useState({ first: '', last: '' })
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -64,29 +77,90 @@ function LeagueSummary() {
     loadSeasons()
   }, [])
 
-  // Reset dates when season changes
+  // Reset date preset when season changes
   useEffect(() => {
-    setStartDate('')
-    setEndDate('')
-    setDatesInitialized(false)
+    setDateRangePreset('season')
+    setCustomStartDate('')
+    setCustomEndDate('')
+    setSeasonBounds({ first: '', last: '' })
   }, [selectedSeason])
 
-  // Track if we've set initial dates for this season
-  const [datesInitialized, setDatesInitialized] = useState(false)
+  // Calculate actual start/end dates based on preset
+  const { startDate, endDate } = useMemo(() => {
+    if (!seasonBounds.first || !seasonBounds.last) {
+      return { startDate: '', endDate: '' }
+    }
 
+    const firstDate = new Date(seasonBounds.first)
+    const lastDate = new Date(seasonBounds.last)
+    const seasonDays = Math.floor((lastDate - firstDate) / (1000 * 60 * 60 * 24))
+
+    switch (dateRangePreset) {
+      case 'season':
+        return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+
+      case 'month': {
+        // First day of the month containing the last game
+        const monthStart = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1)
+        const monthStartStr = monthStart.toISOString().split('T')[0]
+        // Use season start if month start is before season start
+        return {
+          startDate: monthStartStr < seasonBounds.first ? seasonBounds.first : monthStartStr,
+          endDate: seasonBounds.last
+        }
+      }
+
+      case 'last30': {
+        if (seasonDays < 30) {
+          return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+        }
+        const start = new Date(lastDate)
+        start.setDate(start.getDate() - 29)
+        return { startDate: start.toISOString().split('T')[0], endDate: seasonBounds.last }
+      }
+
+      case 'last60': {
+        if (seasonDays < 60) {
+          return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+        }
+        const start = new Date(lastDate)
+        start.setDate(start.getDate() - 59)
+        return { startDate: start.toISOString().split('T')[0], endDate: seasonBounds.last }
+      }
+
+      case 'last90': {
+        if (seasonDays < 90) {
+          return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+        }
+        const start = new Date(lastDate)
+        start.setDate(start.getDate() - 89)
+        return { startDate: start.toISOString().split('T')[0], endDate: seasonBounds.last }
+      }
+
+      case 'custom':
+        return {
+          startDate: customStartDate || seasonBounds.first,
+          endDate: customEndDate || seasonBounds.last
+        }
+
+      default:
+        return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+    }
+  }, [dateRangePreset, seasonBounds, customStartDate, customEndDate])
+
+  // First, load season bounds (without date filtering)
   useEffect(() => {
-    async function loadData() {
+    async function loadSeasonBounds() {
       if (!selectedSeason) return
       setLoading(true)
       setError(null)
       try {
-        const res = await getLeagueSummary(selectedSeason, startDate || null, endDate || null)
-        setData(res)
-        // Set default dates on first load for a season
-        if (!datesInitialized && res.first_game_date && res.last_game_date) {
-          setStartDate(res.first_game_date)
-          setEndDate(res.last_game_date)
-          setDatesInitialized(true)
+        // Load without date filters to get season bounds
+        const res = await getLeagueSummary(selectedSeason, null, null)
+        if (res.first_game_date && res.last_game_date) {
+          setSeasonBounds({ first: res.first_game_date, last: res.last_game_date })
+          setCustomStartDate(res.first_game_date)
+          setCustomEndDate(res.last_game_date)
         }
       } catch (err) {
         setError(err.message)
@@ -94,8 +168,26 @@ function LeagueSummary() {
         setLoading(false)
       }
     }
+    loadSeasonBounds()
+  }, [selectedSeason])
+
+  // Load data with calculated date range
+  useEffect(() => {
+    async function loadData() {
+      if (!selectedSeason || !startDate || !endDate) return
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await getLeagueSummary(selectedSeason, startDate, endDate)
+        setData(res)
+      } catch (err) {
+        setError(err.message)
+      } finally {
+        setLoading(false)
+      }
+    }
     loadData()
-  }, [selectedSeason, startDate, endDate, datesInitialized])
+  }, [selectedSeason, startDate, endDate])
 
   const sortedTeams = useMemo(() => {
     if (!data?.teams) return []
@@ -165,7 +257,10 @@ function LeagueSummary() {
     if (value === null || value === undefined) return '-'
     if (column === 'team') return value
     if (typeof value === 'number') {
-      if (['games', 'wins', 'losses'].includes(column)) return value
+      // For GP, W, L: show integer if whole number, otherwise 1 decimal
+      if (['games', 'wins', 'losses'].includes(column)) {
+        return Number.isInteger(value) ? value : value.toFixed(1)
+      }
       return value.toFixed(1)
     }
     return value
@@ -177,7 +272,7 @@ function LeagueSummary() {
     const avg = {}
     COLUMNS.forEach(col => {
       if (col.key === 'team') {
-        avg[col.key] = 'League Avg'
+        avg[col.key] = 'Average'
       } else {
         const values = data.teams.map(t => t[col.key]).filter(v => typeof v === 'number')
         if (values.length > 0) {
@@ -205,7 +300,7 @@ function LeagueSummary() {
     if (leagueAverages) {
       rows.push([
         '',
-        ...COLUMNS.map(col => col.key === 'team' ? 'League Avg' : formatValue(leagueAverages[col.key], col.key))
+        ...COLUMNS.map(col => col.key === 'team' ? 'Average' : formatValue(leagueAverages[col.key], col.key))
       ])
     }
 
@@ -255,24 +350,45 @@ function LeagueSummary() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Start Date</label>
-            <input
-              type="date"
-              className="form-input"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
+            <label className="form-label">Date Range</label>
+            <select
+              className="form-select"
+              value={dateRangePreset}
+              onChange={(e) => setDateRangePreset(e.target.value)}
+            >
+              {DATE_RANGE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">End Date</label>
-            <input
-              type="date"
-              className="form-input"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
+          {dateRangePreset === 'custom' && (
+            <>
+              <div className="form-group">
+                <label className="form-label">Start Date</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={customStartDate}
+                  min={seasonBounds.first}
+                  max={seasonBounds.last}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">End Date</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={customEndDate}
+                  min={seasonBounds.first}
+                  max={seasonBounds.last}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                />
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -291,7 +407,11 @@ function LeagueSummary() {
             <table className="summary-table">
               <thead>
                 <tr>
-                  <th className="rank-col">Rank</th>
+                  <th className="rank-col">
+                    <div className="header-content">
+                      <span className="header-line1">Rank</span>
+                    </div>
+                  </th>
                   {COLUMNS.map((col) => (
                     <th
                       key={col.key}

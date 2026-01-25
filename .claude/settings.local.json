@@ -10,7 +10,9 @@
       "Bash(chmod:*)",
       "Bash(pip install:*)",
       "Bash(curl:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

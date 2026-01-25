@@ -54,6 +54,8 @@
   max-width: 45px;
   text-align: center;
   color: var(--color-text-secondary);
+  vertical-align: bottom;
+  font-weight: 600;
 }
 
 .team-cell {
@@ -62,6 +64,7 @@
   left: 0;
   background-color: var(--color-background);
   z-index: 1;
+  text-align: center;
 }
 
 .stat-cell {

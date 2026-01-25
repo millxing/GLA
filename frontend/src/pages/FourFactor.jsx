@@ -105,6 +105,26 @@ function FourFactor() {
     return typeof value === 'number' ? value.toFixed(1) : value
   }
 
+  // Determine background color class based on comparison to league average
+  // Green (positive) if above average, red (negative) if below
+  const getFactorCellClass = (value, factorKey) => {
+    if (!decomposition?.league_averages || value === null || value === undefined) return ''
+
+    // Map internal factor keys to league_averages keys
+    const keyMap = {
+      efg: 'efg',
+      ball_handling: 'ball_handling',
+      oreb: 'oreb_pct',
+      ft_rate: 'ft_rate',
+    }
+
+    const avgKey = keyMap[factorKey]
+    const avg = decomposition.league_averages[avgKey]
+    if (avg === undefined) return ''
+
+    return value >= avg ? 'bg-positive' : 'bg-negative'
+  }
+
   <div style={{ marginBottom: "1rem" }}>
     <label>
       Season:&nbsp;
@@ -244,6 +264,48 @@ function FourFactor() {
                   <span className="team-score">{decomposition.home_pts}</span>
                 </div>
               </div>
+              {decomposition.linescore && (
+                <div className="linescore-center">
+                  <table className="linescore-table">
+                    <thead>
+                      <tr>
+                        <th></th>
+                        <th>Q1</th>
+                        <th>Q2</th>
+                        <th>Q3</th>
+                        <th>Q4</th>
+                        {decomposition.is_overtime && <th>OT</th>}
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="team-cell">{decomposition.road_team}</td>
+                        <td>{decomposition.linescore.road.q1}</td>
+                        <td>{decomposition.linescore.road.q2}</td>
+                        <td>{decomposition.linescore.road.q3}</td>
+                        <td>{decomposition.linescore.road.q4}</td>
+                        {decomposition.is_overtime && <td>{decomposition.linescore.road.ot}</td>}
+                        <td className="total-cell">{decomposition.road_pts}</td>
+                      </tr>
+                      <tr>
+                        <td className="team-cell">{decomposition.home_team}</td>
+                        <td>{decomposition.linescore.home.q1}</td>
+                        <td>{decomposition.linescore.home.q2}</td>
+                        <td>{decomposition.linescore.home.q3}</td>
+                        <td>{decomposition.linescore.home.q4}</td>
+                        {decomposition.is_overtime && <td>{decomposition.linescore.home.ot}</td>}
+                        <td className="total-cell">{decomposition.home_pts}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  {decomposition.is_overtime && decomposition.overtime_count > 0 && (
+                    <span className="ot-indicator">
+                      {decomposition.overtime_count === 1 ? 'OT' : `${decomposition.overtime_count}OT`}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="game-info-right">
                 <div className="game-date">{decomposition.game_date}</div>
                 <div className="margin-info">
@@ -273,32 +335,32 @@ function FourFactor() {
                 <tbody>
                   <tr>
                     <td>eFG%</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_factors.efg)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_factors.efg)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.home_factors.efg)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.road_factors.efg)}</td>
                     <td className={`text-center ${(decomposition.home_factors.efg - decomposition.road_factors.efg) >= 0 ? 'text-positive' : 'text-negative'}`}>
                       {formatFactorValue(decomposition.home_factors.efg - decomposition.road_factors.efg)}
                     </td>
                   </tr>
                   <tr>
                     <td>Ball Handling</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_factors.ball_handling)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.road_factors.ball_handling)}</td>
                     <td className={`text-center ${(decomposition.home_factors.ball_handling - decomposition.road_factors.ball_handling) >= 0 ? 'text-positive' : 'text-negative'}`}>
                       {formatFactorValue(decomposition.home_factors.ball_handling - decomposition.road_factors.ball_handling)}
                     </td>
                   </tr>
                   <tr>
                     <td>OREB%</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_factors.oreb)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_factors.oreb)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.home_factors.oreb)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.road_factors.oreb)}</td>
                     <td className={`text-center ${(decomposition.home_factors.oreb - decomposition.road_factors.oreb) >= 0 ? 'text-positive' : 'text-negative'}`}>
                       {formatFactorValue(decomposition.home_factors.oreb - decomposition.road_factors.oreb)}
                     </td>
                   </tr>
                   <tr>
                     <td>FT Rate</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_factors.ft_rate)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.road_factors.ft_rate)}</td>
                     <td className={`text-center ${(decomposition.home_factors.ft_rate - decomposition.road_factors.ft_rate) >= 0 ? 'text-positive' : 'text-negative'}`}>
                       {formatFactorValue(decomposition.home_factors.ft_rate - decomposition.road_factors.ft_rate)}
                     </td>
@@ -338,9 +400,9 @@ function FourFactor() {
                     </td>
                   </tr>
                   <tr>
-                    <td>Possessions</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.possessions)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.possessions)}</td>
+                    <td>Pace</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.pace ?? decomposition.home_ratings.possessions)}</td>
+                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.pace ?? decomposition.home_ratings.possessions)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -437,8 +499,8 @@ function FourFactor() {
                       <dt>Net Rating (NRtg)</dt>
                       <dd>The difference between Offensive Rating and Defensive Rating. Formula: ORtg − DRtg</dd>
 
-                      <dt>Possessions</dt>
-                      <dd>Estimated number of possessions in the game. Formula: FGA + 0.44×FTA − OREB + TOV</dd>
+                      <dt>Pace</dt>
+                      <dd>Number of possessions per 48 minutes. Formula: Avg Possessions × (48 / Actual Game Minutes). For standard games (48 min), Pace equals average possessions.</dd>
                     </dl>
                   </div>
 
