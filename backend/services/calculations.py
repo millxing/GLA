@@ -127,12 +127,14 @@ def compute_decomposition(
     elif factor_type == "eight_factors":
         # Symmetrical-coefficient eight-factors mode:
         # Break prediction into HOME and ROAD contributions by centering on league averages.
+        # Uses the same coefficients as four_factors, just applies them differently.
         #
         # home_contribution = coef * (home_value - league_avg)
         # road_contribution = coef * (road_value - league_avg)
         # predicted = intercept + sum(home_contribution) - sum(road_contribution)
 
-        model_data = model.get("eight_factors", {})
+        # Use four_factors coefficients for both modes
+        model_data = model.get("four_factors", {})
         coefficients = model_data.get("coefficients", {})
         intercept = model_data.get("intercept", 0)
         model_league_avgs = model_data.get("league_averages", {}) or {}

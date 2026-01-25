@@ -4,7 +4,7 @@ from datetime import datetime
 GITHUB_USER = "millxing"
 GITHUB_BRANCH = "main"
 DATA_REPO = "NBA_Data"
-MODEL_REPO = "NBA_alpha"
+MODEL_REPO = "NBA_Data"
 
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
 MODEL_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{MODEL_REPO}/{GITHUB_BRANCH}"
