@@ -39,4 +39,6 @@ AVAILABLE_MODELS = [
     {"id": "2021-2025", "name": "2021-2025 Model", "file": "models/2021-2025.json"},
     {"id": "2020-2025", "name": "2020-2025 Model", "file": "models/2020-2025.json"},
     {"id": "2019-2025", "name": "2019-2025 Model", "file": "models/2019-2025.json"},
+    {"id": "2018-2025", "name": "2018-2025 Model", "file": "models/2018-2025.json"},
+    {"id": "2017-2025", "name": "2017-2025 Model", "file": "models/2017-2025.json"},
 ]

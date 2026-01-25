@@ -8,7 +8,9 @@
       "Bash(cat:*)",
       "Bash(python3:*)",
       "Bash(chmod:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(curl:*)",
+      "Bash(ls:*)"
     ]
   }
 }

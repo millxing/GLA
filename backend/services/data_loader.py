@@ -128,6 +128,8 @@ async def get_games_list(season: str) -> list:
         return []
 
     games_df = df[df["home_away"] == "home"].copy()
+    # Filter out rows with missing team data
+    games_df = games_df.dropna(subset=["team", "opponent"])
     games_df = games_df.sort_values("game_date", ascending=False)
 
     games = []
@@ -136,8 +138,8 @@ async def get_games_list(season: str) -> list:
         games.append({
             "game_id": str(row["game_id"]),
             "date": date_str,
-            "home_team": row["team"],
-            "road_team": row["opponent"],
+            "home_team": str(row["team"]),
+            "road_team": str(row["opponent"]),
             "home_pts": int(row["pts"]) if pd.notna(row["pts"]) else 0,
             "road_pts": int(row["opp_pts"]) if pd.notna(row["opp_pts"]) else 0,
             "label": f"{date_str}: {row['opponent']} @ {row['team']}"
