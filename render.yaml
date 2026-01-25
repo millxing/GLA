@@ -11,8 +11,9 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.0
 
-staticSites:
-  - name: nba-analytics-frontend
+  - type: web
+    name: nba-analytics-frontend
+    runtime: static
     buildCommand: cd frontend && npm install && npm run build
     staticPublishPath: frontend/dist
     envVars:
