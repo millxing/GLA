@@ -32,6 +32,17 @@ class FactorComparison(BaseModel):
     road_value: float
     differential: float
 
+class QuarterScores(BaseModel):
+    q1: int
+    q2: int
+    q3: int
+    q4: int
+    ot: int = 0
+
+class LinescoreData(BaseModel):
+    home: QuarterScores
+    road: QuarterScores
+
 class DecompositionResponse(BaseModel):
     game_id: str
     game_date: str
@@ -50,6 +61,9 @@ class DecompositionResponse(BaseModel):
     road_ratings: Dict[str, float]
     factor_values: Optional[Dict[str, float]] = None
     league_averages: Optional[Dict[str, float]] = None
+    linescore: Optional[LinescoreData] = None
+    is_overtime: bool = False
+    overtime_count: int = 0
 
 class TeamStats(BaseModel):
     team: str
@@ -76,6 +90,7 @@ class TeamStats(BaseModel):
     opp_ball_handling: float
     opp_oreb_pct: float
     opp_ft_rate: float
+    pace: float
 
 class LeagueSummaryResponse(BaseModel):
     teams: List[TeamStats]

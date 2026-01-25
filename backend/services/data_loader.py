@@ -49,6 +49,16 @@ async def load_model(model_file: str) -> Optional[dict]:
     url = f"{MODEL_BASE_URL}/{model_file}"
     return await fetch_json(url)
 
+async def load_advanced_stats(season: str) -> Optional[pd.DataFrame]:
+    """Load box score advanced stats for a season (actual possessions, minutes)."""
+    url = f"{DATA_BASE_URL}/box_score_advanced_{season}.csv"
+    return await fetch_csv(url)
+
+async def load_linescores(season: str) -> Optional[pd.DataFrame]:
+    """Load linescore data for a season (quarter-by-quarter scoring)."""
+    url = f"{DATA_BASE_URL}/linescores_{season}.csv"
+    return await fetch_csv(url)
+
 def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
     cache_key = get_cache_key("normalize_game_logs", season)
     cached = get_cached(cache_key)
@@ -122,6 +132,68 @@ async def get_normalized_season_data(season: str) -> Optional[pd.DataFrame]:
     set_cached(cache_key, normalized)
     return normalized
 
+async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataFrame]:
+    """Get normalized season data with actual possessions merged from advanced stats."""
+    cache_key = get_cache_key("get_normalized_data_with_possessions", season)
+    cached = get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    df = await get_normalized_season_data(season)
+    if df is None:
+        return None
+
+    adv_df = await load_advanced_stats(season)
+    if adv_df is None:
+        # Fall back to data without actual possessions
+        set_cached(cache_key, df)
+        return df
+
+    df = df.copy()
+    adv_df = adv_df.copy()
+
+    # Ensure consistent game_id types
+    df["game_id"] = df["game_id"].astype(str)
+    adv_df["game_id"] = adv_df["game_id"].astype(str)
+
+    # Create a lookup dict for possessions by game_id
+    poss_lookup = {}
+    for _, row in adv_df.iterrows():
+        gid = row["game_id"]
+        poss_home = row.get("possessions_home")
+        poss_road = row.get("possessions_road")
+        if pd.notna(poss_home):
+            poss_home = float(poss_home)
+        else:
+            poss_home = None
+        if pd.notna(poss_road):
+            poss_road = float(poss_road)
+        else:
+            poss_road = None
+        poss_lookup[gid] = {"home": poss_home, "road": poss_road}
+
+    # Add actual_poss and opp_actual_poss columns
+    actual_poss = []
+    opp_actual_poss = []
+
+    for _, row in df.iterrows():
+        gid = str(row["game_id"])
+        home_away = row["home_away"]
+        poss_data = poss_lookup.get(gid, {})
+
+        if home_away == "home":
+            actual_poss.append(poss_data.get("home"))
+            opp_actual_poss.append(poss_data.get("road"))
+        else:
+            actual_poss.append(poss_data.get("road"))
+            opp_actual_poss.append(poss_data.get("home"))
+
+    df["actual_poss"] = actual_poss
+    df["opp_actual_poss"] = opp_actual_poss
+
+    set_cached(cache_key, df)
+    return df
+
 async def get_games_list(season: str) -> list:
     df = await get_normalized_season_data(season)
     if df is None:
@@ -172,11 +244,77 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
     home_row = game_df[game_df["home_away"] == "home"].iloc[0].to_dict()
     road_row = game_df[game_df["home_away"] == "road"].iloc[0].to_dict()
 
+    # Load advanced stats for actual possessions and minutes
+    actual_poss_home = None
+    actual_poss_road = None
+    actual_minutes_home = None
+    actual_minutes_road = None
+
+    adv_df = await load_advanced_stats(season)
+    if adv_df is not None:
+        adv_df = adv_df.copy()
+        adv_df["game_id"] = adv_df["game_id"].astype(str)
+        adv_game = adv_df[adv_df["game_id"] == game_id]
+        if len(adv_game) == 1:
+            adv_row = adv_game.iloc[0]
+            actual_poss_home = adv_row.get("possessions_home")
+            actual_poss_road = adv_row.get("possessions_road")
+            actual_minutes_home = adv_row.get("minutes_home")
+            actual_minutes_road = adv_row.get("minutes_road")
+            # Convert to float/int if not null
+            if pd.notna(actual_poss_home):
+                actual_poss_home = float(actual_poss_home)
+            else:
+                actual_poss_home = None
+            if pd.notna(actual_poss_road):
+                actual_poss_road = float(actual_poss_road)
+            else:
+                actual_poss_road = None
+            if pd.notna(actual_minutes_home):
+                actual_minutes_home = int(actual_minutes_home)
+            else:
+                actual_minutes_home = None
+            if pd.notna(actual_minutes_road):
+                actual_minutes_road = int(actual_minutes_road)
+            else:
+                actual_minutes_road = None
+
+    # Load linescore data
+    linescore = None
+    ls_df = await load_linescores(season)
+    if ls_df is not None:
+        ls_df = ls_df.copy()
+        ls_df["game_id"] = ls_df["game_id"].astype(str)
+        ls_game = ls_df[ls_df["game_id"] == game_id]
+        if len(ls_game) == 1:
+            ls_row = ls_game.iloc[0]
+            linescore = {
+                "home": {
+                    "q1": int(ls_row.get("pts_qtr1_home", 0) or 0),
+                    "q2": int(ls_row.get("pts_qtr2_home", 0) or 0),
+                    "q3": int(ls_row.get("pts_qtr3_home", 0) or 0),
+                    "q4": int(ls_row.get("pts_qtr4_home", 0) or 0),
+                    "ot": int(ls_row.get("pts_ot_total_home", 0) or 0),
+                },
+                "road": {
+                    "q1": int(ls_row.get("pts_qtr1_road", 0) or 0),
+                    "q2": int(ls_row.get("pts_qtr2_road", 0) or 0),
+                    "q3": int(ls_row.get("pts_qtr3_road", 0) or 0),
+                    "q4": int(ls_row.get("pts_qtr4_road", 0) or 0),
+                    "ot": int(ls_row.get("pts_ot_total_road", 0) or 0),
+                },
+            }
+
     return {
         "game_id": game_id,
         "game_date": home_row["game_date"].strftime("%Y-%m-%d") if pd.notna(home_row["game_date"]) else "",
         "home_team": home_row["team"],
         "road_team": road_row["team"],
         "home": home_row,
-        "road": road_row
+        "road": road_row,
+        "actual_possessions_home": actual_poss_home,
+        "actual_possessions_road": actual_poss_road,
+        "actual_minutes_home": actual_minutes_home,
+        "actual_minutes_road": actual_minutes_road,
+        "linescore": linescore,
     }

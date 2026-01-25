@@ -3,6 +3,7 @@ from typing import Optional
 from config import get_available_seasons, AVAILABLE_MODELS
 from services.data_loader import (
     get_normalized_season_data,
+    get_normalized_data_with_possessions,
     get_games_list,
     get_teams_list,
     get_game_data,
@@ -29,6 +30,8 @@ from schemas.models import (
     TeamStats,
     TrendsResponse,
     TrendPoint,
+    LinescoreData,
+    QuarterScores,
 )
 
 STAT_ALIASES = {
@@ -70,6 +73,7 @@ STAT_LABELS = {
     "opp_fg2_pct": "Opp FG2%",
     "opp_fg3_pct": "Opp FG3%",
     "opp_fg3a_rate": "Opp FG3A Rate",
+    "pace": "Pace",
 }
 
 @router.get("/seasons", response_model=SeasonResponse)
@@ -147,8 +151,24 @@ async def get_decomposition(
     home_factors = compute_four_factors(home_team_row, road_team_row)
     road_factors = compute_four_factors(road_team_row, home_team_row)
 
-    home_ratings = compute_game_ratings(home_team_row, road_team_row)
-    road_ratings = compute_game_ratings(road_team_row, home_team_row)
+    # Extract actual possessions and minutes from game_data
+    actual_poss_home = game_data.get("actual_possessions_home")
+    actual_poss_road = game_data.get("actual_possessions_road")
+    actual_mins_home = game_data.get("actual_minutes_home")
+    actual_mins_road = game_data.get("actual_minutes_road")
+
+    home_ratings = compute_game_ratings(
+        home_team_row, road_team_row,
+        actual_possessions=actual_poss_home,
+        opp_actual_possessions=actual_poss_road,
+        actual_minutes=actual_mins_home,
+    )
+    road_ratings = compute_game_ratings(
+        road_team_row, home_team_row,
+        actual_possessions=actual_poss_road,
+        opp_actual_possessions=actual_poss_home,
+        actual_minutes=actual_mins_road,
+    )
 
     differentials = compute_factor_differentials(home_factors, road_factors)
 
@@ -168,6 +188,27 @@ async def get_decomposition(
     road_pts = int(road_row.get("pts", 0) or 0)
     actual_margin = home_pts - road_pts
 
+    # Process linescore data
+    linescore_data = game_data.get("linescore")
+    linescore_response = None
+    is_overtime = False
+    overtime_count = 0
+
+    if linescore_data:
+        linescore_response = LinescoreData(
+            home=QuarterScores(**linescore_data["home"]),
+            road=QuarterScores(**linescore_data["road"]),
+        )
+        home_ot = linescore_data["home"]["ot"]
+        road_ot = linescore_data["road"]["ot"]
+        is_overtime = home_ot > 0 or road_ot > 0
+
+        # Calculate OT periods from minutes if available
+        if actual_mins_home and actual_mins_home > 0:
+            game_minutes = actual_mins_home / 5
+            if game_minutes > 48:
+                overtime_count = int((game_minutes - 48) / 5)
+
     response = DecompositionResponse(
         game_id=game_id,
         game_date=game_data["game_date"],
@@ -184,11 +225,16 @@ async def get_decomposition(
         intercept=decomposition["intercept"],
         home_ratings=home_ratings,
         road_ratings=road_ratings,
+        linescore=linescore_response,
+        is_overtime=is_overtime,
+        overtime_count=overtime_count,
     )
 
     if factor_type == "eight_factors":
         response.factor_values = decomposition.get("factor_values")
-        response.league_averages = decomposition.get("league_averages")
+
+    # Include league averages for both factor types
+    response.league_averages = decomposition.get("league_averages")
 
     return response
 
@@ -198,7 +244,7 @@ async def get_league_summary(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
 ):
-    df = await get_normalized_season_data(season)
+    df = await get_normalized_data_with_possessions(season)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
@@ -235,13 +281,14 @@ async def get_league_summary(
             opp_ball_handling=float(row["opp_ball_handling"]),
             opp_oreb_pct=float(row["opp_oreb_pct"]),
             opp_ft_rate=float(row["opp_ft_rate"]),
+            pace=float(row["pace"]),
         ))
 
     numeric_cols = [
         "win_pct", "ppg", "opp_ppg", "fg_pct", "fg3_pct", "ft_pct",
         "efg_pct", "oreb_pct", "dreb_pct", "tov_pct", "ball_handling",
         "ft_rate", "off_rating", "def_rating", "net_rating",
-        "opp_efg_pct", "opp_tov_pct", "opp_ft_rate"
+        "opp_efg_pct", "opp_tov_pct", "opp_ft_rate", "pace"
     ]
     league_averages = {}
     for col in numeric_cols:
@@ -261,7 +308,7 @@ async def get_trends(
     team: str = Query(..., description="Team abbreviation"),
     stat: str = Query(..., description="Statistic to plot"),
 ):
-    df = await get_normalized_season_data(season)
+    df = await get_normalized_data_with_possessions(season)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 

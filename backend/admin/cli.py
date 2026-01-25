@@ -670,6 +670,11 @@ def _normalize_linescore_df(df: pd.DataFrame) -> pd.DataFrame:
     d["game_id"] = d["game_id"].str.replace(r"\.0$", "", regex=True)
     d["game_id"] = d["game_id"].map(lambda v: v.zfill(10) if isinstance(v, str) and v.isdigit() else v)
 
+    # Normalize game_date to YYYY-MM-DD format
+    if "game_date" in d.columns:
+        d["game_date"] = pd.to_datetime(d["game_date"], errors="coerce")
+        d["game_date"] = d["game_date"].dt.strftime("%Y-%m-%d")
+
     # Integer columns
     for c in LINESCORE_INT_COLS:
         d[c] = pd.to_numeric(d[c], errors="coerce").fillna(0).astype("int64")
@@ -700,6 +705,11 @@ def _normalize_advanced_df(df: pd.DataFrame) -> pd.DataFrame:
     d["game_id"] = d["game_id"].str.strip()
     d["game_id"] = d["game_id"].str.replace(r"\.0$", "", regex=True)
     d["game_id"] = d["game_id"].map(lambda v: v.zfill(10) if isinstance(v, str) and v.isdigit() else v)
+
+    # Normalize game_date to YYYY-MM-DD format
+    if "game_date" in d.columns:
+        d["game_date"] = pd.to_datetime(d["game_date"], errors="coerce")
+        d["game_date"] = d["game_date"].dt.strftime("%Y-%m-%d")
 
     # Integer columns
     for c in ADVANCED_INT_COLS:

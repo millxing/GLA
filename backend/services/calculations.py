@@ -62,21 +62,45 @@ def compute_possessions(team_row: Dict) -> float:
     possessions = fga + 0.32 * fta - oreb + tov
     return round(possessions, 2)
 
-def compute_game_ratings(team_row: Dict, opponent_row: Dict) -> Dict[str, float]:
+def compute_game_ratings(
+    team_row: Dict,
+    opponent_row: Dict,
+    actual_possessions: Optional[float] = None,
+    opp_actual_possessions: Optional[float] = None,
+    actual_minutes: Optional[int] = None,
+) -> Dict[str, float]:
     pts = team_row.get("pts", 0) or 0
     opp_pts = opponent_row.get("pts", 0) or 0
 
-    team_poss = compute_possessions(team_row)
-    opp_poss = compute_possessions(opponent_row)
+    # Use actual possessions if available, otherwise estimate
+    if actual_possessions is not None and actual_possessions > 0:
+        team_poss = actual_possessions
+    else:
+        team_poss = compute_possessions(team_row)
+
+    if opp_actual_possessions is not None and opp_actual_possessions > 0:
+        opp_poss = opp_actual_possessions
+    else:
+        opp_poss = compute_possessions(opponent_row)
 
     off_rating = pts / team_poss * 100 if team_poss > 0 else 0
     def_rating = opp_pts / opp_poss * 100 if opp_poss > 0 else 0
+
+    # Calculate Pace if actual minutes available
+    # Pace = avg possessions * (48 / actual game minutes)
+    pace = None
+    if actual_minutes is not None and actual_minutes > 0:
+        actual_game_minutes = actual_minutes / 5  # Convert team minutes to game minutes
+        avg_poss = (team_poss + opp_poss) / 2
+        pace = avg_poss * (48 / actual_game_minutes)
+        pace = round(pace, 1)
 
     return {
         "offensive_rating": round(off_rating, 2),
         "defensive_rating": round(def_rating, 2),
         "net_rating": round(off_rating - def_rating, 2),
-        "possessions": team_poss,
+        "possessions": round(team_poss, 1),
+        "pace": pace,
     }
 
 def compute_factor_differentials(home_factors: Dict, away_factors: Dict) -> Dict[str, float]:
@@ -99,6 +123,7 @@ def compute_decomposition(
         model_data = model.get("four_factors", {})
         coefficients = model_data.get("coefficients", {})
         intercept = model_data.get("intercept", 0)
+        model_league_avgs = model_data.get("league_averages", {}) or {}
 
         contributions = {}
         total_contribution = intercept
@@ -116,12 +141,21 @@ def compute_decomposition(
             contributions[model_key] = round(contribution, 2)
             total_contribution += contribution
 
+        # Convert league averages to percentage scale
+        league_avgs_out: Dict[str, float] = {}
+        for k, v in model_league_avgs.items():
+            vv = float(v or 0)
+            if 0 <= vv <= 1.5:
+                vv *= 100.0
+            league_avgs_out[k] = round(vv, 2)
+
         return {
             "factor_type": "four_factors",
             "contributions": contributions,
             "intercept": round(intercept, 2),
             "predicted_margin": round(total_contribution, 2),
             "differentials": {k: v for k, v in differentials.items() if k in MODEL_FACTOR_MAP.values()},
+            "league_averages": league_avgs_out,
         }
 
     elif factor_type == "eight_factors":
@@ -180,7 +214,10 @@ def compute_decomposition(
             road_contrib = coef * road_centered
 
             contributions[f"home_{model_factor}"] = round(home_contrib, 2)
-            contributions[f"road_{model_factor}"] = round(road_contrib, 2)
+            # Negate road contribution for display: positive = helps home team (green),
+            # negative = hurts home team (red). Since road contrib is subtracted in prediction,
+            # a positive road_contrib hurts home margin, so we negate for intuitive display.
+            contributions[f"road_{model_factor}"] = round(-road_contrib, 2)
 
             factor_values[f"home_{model_factor}"] = round(home_val, 2)
             factor_values[f"road_{model_factor}"] = round(road_val, 2)
@@ -241,6 +278,12 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
         "game_id": "count",
     }
 
+    # Add actual possessions to aggregation if available
+    if "actual_poss" in filtered_df.columns:
+        agg_cols["actual_poss"] = "sum"
+    if "opp_actual_poss" in filtered_df.columns:
+        agg_cols["opp_actual_poss"] = "sum"
+
     team_stats = filtered_df.groupby("team").agg(agg_cols).reset_index()
     team_stats = team_stats.rename(columns={"game_id": "games"})
 
@@ -261,8 +304,20 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
 
     team_stats["ft_rate"] = (team_stats["ftm"] / team_stats["fga"] * 100).round(1)
 
-    team_stats["possessions"] = (team_stats["fga"] + 0.32 * team_stats["fta"] - team_stats["oreb"] + team_stats["tov"]).round(1)
-    team_stats["opp_possessions"] = (team_stats["opp_fga"] + 0.32 * team_stats["opp_fta"] - team_stats["opp_oreb"] + team_stats["opp_tov"]).round(1)
+    # Calculate estimated possessions
+    estimated_poss = team_stats["fga"] + 0.32 * team_stats["fta"] - team_stats["oreb"] + team_stats["tov"]
+    estimated_opp_poss = team_stats["opp_fga"] + 0.32 * team_stats["opp_fta"] - team_stats["opp_oreb"] + team_stats["opp_tov"]
+
+    # Use actual possessions if available, otherwise use estimated
+    if "actual_poss" in team_stats.columns:
+        team_stats["possessions"] = team_stats["actual_poss"].fillna(estimated_poss).round(1)
+    else:
+        team_stats["possessions"] = estimated_poss.round(1)
+
+    if "opp_actual_poss" in team_stats.columns:
+        team_stats["opp_possessions"] = team_stats["opp_actual_poss"].fillna(estimated_opp_poss).round(1)
+    else:
+        team_stats["opp_possessions"] = estimated_opp_poss.round(1)
 
     team_stats["off_rating"] = (team_stats["pts"] / team_stats["possessions"] * 100).round(1)
     team_stats["def_rating"] = (team_stats["opp_pts"] / team_stats["opp_possessions"] * 100).round(1)
@@ -287,6 +342,9 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
     team_stats["wins"] = team_stats["wins"].fillna(0).astype(int)
     team_stats["losses"] = team_stats["games"] - team_stats["wins"]
     team_stats["win_pct"] = (team_stats["wins"] / team_stats["games"] * 100).where(team_stats["games"] > 0, 0).round(1)
+
+    # Pace = average possessions per game (both teams combined / 2)
+    team_stats["pace"] = ((team_stats["possessions"] + team_stats["opp_possessions"]) / 2 / team_stats["games"]).round(1)
 
     return team_stats
 
@@ -314,14 +372,32 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
         denom = df["fga"] + 0.32 * df["fta"] + df["tov"]
         return (df["tov"] / denom * 100).round(1)
     elif stat == "off_rating":
-        poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+        # Use actual possessions if available, otherwise fall back to estimated
+        estimated_poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+        if "actual_poss" in df.columns:
+            poss = df["actual_poss"].fillna(estimated_poss)
+        else:
+            poss = estimated_poss
         return (df["pts"] / poss * 100).round(1)
     elif stat == "def_rating":
-        opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        # Use opponent actual possessions if available
+        estimated_opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        if "opp_actual_poss" in df.columns:
+            opp_poss = df["opp_actual_poss"].fillna(estimated_opp_poss)
+        else:
+            opp_poss = estimated_opp_poss
         return (df["opp_pts"] / opp_poss * 100).round(1)
     elif stat == "net_rating":
-        poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
-        opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        estimated_poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+        estimated_opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        if "actual_poss" in df.columns:
+            poss = df["actual_poss"].fillna(estimated_poss)
+        else:
+            poss = estimated_poss
+        if "opp_actual_poss" in df.columns:
+            opp_poss = df["opp_actual_poss"].fillna(estimated_opp_poss)
+        else:
+            opp_poss = estimated_opp_poss
         off_rtg = df["pts"] / poss * 100
         def_rtg = df["opp_pts"] / opp_poss * 100
         return (off_rtg - def_rtg).round(1)
@@ -357,6 +433,18 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
         return (df["opp_fg3m"] / df["opp_fg3a"] * 100).round(1)
     elif stat == "opp_fg3a_rate":
         return (df["opp_fg3a"] / df["opp_fga"] * 100).round(1)
+    elif stat == "pace":
+        estimated_poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+        estimated_opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+        if "actual_poss" in df.columns:
+            poss = df["actual_poss"].fillna(estimated_poss)
+        else:
+            poss = estimated_poss
+        if "opp_actual_poss" in df.columns:
+            opp_poss = df["opp_actual_poss"].fillna(estimated_opp_poss)
+        else:
+            opp_poss = estimated_opp_poss
+        return ((poss + opp_poss) / 2).round(1)
     else:
         return pd.Series([0] * len(df), index=df.index)
 
