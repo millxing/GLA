@@ -209,6 +209,9 @@ async def get_decomposition(
             if game_minutes > 48:
                 overtime_count = int((game_minutes - 48) / 5)
 
+    # Compute actual rating differential (home net rating - road net rating)
+    actual_rating_diff = home_ratings.get("net_rating", 0) - road_ratings.get("net_rating", 0)
+
     response = DecompositionResponse(
         game_id=game_id,
         game_date=game_data["game_date"],
@@ -217,7 +220,8 @@ async def get_decomposition(
         home_pts=home_pts,
         road_pts=road_pts,
         actual_margin=actual_margin,
-        predicted_margin=decomposition["predicted_margin"],
+        actual_rating_diff=round(actual_rating_diff, 2),
+        predicted_rating_diff=decomposition["predicted_rating_diff"],
         factor_type=factor_type,
         home_factors=home_factors,
         road_factors=road_factors,

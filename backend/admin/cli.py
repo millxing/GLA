@@ -820,12 +820,28 @@ def _fetch_boxscore_data(
 
 # ------------------------- modeling helpers -------------------------
 
-def _gamelogs_to_teamrows(game_df: pd.DataFrame) -> pd.DataFrame:
-    """Expand game-level rows into team-level rows for modeling."""
+def _gamelogs_to_teamrows(game_df: pd.DataFrame, adv_df: pd.DataFrame = None) -> pd.DataFrame:
+    """Expand game-level rows into team-level rows for modeling.
+
+    If adv_df is provided, merge possession data from box_score_advanced.
+    """
     df = _normalize_game_level_df(game_df)
 
+    # Merge advanced stats (possessions) if available
+    if adv_df is not None and not adv_df.empty:
+        adv_df = adv_df.copy()
+        # Normalize game_id to 10-char with leading zeros (same as _normalize_game_level_df)
+        adv_df["game_id"] = adv_df["game_id"].astype(str).map(
+            lambda v: v.zfill(10) if v.isdigit() else v
+        )
+        df = df.merge(
+            adv_df[["game_id", "possessions_home", "possessions_road"]],
+            on="game_id",
+            how="left"
+        )
+
     # Home team rows
-    home = pd.DataFrame({
+    home_data = {
         "GAME_ID": df["game_id"].astype(str),
         "TEAM_ID": df["team_id_home"],
         "TEAM_ABBREVIATION": df["team_abbreviation_home"],
@@ -848,10 +864,15 @@ def _gamelogs_to_teamrows(game_df: pd.DataFrame) -> pd.DataFrame:
         "STL": df["stl_home"],
         "BLK": df["blk_home"],
         "PF": df["pf_home"],
-    })
+    }
+    # Add possession columns if available
+    if "possessions_home" in df.columns:
+        home_data["POSS"] = df["possessions_home"]
+        home_data["OPP_POSS"] = df["possessions_road"]
+    home = pd.DataFrame(home_data)
 
     # Road team rows
-    road = pd.DataFrame({
+    road_data = {
         "GAME_ID": df["game_id"].astype(str),
         "TEAM_ID": df["team_id_road"],
         "TEAM_ABBREVIATION": df["team_abbreviation_road"],
@@ -874,7 +895,12 @@ def _gamelogs_to_teamrows(game_df: pd.DataFrame) -> pd.DataFrame:
         "STL": df["stl_road"],
         "BLK": df["blk_road"],
         "PF": df["pf_road"],
-    })
+    }
+    # Add possession columns if available
+    if "possessions_road" in df.columns:
+        road_data["POSS"] = df["possessions_road"]
+        road_data["OPP_POSS"] = df["possessions_home"]
+    road = pd.DataFrame(road_data)
 
     out = pd.concat([home, road], ignore_index=True)
 
@@ -918,6 +944,31 @@ def _compute_four_factors(df: pd.DataFrame) -> pd.DataFrame:
     # FT Rate = FTM / FGA (or FTA/FGA; using FTM/FGA is common in 4 factors contexts)
     if {"FTM", "FGA"}.issubset(out.columns):
         out["FT_RATE"] = out["FTM"] / out["FGA"].replace(0, pd.NA)
+
+    return out
+
+
+def _compute_ratings(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute offensive, defensive, and net ratings.
+
+    Requires: PTS, POSS, OPP_PTS, OPP_POSS columns.
+    Outputs: OFF_RATING, DEF_RATING, NET_RATING
+    """
+    out = df.copy()
+
+    # Check required columns
+    if not {"PTS", "POSS", "OPP_POSS"}.issubset(out.columns):
+        return out  # Cannot compute without possession data
+
+    # Ensure numeric
+    for col in ["PTS", "POSS", "OPP_POSS"]:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    # Offensive Rating = (PTS / POSS) * 100
+    out["OFF_RATING"] = (out["PTS"] / out["POSS"].replace(0, pd.NA)) * 100
+
+    # Defensive Rating requires opponent points - will be computed after opponent merge
+    # For now, just compute OFF_RATING
 
     return out
 
@@ -1012,6 +1063,24 @@ def _compute_factor_differentials(df: pd.DataFrame) -> pd.DataFrame:
         denom = out["OPP_OREB"] + out.get("DREB", pd.Series(pd.NA, index=out.index))
         opp_oreb_pct = out["OPP_OREB"] / denom.replace(0, pd.NA)
         out["OREB_DIFF"] = out["OREB_PCT"] - opp_oreb_pct
+
+    # Compute net rating and differential (requires possessions)
+    if {"PTS", "POSS", "OPP_PTS", "OPP_POSS"}.issubset(out.columns):
+        # Offensive Rating = (PTS / POSS) * 100
+        out["OFF_RATING"] = (out["PTS"] / out["POSS"].replace(0, pd.NA)) * 100
+        # Defensive Rating = (OPP_PTS / OPP_POSS) * 100
+        out["DEF_RATING"] = (out["OPP_PTS"] / out["OPP_POSS"].replace(0, pd.NA)) * 100
+        # Net Rating = OFF_RATING - DEF_RATING
+        out["NET_RATING"] = out["OFF_RATING"] - out["DEF_RATING"]
+
+        # Opponent net rating (from their perspective)
+        out["OPP_OFF_RATING"] = (out["OPP_PTS"] / out["OPP_POSS"].replace(0, pd.NA)) * 100
+        out["OPP_DEF_RATING"] = (out["PTS"] / out["POSS"].replace(0, pd.NA)) * 100
+        out["OPP_NET_RATING"] = out["OPP_OFF_RATING"] - out["OPP_DEF_RATING"]
+
+        # Net Rating Differential = our net rating - opponent's net rating
+        # This is what the model should predict
+        out["NET_RATING_DIFF"] = out["NET_RATING"] - out["OPP_NET_RATING"]
 
     return out
 
@@ -1240,7 +1309,9 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
             raise ValueError("No seasons provided. Example: --seasons 2024-25,2025-26")
 
         frames: list[pd.DataFrame] = []
+        adv_frames: list[pd.DataFrame] = []
         missing: list[str] = []
+        missing_adv: list[str] = []
 
         for season in seasons:
             fp = repo_dir / _season_to_filename(season)
@@ -1251,26 +1322,52 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
             if df is not None:
                 frames.append(_normalize_game_level_df(df))
 
+            # Load advanced stats for possessions
+            adv_fp = repo_dir / _advanced_filename(season)
+            if adv_fp.exists():
+                adv_df = pd.read_csv(adv_fp)
+                adv_frames.append(adv_df)
+            else:
+                missing_adv.append(season)
+
         if missing:
             raise FileNotFoundError(
                 f"Missing season CSVs for: {', '.join(missing)}. Run update-data or download-data first."
             )
 
-        game_df = pd.concat(frames, ignore_index=True)
+        if missing_adv:
+            print(f"[warn] Missing advanced stats for: {', '.join(missing_adv)}. Games without possessions will be excluded.")
 
-        print("[train] Expanding game logs into team-level rows")
-        team_df = _gamelogs_to_teamrows(game_df)
+        game_df = pd.concat(frames, ignore_index=True)
+        adv_df = pd.concat(adv_frames, ignore_index=True) if adv_frames else None
+
+        print("[train] Expanding game logs into team-level rows (with possession data)")
+        team_df = _gamelogs_to_teamrows(game_df, adv_df)
 
         print("[train] Computing four factors")
         team_df = _compute_four_factors(team_df)
         team_df = _attach_opponent_rows(team_df)
         team_df = _compute_factor_differentials(team_df)
 
-        # Train four factors model
+        # Train four factors model on NET_RATING_DIFF (not PLUS_MINUS)
+        # The Four Factors are rate statistics, so they should predict a rate outcome
         feature_cols = ["EFG_DIFF", "TOV_DIFF", "OREB_DIFF", "FT_DIFF"]
         feature_cols = [c for c in feature_cols if c in team_df.columns]
+
+        # Check if NET_RATING_DIFF is available
+        if "NET_RATING_DIFF" not in team_df.columns:
+            raise ValueError("NET_RATING_DIFF not computed. Ensure possession data is available.")
+
+        # Drop rows without NET_RATING_DIFF
+        before_count = len(team_df)
+        team_df = team_df.dropna(subset=["NET_RATING_DIFF"])
+        after_count = len(team_df)
+        if before_count > after_count:
+            print(f"[train] Dropped {before_count - after_count} rows without rating data")
+
         print(f"[train] Training Four Factors model on: {', '.join(feature_cols)}")
-        raw_model = _train_linear_model(team_df, feature_cols, target_col="PLUS_MINUS")
+        print(f"[train] Target: NET_RATING_DIFF (per-100-possession rating differential)")
+        raw_model = _train_linear_model(team_df, feature_cols, target_col="NET_RATING_DIFF")
 
         # Map coefficient names to what the backend expects
         coef_name_map = {

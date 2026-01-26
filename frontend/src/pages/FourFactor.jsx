@@ -103,7 +103,8 @@ function FourFactor() {
       .sort((a, b) => b.value - a.value)
 
     // Add error bar at the end (always at bottom, not sorted)
-    const error = decomposition.actual_margin - decomposition.predicted_margin
+    // Error = actual rating diff - predicted rating diff
+    const error = decomposition.actual_rating_diff - decomposition.predicted_rating_diff
     factorBars.push({
       factor: 'Error',
       value: error,
@@ -430,9 +431,9 @@ function FourFactor() {
           </div>
 
           <div className="contributions-chart card">
-            <h2 className="card-title">Factor Contributions to Predicted Margin</h2>
+            <h2 className="card-title">Factor Contributions to Predicted Rating Differential</h2>
             <p className="chart-subtitle">
-              Positive values favor the home team ({decomposition.home_team}), negative values favor the road team ({decomposition.road_team})
+              Per-100-possession contribution. Positive values favor the home team ({decomposition.home_team}), negative favor road ({decomposition.road_team})
             </p>
             <div className="chart-container">
               <ResponsiveContainer width="100%" height={550}>
@@ -527,12 +528,12 @@ function FourFactor() {
                   <div className="glossary-section-group full-width">
                     <h3>How the Model Works</h3>
                     <p>
-                      This tool uses a linear regression model trained on historical NBA games to predict the final margin based on the Four Factors. The model calculates:
+                      This tool uses a linear regression model trained on historical NBA games to predict the <strong>net rating differential</strong> (per 100 possessions) based on the Four Factors. Since the Four Factors are rate statistics (efficiency measures), the model predicts a rate outcome rather than raw point margin.
                     </p>
                     <ol>
                       <li><strong>Factor Differentials:</strong> For each of the Four Factors, we calculate the difference between the home team and road team performance.</li>
-                      <li><strong>Weighted Contributions:</strong> Each differential is multiplied by a coefficient that represents its importance in predicting game outcomes. These coefficients are learned from historical data.</li>
-                      <li><strong>Predicted Margin:</strong> The sum of all weighted contributions gives us the predicted point margin.</li>
+                      <li><strong>Weighted Contributions:</strong> Each differential is multiplied by a coefficient that represents its importance in predicting efficiency outcomes. These coefficients are learned from historical data.</li>
+                      <li><strong>Predicted Rating Differential:</strong> The sum of all weighted contributions gives us the predicted net rating differential (points per 100 possessions).</li>
                     </ol>
                     <p>
                       <strong>Four Factors Mode:</strong> Uses differentials (Home − Road) for each factor.
@@ -541,7 +542,7 @@ function FourFactor() {
                       <strong>Eight Factors Mode:</strong> Analyzes home and road team factors separately, centering each around league averages for more nuanced analysis.
                     </p>
                     <p className="model-formula">
-                      Formula: <code>Predicted Margin = Intercept + Σ(Coefficient × Factor Differential)</code>
+                      Formula: <code>Predicted Rating Diff = Intercept + Σ(Coefficient × Factor Differential)</code>
                     </p>
                   </div>
                 </div>

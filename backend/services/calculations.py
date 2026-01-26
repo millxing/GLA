@@ -153,7 +153,7 @@ def compute_decomposition(
             "factor_type": "four_factors",
             "contributions": contributions,
             "intercept": round(intercept, 2),
-            "predicted_margin": round(total_contribution, 2),
+            "predicted_rating_diff": round(total_contribution, 2),
             "differentials": {k: v for k, v in differentials.items() if k in MODEL_FACTOR_MAP.values()},
             "league_averages": league_avgs_out,
         }
@@ -238,7 +238,7 @@ def compute_decomposition(
             "factor_type": "eight_factors",
             "contributions": contributions,
             "intercept": round(float(intercept), 2),
-            "predicted_margin": round(predicted, 2),
+            "predicted_rating_diff": round(predicted, 2),
             "factor_values": factor_values,
             "league_averages": league_avgs_out,
         }

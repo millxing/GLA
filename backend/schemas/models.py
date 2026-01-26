@@ -50,8 +50,9 @@ class DecompositionResponse(BaseModel):
     road_team: str
     home_pts: int
     road_pts: int
-    actual_margin: int
-    predicted_margin: float
+    actual_margin: int  # Raw point differential (kept for display)
+    actual_rating_diff: float  # Actual net rating differential (home - road)
+    predicted_rating_diff: float  # Model's predicted rating differential
     factor_type: str
     home_factors: Dict[str, float]
     road_factors: Dict[str, float]
