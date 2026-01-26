@@ -29,15 +29,15 @@
 }
 
 .game-header-content {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
   align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xl);
 }
 
 .matchup-left {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--spacing-lg);
 }
 
@@ -75,9 +75,9 @@
 .game-info-right {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: var(--spacing-xs);
-  text-align: right;
+  text-align: center;
 }
 
 .game-date {
@@ -86,11 +86,9 @@
   color: var(--color-text);
 }
 
-.margin-info,
-.predicted-info {
-  font-size: 1.125rem;
-  font-weight: 500;
-  color: var(--color-text);
+.game-type {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary);
 }
 
 .linescore-center {
@@ -309,7 +307,7 @@
   }
 
   .game-header-content {
-    flex-direction: column;
+    grid-template-columns: 1fr;
     gap: var(--spacing-md);
   }
 
@@ -330,9 +328,7 @@
     font-size: 2rem;
   }
 
-  .game-date,
-  .margin-info,
-  .predicted-info {
+  .game-date {
     font-size: 1rem;
   }
 

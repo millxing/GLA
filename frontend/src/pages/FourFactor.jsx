@@ -93,11 +93,24 @@ function FourFactor() {
       'road_free_throws': `${decomposition.road_team} FT Rate`,
     }
 
-    return Object.entries(contributions).map(([factor, value]) => ({
-      factor: factorLabels[factor] || factor,
-      value,
-      fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
-    }))
+    // Build factor bars sorted by value descending (most positive at top)
+    const factorBars = Object.entries(contributions)
+      .map(([factor, value]) => ({
+        factor: factorLabels[factor] || factor,
+        value,
+        fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+      }))
+      .sort((a, b) => b.value - a.value)
+
+    // Add error bar at the end (always at bottom, not sorted)
+    const error = decomposition.actual_margin - decomposition.predicted_margin
+    factorBars.push({
+      factor: 'Error',
+      value: error,
+      fill: 'var(--color-neutral)',
+    })
+
+    return factorBars
   }
 
   const formatFactorValue = (value) => {
@@ -123,6 +136,18 @@ function FourFactor() {
     if (avg === undefined) return ''
 
     return value >= avg ? 'bg-positive' : 'bg-negative'
+  }
+
+  // Format game type from snake_case to readable format
+  const formatGameType = (type) => {
+    if (!type) return ''
+    const typeMap = {
+      'regular_season': 'Regular Season',
+      'playoffs': 'Playoffs',
+      'nba_cup_group': 'NBA Cup (Group)',
+      'nba_cup_knockout': 'NBA Cup (Knockout)',
+    }
+    return typeMap[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   }
 
   <div style={{ marginBottom: "1rem" }}>
@@ -308,14 +333,9 @@ function FourFactor() {
               )}
               <div className="game-info-right">
                 <div className="game-date">{decomposition.game_date}</div>
-                <div className="margin-info">
-                  Actual Margin: <strong className={decomposition.actual_margin >= 0 ? 'text-positive' : 'text-negative'}>
-                    {decomposition.actual_margin > 0 ? '+' : ''}{decomposition.actual_margin}
-                  </strong>
-                </div>
-                <div className="predicted-info">
-                  Predicted: <strong>{decomposition.predicted_margin > 0 ? '+' : ''}{decomposition.predicted_margin.toFixed(1)}</strong>
-                </div>
+                {decomposition.game_type && (
+                  <div className="game-type">{formatGameType(decomposition.game_type)}</div>
+                )}
               </div>
             </div>
           </div>
@@ -444,12 +464,12 @@ function FourFactor() {
                       border: '1px solid var(--color-border)',
                       borderRadius: 'var(--border-radius-sm)',
                     }}
-                    formatter={(value) => [value.toFixed(2), 'Contribution']}
+                    formatter={(value) => [value.toFixed(1), 'Contribution']}
                   />
                   <ReferenceLine x={0} stroke="var(--color-neutral)" />
                   <Bar dataKey="value" radius={[0, 4, 4, 0]}>
                     {getContributionChartData().map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} />
+                      <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000000" strokeWidth={1} />
                     ))}
                   </Bar>
                 </BarChart>

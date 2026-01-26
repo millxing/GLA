@@ -64,6 +64,7 @@ class DecompositionResponse(BaseModel):
     linescore: Optional[LinescoreData] = None
     is_overtime: bool = False
     overtime_count: int = 0
+    game_type: Optional[str] = None
 
 class TeamStats(BaseModel):
     team: str

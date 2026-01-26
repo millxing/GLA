@@ -228,6 +228,7 @@ async def get_decomposition(
         linescore=linescore_response,
         is_overtime=is_overtime,
         overtime_count=overtime_count,
+        game_type=game_data["home"].get("game_type"),
     )
 
     if factor_type == "eight_factors":
