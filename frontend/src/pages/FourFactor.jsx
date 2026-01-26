@@ -78,17 +78,17 @@ function FourFactor() {
 
     // Map factor names to display labels with team abbreviations
     const factorLabels = {
-      'shooting': `eFG%`,
+      'shooting': `Shooting`,
       'ball_handling': `Ball Handling`,
-      'orebounding': `OREB%`,
+      'orebounding': `Off Rebounding`,
       'free_throws': `FT Rate`,
       // Eight factors mode
-      'home_shooting': `${decomposition.home_team} eFG%`,
-      'road_shooting': `${decomposition.road_team} eFG%`,
+      'home_shooting': `${decomposition.home_team} Shooting`,
+      'road_shooting': `${decomposition.road_team} Shooting`,
       'home_ball_handling': `${decomposition.home_team} Ball Handling`,
       'road_ball_handling': `${decomposition.road_team} Ball Handling`,
-      'home_orebounding': `${decomposition.home_team} OREB%`,
-      'road_orebounding': `${decomposition.road_team} OREB%`,
+      'home_orebounding': `${decomposition.home_team} Off Rebounding`,
+      'road_orebounding': `${decomposition.road_team} Off Rebounding`,
       'home_free_throws': `${decomposition.home_team} FT Rate`,
       'road_free_throws': `${decomposition.road_team} FT Rate`,
     }
@@ -355,7 +355,7 @@ function FourFactor() {
                 </thead>
                 <tbody>
                   <tr>
-                    <td>eFG%</td>
+                    <td>Shooting</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.home_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.home_factors.efg)}</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.road_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.road_factors.efg)}</td>
                     <td className={`text-center ${(decomposition.home_factors.efg - decomposition.road_factors.efg) >= 0 ? 'text-positive' : 'text-negative'}`}>
@@ -371,7 +371,7 @@ function FourFactor() {
                     </td>
                   </tr>
                   <tr>
-                    <td>OREB%</td>
+                    <td>Off Rebounding</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.home_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.home_factors.oreb)}</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.road_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.road_factors.oreb)}</td>
                     <td className={`text-center ${(decomposition.home_factors.oreb - decomposition.road_factors.oreb) >= 0 ? 'text-positive' : 'text-negative'}`}>
@@ -494,13 +494,13 @@ function FourFactor() {
                   <div className="glossary-section-group">
                     <h3>Four Factors</h3>
                     <dl>
-                      <dt>eFG% (Effective Field Goal %)</dt>
-                      <dd>Adjusts field goal percentage to account for the added value of three-pointers. Formula: (FGM + 0.5 × 3PM) / FGA × 100</dd>
+                      <dt>Shooting (eFG%)</dt>
+                      <dd>Effective field goal percentage, which adjusts for the added value of three-pointers. Formula: (FGM + 0.5 × 3PM) / FGA × 100</dd>
 
                       <dt>Ball Handling</dt>
                       <dd>A team's ability to take care of the ball, calculated as 100 − TOV%. Higher is better. TOV% = TOV / (FGA + 0.44×FTA + TOV) × 100</dd>
 
-                      <dt>OREB% (Offensive Rebounding %)</dt>
+                      <dt>Off Rebounding (OREB%)</dt>
                       <dd>The percentage of available offensive rebounds a team grabs. Formula: OREB / (OREB + OPP_DREB) × 100</dd>
 
                       <dt>FT Rate (Free Throw Rate)</dt>
