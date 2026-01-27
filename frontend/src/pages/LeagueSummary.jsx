@@ -150,6 +150,7 @@ function LeagueSummary() {
 
   // First, load season bounds (without date filtering)
   useEffect(() => {
+    let isCurrent = true
     async function loadSeasonBounds() {
       if (!selectedSeason) return
       setLoading(true)
@@ -157,38 +158,43 @@ function LeagueSummary() {
       try {
         // Load without date filters to get season bounds
         const res = await getLeagueSummary(selectedSeason, null, null)
-        if (res.first_game_date && res.last_game_date) {
+        if (isCurrent && res.first_game_date && res.last_game_date) {
           setSeasonBounds({ first: res.first_game_date, last: res.last_game_date })
           setCustomStartDate(res.first_game_date)
           setCustomEndDate(res.last_game_date)
           setError(null)
         }
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       } finally {
-        setLoading(false)
+        if (isCurrent) setLoading(false)
       }
     }
     loadSeasonBounds()
+    return () => { isCurrent = false }
   }, [selectedSeason])
 
   // Load data with calculated date range
   useEffect(() => {
+    if (!selectedSeason || !startDate || !endDate) return
+    let isCurrent = true
     async function loadData() {
-      if (!selectedSeason || !startDate || !endDate) return
       setLoading(true)
       setError(null)
       try {
         const res = await getLeagueSummary(selectedSeason, startDate, endDate)
-        setData(res)
-        setError(null)
+        if (isCurrent) {
+          setData(res)
+          setError(null)
+        }
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       } finally {
-        setLoading(false)
+        if (isCurrent) setLoading(false)
       }
     }
     loadData()
+    return () => { isCurrent = false }
   }, [selectedSeason, startDate, endDate])
 
   const sortedTeams = useMemo(() => {
