@@ -32,7 +32,7 @@ function Home() {
       <div className="hero">
         <h1 className="hero-title">NBA Game Log Analytics</h1>
         <p className="hero-subtitle">
-          Advanced basketball statistics analysis using Dean Oliver's Four Factors framework
+          Advanced basketball statistics analysis using a Four Factors framework
         </p>
       </div>
 
@@ -41,7 +41,7 @@ function Home() {
           <div className="feature-icon">📊</div>
           <h2 className="feature-title">Factor Game Decomposition</h2>
           <p className="feature-description">
-            Analyze individual games using Dean Oliver's Four Factors framework to determine
+            Analyze individual games using a Four Factors framework to determine
             what factors decided the outcome. Compare home and road team performance across
             shooting efficiency, ball handling, rebounding, and free throw rate.
           </p>
@@ -74,7 +74,7 @@ function Home() {
       <div className="about card">
         <h2 className="card-title">About the Four Factors</h2>
         <p>
-          Dean Oliver's Four Factors framework identifies the key determinants of basketball success:
+          The Four Factors framework identifies the key determinants of basketball success:
         </p>
         <ul className="factors-list">
           <li>

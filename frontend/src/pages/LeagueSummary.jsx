@@ -161,6 +161,7 @@ function LeagueSummary() {
           setSeasonBounds({ first: res.first_game_date, last: res.last_game_date })
           setCustomStartDate(res.first_game_date)
           setCustomEndDate(res.last_game_date)
+          setError(null)
         }
       } catch (err) {
         setError(err.message)
@@ -180,6 +181,7 @@ function LeagueSummary() {
       try {
         const res = await getLeagueSummary(selectedSeason, startDate, endDate)
         setData(res)
+        setError(null)
       } catch (err) {
         setError(err.message)
       } finally {
