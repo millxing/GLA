@@ -194,6 +194,62 @@ STAT_MAP = {
 }
 
 
+# ---- NBA Cup knockout dates file ----
+# Expected CSV format: date,game_type (e.g., "2024-12-14,nba_cup_semi")
+NBA_CUP_DATES_FILE = Path(__file__).parent.parent.parent / "NBACup_knockout_dates.csv"
+
+
+def _load_nba_cup_dates() -> Dict[str, str]:
+    """Load NBA Cup knockout dates from CSV file.
+
+    Returns a dict mapping date strings (YYYY-MM-DD) to game_type
+    (e.g., "nba_cup_semi" or "nba_cup_final").
+    Returns empty dict if file doesn't exist.
+    """
+    if not NBA_CUP_DATES_FILE.exists():
+        return {}
+
+    try:
+        df = pd.read_csv(NBA_CUP_DATES_FILE, dtype=str)
+        if "date" not in df.columns or "game_type" not in df.columns:
+            print(f"[warning] NBA Cup dates file missing required columns (date, game_type)")
+            return {}
+
+        # Normalize date format to YYYY-MM-DD
+        date_map = {}
+        for _, row in df.iterrows():
+            date_str = str(row["date"]).strip()
+            game_type = str(row["game_type"]).strip()
+            # Try to parse and normalize the date
+            try:
+                parsed = pd.to_datetime(date_str)
+                date_map[parsed.strftime("%Y-%m-%d")] = game_type
+            except Exception:
+                print(f"[warning] Could not parse date: {date_str}")
+        return date_map
+    except Exception as e:
+        print(f"[warning] Could not load NBA Cup dates file: {e}")
+        return {}
+
+
+def _apply_nba_cup_overrides(df: pd.DataFrame, cup_dates: Dict[str, str]) -> pd.DataFrame:
+    """Override game_type for games that fall on NBA Cup knockout dates.
+
+    Only applies to games currently marked as 'regular_season'.
+    """
+    if not cup_dates or df.empty:
+        return df
+
+    df = df.copy()
+    for idx, row in df.iterrows():
+        if row.get("game_type") == "regular_season":
+            game_date = str(row.get("game_date", "")).strip()
+            if game_date in cup_dates:
+                df.at[idx, "game_type"] = cup_dates[game_date]
+
+    return df
+
+
 # ---- LineScore schema (BoxScoreSummaryV3) ----
 # Uses pts_ot_total (calculated from score - Q1-Q4) instead of individual OT periods
 LINESCORE_COLUMNS = [
@@ -414,14 +470,18 @@ def _normalize_game_level_df(df: pd.DataFrame) -> pd.DataFrame:
 
 # ------------------------- nba_api pulls + conversion -------------------------
 
-def _fetch_season_team_game_logs(season: str) -> pd.DataFrame:
+def _fetch_season_team_game_logs(season: str, season_type: str = "Regular Season") -> pd.DataFrame:
     """Fetch team game logs for a given season using nba_api.
+
+    Args:
+        season: NBA season string (e.g., "2024-25")
+        season_type: One of "Regular Season", "Playoffs", "PlayIn", "Pre Season", "All Star"
 
     Returns one row per team per game (each NBA game appears twice).
     """
     resp = leaguegamelog.LeagueGameLog(
         season=season,
-        season_type_all_star="Regular Season",
+        season_type_all_star=season_type,
         player_or_team_abbreviation="T",
     )
     df = resp.get_data_frames()[0]
@@ -432,8 +492,13 @@ def _fetch_season_team_game_logs(season: str) -> pd.DataFrame:
     return df
 
 
-def _teamlogs_to_gamelogs(team_df: pd.DataFrame, season: str) -> pd.DataFrame:
+def _teamlogs_to_gamelogs(team_df: pd.DataFrame, season: str, game_type: str = "regular_season") -> pd.DataFrame:
     """Convert nba_api team-level logs -> NBA_Data game-level rows.
+
+    Args:
+        team_df: DataFrame from LeagueGameLog
+        season: NBA season string (e.g., "2024-25")
+        game_type: Game type label (e.g., "regular_season", "playoffs", "play_in")
 
     Output uses exact EXPECTED_COLUMNS layout (later enforced by normalizer).
     """
@@ -444,6 +509,8 @@ def _teamlogs_to_gamelogs(team_df: pd.DataFrame, season: str) -> pd.DataFrame:
         df["GAME_DATE"] = pd.to_datetime(df["GAME_DATE"], errors="coerce")
 
     # Determine home/away from MATCHUP
+    # Normal games: home has "vs.", away has "@"
+    # Neutral site games (NBA Cup final): BOTH teams have "@"
     matchup = df.get("MATCHUP", pd.Series("", index=df.index)).astype(str)
     df["_IS_HOME"] = matchup.str.contains("vs.", na=False)
     df["_IS_AWAY"] = matchup.str.contains("@", na=False)
@@ -457,22 +524,44 @@ def _teamlogs_to_gamelogs(team_df: pd.DataFrame, season: str) -> pd.DataFrame:
         home = g[g["_IS_HOME"]]
         away = g[g["_IS_AWAY"]]
 
-        if len(home) != 1 or len(away) != 1:
+        is_neutral_site = False
+
+        if len(home) == 1 and len(away) == 1:
+            # Normal game with clear home/away
+            h = home.iloc[0]
+            a = away.iloc[0]
+        elif len(home) == 0 and len(away) == 2:
+            # Neutral site game - both teams marked as "@"
+            # Use matchup to determine designated home: "TEAM @ OPPONENT" -> OPPONENT is home
+            # Pick the team whose abbreviation appears AFTER "@" in the other team's matchup
+            is_neutral_site = True
+            row1, row2 = away.iloc[0], away.iloc[1]
+            m1 = str(row1.get("MATCHUP", ""))
+            # In "NYK @ SAS", SAS is designated as home
+            if " @ " in m1:
+                designated_home_abbr = m1.split(" @ ")[1].strip()
+                if row1.get("TEAM_ABBREVIATION") == designated_home_abbr:
+                    h, a = row1, row2
+                else:
+                    h, a = row2, row1
+            else:
+                # Fallback: alphabetically first is home
+                if row1.get("TEAM_ABBREVIATION", "") < row2.get("TEAM_ABBREVIATION", ""):
+                    h, a = row1, row2
+                else:
+                    h, a = row2, row1
+        else:
             # Skip weird games rather than creating malformed rows
             continue
 
-        h = home.iloc[0]
-        a = away.iloc[0]
-
         # NBA_Data uses snake_case game_type labels
-        # We set new rows to regular_season; existing rows (incl NBA Cup) are preserved in update step.
         row: dict = {
             "game_id": str(gid),
             "game_date": (pd.to_datetime(h.get("GAME_DATE"), errors="coerce").date().isoformat()
                           if pd.notna(h.get("GAME_DATE")) else pd.NA),
             "season": season,
-            "game_type": "regular_season",
-            "neutral_site": False,
+            "game_type": game_type,
+            "neutral_site": is_neutral_site,
             "team_id_home": int(h.get("TEAM_ID")) if pd.notna(h.get("TEAM_ID")) else pd.NA,
             "team_abbreviation_home": h.get("TEAM_ABBREVIATION"),
             "team_name_home": h.get("TEAM_NAME"),
@@ -1113,7 +1202,7 @@ def _train_linear_model(df: pd.DataFrame, feature_cols: list[str], target_col: s
 
 # ------------------------- CLI commands -------------------------
 
-def update_data(season: str, repo_dir: Path) -> int:
+def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int:
     start = time.time()
     try:
         repo_dir = ensure_data_repo(repo_dir)
@@ -1127,11 +1216,53 @@ def update_data(season: str, repo_dir: Path) -> int:
             # If previously polluted, normalizer will drop extras and enforce schema
             existing = _normalize_game_level_df(existing_raw)
 
-        print(f"[data] Fetching season {season} from NBA API (team logs)")
-        team_logs = _fetch_season_team_game_logs(season)
+        # Load NBA Cup knockout dates for game_type overrides
+        cup_dates = _load_nba_cup_dates()
+        if cup_dates:
+            print(f"[data] Loaded {len(cup_dates)} NBA Cup knockout date(s)")
 
-        print("[data] Converting to NBA_Data game-level format")
-        fresh_raw = _teamlogs_to_gamelogs(team_logs, season=season)
+        # Fetch all season types and combine
+        # IST = In-Season Tournament (NBA Cup) - these count as regular_season
+        # except for the final which gets overridden via cup_dates
+        season_types = [
+            ("Regular Season", "regular_season"),
+            ("IST", "regular_season"),  # NBA Cup games - semifinals/finals overridden by cup_dates
+            ("Playoffs", "playoffs"),
+            ("PlayIn", "play_in"),
+        ]
+
+        all_gamelogs: list[pd.DataFrame] = []
+        for api_type, game_type_label in season_types:
+            print(f"[data] Fetching {season} {api_type} from NBA API...")
+            try:
+                team_logs = _fetch_season_team_game_logs(season, season_type=api_type)
+                if not team_logs.empty:
+                    gamelogs = _teamlogs_to_gamelogs(team_logs, season=season, game_type=game_type_label)
+                    if not gamelogs.empty:
+                        print(f"[data]   Found {len(gamelogs)} {api_type} games")
+                        all_gamelogs.append(gamelogs)
+                    else:
+                        print(f"[data]   No {api_type} games found")
+                else:
+                    print(f"[data]   No {api_type} games found")
+            except Exception as e:
+                print(f"[data]   Error fetching {api_type}: {e}")
+
+        if not all_gamelogs:
+            print("[data] No games found for any season type")
+            return 1
+
+        print("[data] Combining all game types...")
+        fresh_raw = pd.concat(all_gamelogs, ignore_index=True)
+
+        # Apply NBA Cup knockout date overrides (only affects regular_season games)
+        if cup_dates:
+            fresh_raw = _apply_nba_cup_overrides(fresh_raw, cup_dates)
+            # Count how many were overridden
+            cup_games = fresh_raw[fresh_raw["game_type"].isin(["nba_cup_semi", "nba_cup_final"])]
+            if not cup_games.empty:
+                print(f"[data] Tagged {len(cup_games)} game(s) as NBA Cup knockout")
+
         fresh = _normalize_game_level_df(fresh_raw)
 
         # Skip today's games to avoid incomplete data from in-progress games
@@ -1149,12 +1280,40 @@ def update_data(season: str, repo_dir: Path) -> int:
         else:
             before = len(existing)
             existing_ids = set(existing["game_id"].astype(str).tolist())
+            fresh_ids = set(fresh["game_id"].astype(str).tolist())
 
-            # ONLY append brand-new games; preserve existing rows (and their game_type)
+            # Find brand-new games
             fresh_new = fresh[~fresh["game_id"].astype(str).isin(existing_ids)].copy()
             added = len(fresh_new)
 
-            merged = pd.concat([existing, fresh_new], ignore_index=True)
+            if force_refresh:
+                # Update game_type for existing games that appear in fresh data
+                # This allows re-categorizing games (e.g., adding IST games, fixing game_types)
+                games_to_update = existing_ids & fresh_ids
+                if games_to_update:
+                    # Create a mapping of game_id -> new game_type from fresh data
+                    fresh_game_types = fresh.set_index(fresh["game_id"].astype(str))["game_type"].to_dict()
+
+                    # Update existing rows
+                    updated_count = 0
+                    for idx, row in existing.iterrows():
+                        gid = str(row["game_id"])
+                        if gid in games_to_update:
+                            old_type = existing.at[idx, "game_type"]
+                            new_type = fresh_game_types.get(gid, old_type)
+                            if old_type != new_type:
+                                existing.at[idx, "game_type"] = new_type
+                                updated_count += 1
+
+                    if updated_count > 0:
+                        print(f"[data] Updated game_type for {updated_count} existing game(s)")
+
+                # Also add any games from fresh that don't exist yet
+                merged = pd.concat([existing, fresh_new], ignore_index=True)
+            else:
+                # Standard behavior: ONLY append brand-new games; preserve existing rows
+                merged = pd.concat([existing, fresh_new], ignore_index=True)
+
             merged = _normalize_game_level_df(merged)
 
         merged.to_csv(csv_path, index=False)
@@ -1627,6 +1786,8 @@ box_score_advanced_YYYY-YY.csv in the NBA_Data repo.
 """,
     )
     p_update.add_argument("--season", required=True, help="Season like 2025-26")
+    p_update.add_argument("--force-refresh", action="store_true",
+                          help="Update game_type for existing games (use after adding IST or fixing categorization)")
 
     p_dl = sub.add_parser(
         "download-data",
@@ -1721,7 +1882,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     repo_dir = Path(args.repo_dir)
 
     if args.command == "update-data":
-        return update_data(args.season, repo_dir)
+        return update_data(args.season, repo_dir, force_refresh=args.force_refresh)
 
     if args.command == "download-data":
         return download_data(args.start, args.end, repo_dir)

@@ -250,6 +250,7 @@ async def get_league_summary(
     season: str = Query(..., description="Season in format YYYY-YY"),
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    exclude_playoffs: bool = Query(True, description="Exclude playoff, play-in, and NBA Cup final games"),
 ):
     df = await get_normalized_data_with_possessions(season)
     if df is None:
@@ -259,7 +260,7 @@ async def get_league_summary(
     first_game_date = df["game_date"].min().strftime("%Y-%m-%d") if len(df) > 0 else None
     last_game_date = df["game_date"].max().strftime("%Y-%m-%d") if len(df) > 0 else None
 
-    team_stats_df = compute_league_aggregates(df, start_date, end_date)
+    team_stats_df = compute_league_aggregates(df, start_date, end_date, exclude_playoffs)
 
     teams = []
     for _, row in team_stats_df.iterrows():
@@ -314,6 +315,7 @@ async def get_trends(
     season: str = Query(..., description="Season in format YYYY-YY"),
     team: str = Query(..., description="Team abbreviation"),
     stat: str = Query(..., description="Statistic to plot"),
+    exclude_non_regular: bool = Query(True, description="Exclude playoffs, play-in, and NBA Cup final from trends"),
 ):
     df = await get_normalized_data_with_possessions(season)
     if df is None:
@@ -332,7 +334,7 @@ async def get_trends(
     if stat_internal not in STAT_LABELS:
         raise HTTPException(status_code=400, detail=f"Invalid stat: {stat}")
 
-    trend_df = compute_trend_series(df, team, stat_internal)
+    trend_df = compute_trend_series(df, team, stat_internal, exclude_non_regular=exclude_non_regular)
 
     data = []
     for _, row in trend_df.iterrows():

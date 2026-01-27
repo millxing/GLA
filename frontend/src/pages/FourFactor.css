@@ -91,6 +91,23 @@
   color: var(--color-text-secondary);
 }
 
+.external-links {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.5rem;
+}
+
+.external-link {
+  font-size: 0.85rem;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.external-link:hover {
+  text-decoration: underline;
+}
+
 .linescore-center {
   display: flex;
   flex-direction: column;

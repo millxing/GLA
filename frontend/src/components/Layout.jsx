@@ -11,7 +11,7 @@ function Layout() {
           </NavLink>
           <nav className="nav">
             <NavLink to="/four-factor" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-              Factor Analysis
+              Game Analysis
             </NavLink>
             <NavLink to="/league-summary" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
               League Summary

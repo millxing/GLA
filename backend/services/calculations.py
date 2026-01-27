@@ -246,13 +246,17 @@ def compute_decomposition(
     else:
         raise ValueError(f"Unknown factor type: {factor_type}")
 
-def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_date: Optional[str]) -> pd.DataFrame:
+def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_date: Optional[str], exclude_playoffs: bool = False) -> pd.DataFrame:
     filtered_df = df.copy()
 
     if start_date:
         filtered_df = filtered_df[filtered_df["game_date"] >= pd.to_datetime(start_date)]
     if end_date:
         filtered_df = filtered_df[filtered_df["game_date"] <= pd.to_datetime(end_date)]
+    if exclude_playoffs:
+        # Exclude playoffs, play-in, and NBA Cup final (final doesn't count as regular season)
+        # Note: nba_cup_semi IS included as it counts toward regular season stats
+        filtered_df = filtered_df[~filtered_df["game_type"].isin(["playoffs", "play_in", "nba_cup_final"])]
 
     agg_cols = {
         "fgm": "sum",
@@ -456,8 +460,15 @@ def compute_league_average(df: pd.DataFrame, stat: str) -> float:
     return round(values.mean(), 1) if len(values) > 0 else 0.0
 
 
-def compute_trend_series(df: pd.DataFrame, team: str, stat: str) -> pd.DataFrame:
+def compute_trend_series(df: pd.DataFrame, team: str, stat: str, exclude_non_regular: bool = True) -> pd.DataFrame:
     team_df = df[df["team"] == team].copy()
+
+    # Filter out non-regular-season games if requested
+    if exclude_non_regular:
+        # Exclude playoffs, play-in, and NBA Cup final (final doesn't count as regular season)
+        # Note: nba_cup_semi IS included as it counts toward regular season stats
+        team_df = team_df[~team_df["game_type"].isin(["playoffs", "play_in", "nba_cup_final"])]
+
     team_df = team_df.sort_values("game_date")
 
     team_df["value"] = _compute_stat_value(team_df, stat)

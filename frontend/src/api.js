@@ -44,10 +44,11 @@ export async function getDecomposition(season, gameId, modelId, factorType) {
   return fetchApi(`/api/decomposition?${params}`)
 }
 
-export async function getLeagueSummary(season, startDate, endDate) {
+export async function getLeagueSummary(season, startDate, endDate, excludePlayoffs = false) {
   const params = new URLSearchParams({ season })
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
+  if (excludePlayoffs) params.append('exclude_playoffs', 'true')
   return fetchApi(`/api/league-summary?${params}`)
 }
 

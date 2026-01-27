@@ -41,6 +41,7 @@ const GLOSSARY_ITEMS = [
 
 const DATE_RANGE_OPTIONS = [
   { value: 'season', label: 'Season-to-Date' },
+  { value: 'season_no_playoffs', label: 'Season-to-Date, No Playoffs' },
   { value: 'month', label: 'Month-to-Date' },
   { value: 'last30', label: 'Last 30 Days' },
   { value: 'last60', label: 'Last 60 Days' },
@@ -97,6 +98,9 @@ function LeagueSummary() {
 
     switch (dateRangePreset) {
       case 'season':
+        return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+
+      case 'season_no_playoffs':
         return { startDate: seasonBounds.first, endDate: seasonBounds.last }
 
       case 'month': {
@@ -182,7 +186,8 @@ function LeagueSummary() {
       setLoading(true)
       setError(null)
       try {
-        const res = await getLeagueSummary(selectedSeason, startDate, endDate)
+        const excludePlayoffs = dateRangePreset === 'season_no_playoffs'
+        const res = await getLeagueSummary(selectedSeason, startDate, endDate, excludePlayoffs)
         if (isCurrent) {
           setData(res)
           setError(null)
@@ -195,7 +200,7 @@ function LeagueSummary() {
     }
     loadData()
     return () => { isCurrent = false }
-  }, [selectedSeason, startDate, endDate])
+  }, [selectedSeason, startDate, endDate, dateRangePreset])
 
   const sortedTeams = useMemo(() => {
     if (!data?.teams) return []

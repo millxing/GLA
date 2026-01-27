@@ -39,7 +39,7 @@ function Home() {
       <div className="features grid grid-3">
         <Link to="/four-factor" className="feature-card card">
           <div className="feature-icon">📊</div>
-          <h2 className="feature-title">Factor Game Decomposition</h2>
+          <h2 className="feature-title">Game Analysis</h2>
           <p className="feature-description">
             Analyze individual games using a Four Factors framework to determine
             what factors decided the outcome. Compare home and road team performance across

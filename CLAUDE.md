@@ -60,9 +60,17 @@ python admin/cli.py git-status
 4. Frontend calls API endpoints and renders data with Recharts
 
 ### Key Concepts
-- **Four Factors**: eFG%, TOV%, OREB%, FT Rate - metrics that explain game outcomes
+- **Four Factors**: eFG%, BH%, OREB%, FT Rate - metrics that explain game outcomes
 - **Eight Factors**: Same as Four Factors but split into home and road team contributions centered on league averages
 - **Decomposition**: Uses linear regression coefficients from trained models to attribute net rating differential to each factor
+
+### Abbreviations
+GA refers to the Game Analysis page
+LS refers to League Summary page
+ST refers to Statisical Trends page
+FF is Four-Factor decomo
+EF is Eight-Factor decomp
+BH is Ball Handling (1-TOV%)
 
 ## Environment Variables
 
@@ -72,3 +80,4 @@ Backend (.env):
 
 Frontend (.env):
 - `VITE_API_URL` - Backend API URL (empty uses relative URLs with Vite proxy)
+

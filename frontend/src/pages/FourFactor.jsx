@@ -3,6 +3,15 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { getSeasons, getGames, getModels, getDecomposition } from '../api'
 import './FourFactor.css'
 
+// BBRef uses different abbreviations for some teams
+const BBREF_TEAM_MAP = {
+  PHX: 'PHO',
+  BKN: 'BRK',
+  CHA: 'CHO',
+}
+
+const toBBRefTeam = (team) => BBREF_TEAM_MAP[team] || team
+
 function FourFactor() {
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
@@ -203,7 +212,7 @@ function FourFactor() {
 
   return (
     <div className="four-factor container">
-      <h1 className="page-title">Factor Game Decomposition</h1>
+      <h1 className="page-title">Game Analysis</h1>
       <p className="page-description">
         Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
       </p>
@@ -337,6 +346,24 @@ function FourFactor() {
                 {decomposition.game_type && (
                   <div className="game-type">{formatGameType(decomposition.game_type)}</div>
                 )}
+                <div className="external-links">
+                  <a
+                    href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="external-link"
+                  >
+                    BBRef Box Score
+                  </a>
+                  <a
+                    href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="external-link"
+                  >
+                    NBA.com Box Score
+                  </a>
+                </div>
               </div>
             </div>
           </div>
