@@ -48,7 +48,7 @@ export async function getLeagueSummary(season, startDate, endDate, excludePlayof
   const params = new URLSearchParams({ season })
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
-  if (excludePlayoffs) params.append('exclude_playoffs', 'true')
+  params.append('exclude_playoffs', excludePlayoffs ? 'true' : 'false')
   return fetchApi(`/api/league-summary?${params}`)
 }
 

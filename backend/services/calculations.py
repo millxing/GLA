@@ -253,10 +253,13 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
         filtered_df = filtered_df[filtered_df["game_date"] >= pd.to_datetime(start_date)]
     if end_date:
         filtered_df = filtered_df[filtered_df["game_date"] <= pd.to_datetime(end_date)]
+    # NBA Cup final never counts in league stats (always excluded)
+    filtered_df = filtered_df[filtered_df["game_type"] != "nba_cup_final"]
+
     if exclude_playoffs:
-        # Exclude playoffs, play-in, and NBA Cup final (final doesn't count as regular season)
+        # Exclude playoffs and play-in games
         # Note: nba_cup_semi IS included as it counts toward regular season stats
-        filtered_df = filtered_df[~filtered_df["game_type"].isin(["playoffs", "play_in", "nba_cup_final"])]
+        filtered_df = filtered_df[~filtered_df["game_type"].isin(["playoffs", "play_in"])]
 
     agg_cols = {
         "fgm": "sum",
@@ -463,11 +466,14 @@ def compute_league_average(df: pd.DataFrame, stat: str) -> float:
 def compute_trend_series(df: pd.DataFrame, team: str, stat: str, exclude_non_regular: bool = True) -> pd.DataFrame:
     team_df = df[df["team"] == team].copy()
 
+    # NBA Cup final never counts in stats (always excluded)
+    team_df = team_df[team_df["game_type"] != "nba_cup_final"]
+
     # Filter out non-regular-season games if requested
     if exclude_non_regular:
-        # Exclude playoffs, play-in, and NBA Cup final (final doesn't count as regular season)
+        # Exclude playoffs and play-in games
         # Note: nba_cup_semi IS included as it counts toward regular season stats
-        team_df = team_df[~team_df["game_type"].isin(["playoffs", "play_in", "nba_cup_final"])]
+        team_df = team_df[~team_df["game_type"].isin(["playoffs", "play_in"])]
 
     team_df = team_df.sort_values("game_date")
 
