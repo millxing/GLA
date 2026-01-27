@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GLAadmin.py
+"""admin/cli.py
 
 Standalone admin CLI for the NBA_Data repository.
 
@@ -18,11 +18,11 @@ Critical behavior:
 - Preserves any existing rows (and their game_type values like nba_cup_group)
   by ONLY appending brand-new game_id values when updating.
 
-Usage examples:
-  python GLAadmin.py update-data --season 2025-26
-  python GLAadmin.py download-data --start 2020-21 --end 2024-25
-  python GLAadmin.py train-models --seasons 2024-25,2025-26 --output latest.json
-  python GLAadmin.py commit-and-push --message "Update data"
+Usage examples (from backend directory):
+  python admin/cli.py update-data --season 2025-26
+  python admin/cli.py download-data --start 2020-21 --end 2024-25
+  python admin/cli.py train-models --seasons 2024-25,2025-26 --output latest.json
+  python admin/cli.py commit-and-push --message "Update data"
 """
 
 from __future__ import annotations
@@ -1073,14 +1073,9 @@ def _compute_factor_differentials(df: pd.DataFrame) -> pd.DataFrame:
         # Net Rating = OFF_RATING - DEF_RATING
         out["NET_RATING"] = out["OFF_RATING"] - out["DEF_RATING"]
 
-        # Opponent net rating (from their perspective)
-        out["OPP_OFF_RATING"] = (out["OPP_PTS"] / out["OPP_POSS"].replace(0, pd.NA)) * 100
-        out["OPP_DEF_RATING"] = (out["PTS"] / out["POSS"].replace(0, pd.NA)) * 100
-        out["OPP_NET_RATING"] = out["OPP_OFF_RATING"] - out["OPP_DEF_RATING"]
-
-        # Net Rating Differential = our net rating - opponent's net rating
-        # This is what the model should predict
-        out["NET_RATING_DIFF"] = out["NET_RATING"] - out["OPP_NET_RATING"]
+        # Note: OPP_NET_RATING would just be -NET_RATING (mirror image), so
+        # NET_RATING_DIFF = NET_RATING - OPP_NET_RATING = 2 * NET_RATING.
+        # We use NET_RATING directly as the target to avoid double-counting.
 
     return out
 
@@ -1354,20 +1349,75 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
         feature_cols = ["EFG_DIFF", "TOV_DIFF", "OREB_DIFF", "FT_DIFF"]
         feature_cols = [c for c in feature_cols if c in team_df.columns]
 
-        # Check if NET_RATING_DIFF is available
-        if "NET_RATING_DIFF" not in team_df.columns:
-            raise ValueError("NET_RATING_DIFF not computed. Ensure possession data is available.")
+        # Check if NET_RATING is available
+        if "NET_RATING" not in team_df.columns:
+            raise ValueError("NET_RATING not computed. Ensure possession data is available.")
 
-        # Drop rows without NET_RATING_DIFF
+        # Drop rows without NET_RATING
         before_count = len(team_df)
-        team_df = team_df.dropna(subset=["NET_RATING_DIFF"])
+        team_df = team_df.dropna(subset=["NET_RATING"])
         after_count = len(team_df)
         if before_count > after_count:
             print(f"[train] Dropped {before_count - after_count} rows without rating data")
 
         print(f"[train] Training Four Factors model on: {', '.join(feature_cols)}")
-        print(f"[train] Target: NET_RATING_DIFF (per-100-possession rating differential)")
-        raw_model = _train_linear_model(team_df, feature_cols, target_col="NET_RATING_DIFF")
+        print(f"[train] Target: NET_RATING (per-100-possession rating)")
+
+        # Save training data CSV for manual verification
+        # Create game-level export with HOME_ and ROAD_ columns
+        target_col = "NET_RATING"
+
+        # Compute Ball Handling = 1 - TOV_PCT (higher is better, like other offensive stats)
+        team_df["BH"] = 1.0 - team_df["TOV_PCT"]
+
+        # Separate home and away rows based on MATCHUP
+        team_df["IS_HOME"] = team_df["MATCHUP"].str.contains("vs.", na=False)
+        home_rows = team_df[team_df["IS_HOME"]].copy()
+        road_rows = team_df[~team_df["IS_HOME"]].copy()
+
+        # Build home export with clean column names
+        home_export = pd.DataFrame({
+            "Game_ID": home_rows["GAME_ID"].astype(str).str.zfill(10),
+            "Game_Date": home_rows["GAME_DATE"],
+            "Home_Team": home_rows["TEAM_ABBREVIATION"],
+            "Home_OFF_Rating": home_rows["OFF_RATING"].round(6),
+            "Home_EFG": home_rows["EFG_PCT"].round(6),
+            "Home_BH": home_rows["BH"].round(6),
+            "Home_OREB": home_rows["OREB_PCT"].round(6),
+            "Home_FT_Rate": home_rows["FT_RATE"].round(6),
+        })
+
+        # Build road export
+        road_export = pd.DataFrame({
+            "Game_ID": road_rows["GAME_ID"].astype(str).str.zfill(10),
+            "Road_Team": road_rows["TEAM_ABBREVIATION"],
+            "Road_OFF_Rating": road_rows["OFF_RATING"].round(6),
+            "Road_EFG": road_rows["EFG_PCT"].round(6),
+            "Road_BH": road_rows["BH"].round(6),
+            "Road_OREB": road_rows["OREB_PCT"].round(6),
+            "Road_FT_Rate": road_rows["FT_RATE"].round(6),
+        })
+
+        # Merge home and road on Game_ID
+        export_df = home_export.merge(road_export, on="Game_ID", how="inner")
+
+        # Drop rows with missing OFF_Rating
+        export_df = export_df.dropna(subset=["Home_OFF_Rating", "Road_OFF_Rating"])
+
+        # Reorder columns: context first, then home stats, then road stats
+        export_df = export_df[[
+            "Game_ID", "Game_Date", "Home_Team", "Road_Team",
+            "Home_OFF_Rating", "Home_EFG", "Home_BH", "Home_OREB", "Home_FT_Rate",
+            "Road_OFF_Rating", "Road_EFG", "Road_BH", "Road_OREB", "Road_FT_Rate",
+        ]]
+
+        # Derive CSV filename from output name (e.g., "2021-2025.json" -> "2021-2025_modeldata.csv")
+        csv_name = output_name.replace(".json", "_modeldata.csv")
+        csv_path = models_dir / csv_name
+        export_df.to_csv(csv_path, index=False)
+        print(f"[train] Saved training data: {csv_path.name} ({len(export_df)} games)")
+
+        raw_model = _train_linear_model(team_df, feature_cols, target_col=target_col)
 
         # Map coefficient names to what the backend expects
         coef_name_map = {
@@ -1541,13 +1591,13 @@ def build_parser() -> argparse.ArgumentParser:
         description="Admin CLI for NBA_Data",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  python GLAadmin.py update-data --season 2025-26
-  python GLAadmin.py download-data --start 2020-21 --end 2024-25
-  python GLAadmin.py train-models --seasons 2024-25,2025-26 --output latest.json
-  python GLAadmin.py commit-and-push --message "Update data"
-  python GLAadmin.py git-status
-  python GLAadmin.py list-models
+Examples (run from backend directory):
+  python admin/cli.py update-data --season 2025-26
+  python admin/cli.py download-data --start 2020-21 --end 2024-25
+  python admin/cli.py train-models --seasons 2024-25,2025-26 --output latest.json
+  python admin/cli.py commit-and-push --message "Update data"
+  python admin/cli.py git-status
+  python admin/cli.py list-models
 """,
     )
 
@@ -1569,7 +1619,7 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python GLAadmin.py update-data --season 2025-26
+  python admin/cli.py update-data --season 2025-26
 
 This fetches the latest game logs from the NBA API for the specified season
 and updates team_game_logs_YYYY-YY.csv, linescores_YYYY-YY.csv, and
@@ -1584,8 +1634,8 @@ box_score_advanced_YYYY-YY.csv in the NBA_Data repo.
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python GLAadmin.py download-data --start 2020-21 --end 2024-25
-  python GLAadmin.py download-data --start 2015-16 --end 2015-16  # single season
+  python admin/cli.py download-data --start 2020-21 --end 2024-25
+  python admin/cli.py download-data --start 2015-16 --end 2015-16  # single season
 
 Downloads or updates game logs for all seasons in the specified range.
 Each season creates/updates three CSV files in the NBA_Data repo.
@@ -1600,11 +1650,13 @@ Each season creates/updates three CSV files in the NBA_Data repo.
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python GLAadmin.py train-models --seasons 2024-25,2025-26 --output latest.json
-  python GLAadmin.py train-models --seasons 2023-24 --output 2023-24.json
+  python admin/cli.py train-models --seasons 2024-25,2025-26 --output latest.json
+  python admin/cli.py train-models --seasons 2023-24 --output 2023-24.json
 
 Trains a Four Factors linear regression model using game log data from the
-specified seasons. The model is saved as a JSON file in NBA_Data/models/.
+specified seasons. The model JSON is saved to NBA_Data/models/, and a
+companion CSV with training data (features + target) is saved alongside
+for manual verification.
 """,
     )
     p_train.add_argument(
@@ -1624,7 +1676,7 @@ specified seasons. The model is saved as a JSON file in NBA_Data/models/.
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python GLAadmin.py list-models
+  python admin/cli.py list-models
 
 Lists all model JSON files in NBA_Data/models/ with their training
 metadata (date, seasons used, R-squared scores).
@@ -1637,7 +1689,7 @@ metadata (date, seasons used, R-squared scores).
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Example:
-  python GLAadmin.py git-status
+  python admin/cli.py git-status
 
 Shows uncommitted changes in the NBA_Data repository.
 """,
@@ -1649,8 +1701,8 @@ Shows uncommitted changes in the NBA_Data repository.
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python GLAadmin.py commit-and-push --message "Update 2025-26 data"
-  python GLAadmin.py commit-and-push --message "Add new models" --dry-run
+  python admin/cli.py commit-and-push --message "Update 2025-26 data"
+  python admin/cli.py commit-and-push --message "Add new models" --dry-run
 
 Commits all changes in the NBA_Data repo and pushes to GitHub.
 Use --dry-run to preview changes without committing.

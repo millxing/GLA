@@ -12,7 +12,8 @@
       "Bash(curl:*)",
       "Bash(ls:*)",
       "Bash(npm run build:*)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Read(//Users/robschoen/Dropbox/CC/NBA_Data/models/**)"
     ]
   }
 }

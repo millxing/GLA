@@ -209,8 +209,10 @@ async def get_decomposition(
             if game_minutes > 48:
                 overtime_count = int((game_minutes - 48) / 5)
 
-    # Compute actual rating differential (home net rating - road net rating)
-    actual_rating_diff = home_ratings.get("net_rating", 0) - road_ratings.get("net_rating", 0)
+    # Actual rating differential is simply the home team's net rating
+    # (home_off - home_def), which already captures the full game outcome.
+    # The road team's net rating is the mirror image, so subtracting it would double-count.
+    actual_rating_diff = home_ratings.get("net_rating", 0)
 
     response = DecompositionResponse(
         game_id=game_id,
