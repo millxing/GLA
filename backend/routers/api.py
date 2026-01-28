@@ -8,6 +8,7 @@ from services.data_loader import (
     get_teams_list,
     get_game_data,
     load_model,
+    discover_season_models,
 )
 from services.calculations import (
     compute_four_factors,
@@ -17,6 +18,8 @@ from services.calculations import (
     compute_league_aggregates,
     compute_trend_series,
     compute_league_average,
+    compute_contribution_analysis,
+    compute_league_top_contributors,
 )
 from schemas.models import (
     SeasonResponse,
@@ -32,6 +35,13 @@ from schemas.models import (
     TrendPoint,
     LinescoreData,
     QuarterScores,
+    SeasonModelItem,
+    SeasonModelsResponse,
+    ContributionAnalysisResponse,
+    TopContributor,
+    ContributionTrendPoint,
+    LeagueContributorItem,
+    LeagueTopContributorsResponse,
 )
 
 STAT_ALIASES = {
@@ -359,4 +369,193 @@ async def get_trends(
         data=data,
         season_average=season_average,
         league_average=league_average,
+    )
+
+
+@router.get("/season-models", response_model=SeasonModelsResponse)
+async def get_season_models():
+    """Get available season-level models for contribution analysis."""
+    models = await discover_season_models()
+    model_items = [SeasonModelItem(id=m["id"], name=m["name"]) for m in models]
+    return SeasonModelsResponse(models=model_items)
+
+
+@router.get("/contribution-analysis", response_model=ContributionAnalysisResponse)
+async def get_contribution_analysis(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    team: str = Query(..., description="Team abbreviation"),
+    model_id: str = Query(..., description="Season model ID"),
+    date_range_type: str = Query("season", description="Type: season, last_n, or custom"),
+    last_n_games: Optional[int] = Query(None, description="Number of games for last_n type"),
+    start_date: Optional[str] = Query(None, description="Start date for custom type (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date for custom type (YYYY-MM-DD)"),
+    exclude_playoffs: bool = Query(False, description="Exclude playoff and play-in games"),
+):
+    """Analyze a team's net rating decomposition over a period using eight factors."""
+    # Load season data
+    df = await get_normalized_data_with_possessions(season)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Season data not found")
+
+    # Check if team exists
+    if team not in df["team"].unique():
+        raise HTTPException(status_code=404, detail="Team not found in this season")
+
+    # Load the season model
+    available_models = await discover_season_models()
+    model_config = next((m for m in available_models if m["id"] == model_id), None)
+    if model_config is None:
+        raise HTTPException(status_code=404, detail="Season model not found")
+
+    model = await load_model(model_config["file"])
+    if model is None:
+        raise HTTPException(status_code=500, detail="Failed to load model")
+
+    # Verify it's a season-level model
+    if model.get("model_type") != "season_level":
+        raise HTTPException(status_code=400, detail="Model is not a season-level model")
+
+    # Filter to team's games
+    team_df = df[df["team"] == team].copy()
+    team_df = team_df.sort_values("game_date")
+
+    # Exclude nba_cup_final
+    team_df = team_df[team_df["game_type"] != "nba_cup_final"]
+
+    if team_df.empty:
+        raise HTTPException(status_code=404, detail="No games found for team")
+
+    # Apply date range filter
+    filter_start_date = None
+    filter_end_date = None
+    date_range_label = "Season-to-Date"
+
+    if date_range_type == "last_n" and last_n_games:
+        # Get last N games
+        team_df = team_df.tail(last_n_games)
+        date_range_label = f"Last {last_n_games} Games"
+    elif date_range_type == "custom" and start_date and end_date:
+        filter_start_date = start_date
+        filter_end_date = end_date
+        date_range_label = f"{start_date} to {end_date}"
+    # else: season-to-date (no filter needed, use all games)
+
+    if exclude_playoffs and date_range_label == "Season-to-Date":
+        date_range_label = "Season-to-Date, No Playoffs"
+
+    try:
+        result = compute_contribution_analysis(
+            team_df=team_df,
+            league_df=df,
+            model=model,
+            start_date=filter_start_date,
+            end_date=filter_end_date,
+            exclude_playoffs=exclude_playoffs,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Build top contributors response
+    top_contributors = [
+        TopContributor(
+            factor=tc["factor"],
+            factor_label=tc["factor_label"],
+            value=tc["value"],
+            league_avg=tc["league_avg"],
+            contribution=tc["contribution"],
+            trend_data=[
+                ContributionTrendPoint(**point) for point in tc["trend_data"]
+            ]
+        )
+        for tc in result["top_contributors"]
+    ]
+
+    return ContributionAnalysisResponse(
+        team=team,
+        season=season,
+        date_range_label=date_range_label,
+        start_date=result["start_date"],
+        end_date=result["end_date"],
+        games_analyzed=result["games_analyzed"],
+        net_rating=result["net_rating"],
+        predicted_net_rating=result["predicted_net_rating"],
+        contributions=result["contributions"],
+        factor_values=result["factor_values"],
+        league_averages=result["league_averages"],
+        top_contributors=top_contributors,
+        intercept=result["intercept"],
+    )
+
+
+@router.get("/league-top-contributors", response_model=LeagueTopContributorsResponse)
+async def get_league_top_contributors(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    model_id: str = Query(..., description="Season model ID"),
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    exclude_playoffs: bool = Query(False, description="Exclude playoff and play-in games"),
+):
+    """Get top positive and negative contributors to net rating across all teams."""
+    # Load season data
+    df = await get_normalized_data_with_possessions(season)
+    if df is None:
+        raise HTTPException(status_code=404, detail="Season data not found")
+
+    # Load the season model
+    available_models = await discover_season_models()
+    model_config = next((m for m in available_models if m["id"] == model_id), None)
+    if model_config is None:
+        raise HTTPException(status_code=404, detail="Season model not found")
+
+    model = await load_model(model_config["file"])
+    if model is None:
+        raise HTTPException(status_code=500, detail="Failed to load model")
+
+    # Verify it's a season-level model
+    if model.get("model_type") != "season_level":
+        raise HTTPException(status_code=400, detail="Model is not a season-level model")
+
+    try:
+        result = compute_league_top_contributors(
+            league_df=df,
+            model=model,
+            start_date=start_date,
+            end_date=end_date,
+            exclude_playoffs=exclude_playoffs,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Build response items
+    top_positive = [
+        LeagueContributorItem(
+            team=c["team"],
+            factor=c["factor"],
+            factor_label=c["factor_label"],
+            value=c["value"],
+            contribution=c["contribution"],
+        )
+        for c in result["top_positive"]
+    ]
+
+    top_negative = [
+        LeagueContributorItem(
+            team=c["team"],
+            factor=c["factor"],
+            factor_label=c["factor_label"],
+            value=c["value"],
+            contribution=c["contribution"],
+        )
+        for c in result["top_negative"]
+    ]
+
+    return LeagueTopContributorsResponse(
+        season=season,
+        start_date=result["start_date"],
+        end_date=result["end_date"],
+        model_id=model_id,
+        top_positive=top_positive,
+        top_negative=top_negative,
+        league_averages=result["league_averages"],
+        coefficients=result["coefficients"],
     )

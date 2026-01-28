@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getSeasons, getLeagueSummary } from '../api'
+import { getSeasons, getLeagueSummary, getSeasonModels, getLeagueTopContributors } from '../api'
+import { usePersistedState } from '../hooks/usePersistedState'
 import './LeagueSummary.css'
 
 // Column definitions with new structure
@@ -37,6 +38,7 @@ const GLOSSARY_ITEMS = [
   { term: 'FT Rate', definition: 'Free Throw Rate - Free throws made per field goal attempt (FTM / FGA × 100)' },
   { term: 'Opp', definition: 'Opponent statistics - For defensive stats, lower opponent values are better for your team' },
   { term: 'Pace', definition: 'Average possessions per game. Higher pace indicates a faster-paced playing style.' },
+  { term: 'Contribution', definition: 'How much a factor contributed to a team\'s net rating relative to league average. Calculated as: (Team Value - League Avg) × Model Coefficient. Positive contributions help the team; negative contributions hurt.' },
 ]
 
 const DATE_RANGE_OPTIONS = [
@@ -51,8 +53,8 @@ const DATE_RANGE_OPTIONS = [
 
 function LeagueSummary() {
   const [seasons, setSeasons] = useState([])
-  const [selectedSeason, setSelectedSeason] = useState('')
-  const [dateRangePreset, setDateRangePreset] = useState('season')
+  const [selectedSeason, setSelectedSeason] = usePersistedState('leaguesummary_season', '')
+  const [dateRangePreset, setDateRangePreset] = usePersistedState('leaguesummary_daterange', 'season')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [seasonBounds, setSeasonBounds] = useState({ first: '', last: '' })
@@ -62,20 +64,37 @@ function LeagueSummary() {
   const [sortColumn, setSortColumn] = useState('net_rating')
   const [sortDirection, setSortDirection] = useState('desc')
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const [models, setModels] = useState([])
+  const [selectedModel, setSelectedModel] = usePersistedState('leaguesummary_model', 'season_2018-2025')
+  const [topContributors, setTopContributors] = useState(null)
+  const [contributorsLoading, setContributorsLoading] = useState(false)
 
   useEffect(() => {
-    async function loadSeasons() {
+    async function loadInitialData() {
       try {
-        const res = await getSeasons()
-        setSeasons(res.seasons)
-        if (res.seasons.length > 0) {
-          setSelectedSeason(res.seasons[0])
+        const [seasonsRes, modelsRes] = await Promise.all([
+          getSeasons(),
+          getSeasonModels(),
+        ])
+        setSeasons(seasonsRes.seasons)
+        setModels(modelsRes.models)
+        // Keep persisted season if valid, otherwise default to first
+        setSelectedSeason(prev => {
+          if (prev && seasonsRes.seasons.includes(prev)) return prev
+          return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
+        })
+        // Default to first model if season_2018-2025 not available
+        if (modelsRes.models.length > 0) {
+          const defaultModel = modelsRes.models.find(m => m.id === 'season_2018-2025')
+          if (!defaultModel) {
+            setSelectedModel(modelsRes.models[0].id)
+          }
         }
       } catch (err) {
         setError(err.message)
       }
     }
-    loadSeasons()
+    loadInitialData()
   }, [])
 
   // Reset date preset when season changes
@@ -201,6 +220,38 @@ function LeagueSummary() {
     loadData()
     return () => { isCurrent = false }
   }, [selectedSeason, startDate, endDate, dateRangePreset])
+
+  // Load top contributors when model or date range changes
+  useEffect(() => {
+    if (!selectedSeason || !startDate || !endDate || !selectedModel) return
+    let isCurrent = true
+    async function loadTopContributors() {
+      setContributorsLoading(true)
+      try {
+        const excludePlayoffs = dateRangePreset === 'season_no_playoffs'
+        const res = await getLeagueTopContributors(
+          selectedSeason,
+          selectedModel,
+          startDate,
+          endDate,
+          excludePlayoffs
+        )
+        if (isCurrent) {
+          setTopContributors(res)
+          console.log('Model:', res.model_id, 'Coefficients:', res.coefficients)
+        }
+      } catch (err) {
+        // Silently fail for contributors - don't show error to user
+        if (isCurrent) {
+          setTopContributors(null)
+        }
+      } finally {
+        if (isCurrent) setContributorsLoading(false)
+      }
+    }
+    loadTopContributors()
+    return () => { isCurrent = false }
+  }, [selectedSeason, startDate, endDate, dateRangePreset, selectedModel])
 
   const sortedTeams = useMemo(() => {
     if (!data?.teams) return []
@@ -375,6 +426,20 @@ function LeagueSummary() {
             </select>
           </div>
 
+          <div className="form-group">
+            <label className="form-label">Contribution Model</label>
+            <select
+              className="form-select"
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+            >
+              <option value="">Select model...</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>{model.name}</option>
+              ))}
+            </select>
+          </div>
+
           {dateRangePreset === 'custom' && (
             <>
               <div className="form-group">
@@ -484,6 +549,71 @@ function LeagueSummary() {
               Export to Excel
             </button>
           </div>
+
+          {topContributors && !contributorsLoading && (
+            <div className="top-contributors-section">
+              <h2 className="section-title">Top Contributors to Net Rating</h2>
+              <div className="contributors-grid">
+                <div className="contributors-column">
+                  <h3 className="column-title positive">Top Positive Contributors</h3>
+                  <table className="contributors-table">
+                    <thead>
+                      <tr>
+                        <th>Team</th>
+                        <th>Factor</th>
+                        <th className="value-header">Value</th>
+                        <th className="contribution-header">Contribution</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topContributors.top_positive.map((item, index) => (
+                        <tr key={`pos-${index}`}>
+                          <td className="team-cell">{item.team}</td>
+                          <td>{item.factor_label}</td>
+                          <td className="value-cell">{item.value.toFixed(1)}</td>
+                          <td className="contribution-cell positive">
+                            +{item.contribution.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="contributors-column">
+                  <h3 className="column-title negative">Top Negative Contributors</h3>
+                  <table className="contributors-table">
+                    <thead>
+                      <tr>
+                        <th>Team</th>
+                        <th>Factor</th>
+                        <th className="value-header">Value</th>
+                        <th className="contribution-header">Contribution</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {topContributors.top_negative.map((item, index) => (
+                        <tr key={`neg-${index}`}>
+                          <td className="team-cell">{item.team}</td>
+                          <td>{item.factor_label}</td>
+                          <td className="value-cell">{item.value.toFixed(1)}</td>
+                          <td className="contribution-cell negative">
+                            {item.contribution.toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {contributorsLoading && (
+            <div className="contributors-loading">
+              <div className="loading-spinner"></div>
+              Loading top contributors...
+            </div>
+          )}
 
           <div className="glossary-section">
             <button

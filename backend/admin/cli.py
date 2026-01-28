@@ -1003,6 +1003,58 @@ def _gamelogs_to_teamrows(game_df: pd.DataFrame, adv_df: pd.DataFrame = None) ->
     return out
 
 
+def _estimate_possessions(df: pd.DataFrame) -> pd.DataFrame:
+    """Estimate possessions from box score stats when actual data is unavailable.
+
+    Uses the standard formula: POSS ≈ FGA - OREB + TOV + 0.44 * FTA
+
+    This allows training models on seasons without advanced stats data.
+    Only fills in missing POSS values; preserves actual possession data where available.
+    """
+    out = df.copy()
+
+    # Check if we have the columns needed for estimation
+    required_cols = {"FGA", "OREB", "TOV", "FTA"}
+    if not required_cols.issubset(out.columns):
+        return out  # Can't estimate without basic box score data
+
+    # Ensure numeric
+    for col in required_cols:
+        out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    # Estimate possessions: FGA - OREB + TOV + 0.44 * FTA
+    estimated_poss = out["FGA"] - out["OREB"] + out["TOV"] + 0.44 * out["FTA"]
+
+    # If POSS column doesn't exist, create it with estimates
+    if "POSS" not in out.columns:
+        out["POSS"] = estimated_poss
+        print(f"[estimate-poss] Created POSS column with {estimated_poss.notna().sum()} estimated values")
+    else:
+        # Fill only missing values with estimates
+        missing_count = out["POSS"].isna().sum()
+        if missing_count > 0:
+            out["POSS"] = out["POSS"].fillna(estimated_poss)
+            print(f"[estimate-poss] Filled {missing_count} missing POSS values with estimates")
+
+    # Also estimate OPP_POSS if OPP_ columns exist
+    opp_required = {"OPP_FGA", "OPP_OREB", "OPP_TOV", "OPP_FTA"}
+    if opp_required.issubset(out.columns):
+        for col in opp_required:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+
+        estimated_opp_poss = out["OPP_FGA"] - out["OPP_OREB"] + out["OPP_TOV"] + 0.44 * out["OPP_FTA"]
+
+        if "OPP_POSS" not in out.columns:
+            out["OPP_POSS"] = estimated_opp_poss
+        else:
+            missing_opp = out["OPP_POSS"].isna().sum()
+            if missing_opp > 0:
+                out["OPP_POSS"] = out["OPP_POSS"].fillna(estimated_opp_poss)
+                print(f"[estimate-poss] Filled {missing_opp} missing OPP_POSS values with estimates")
+
+    return out
+
+
 def _compute_four_factors(df: pd.DataFrame) -> pd.DataFrame:
     """Compute Four Factors using common boxscore columns.
 
@@ -1501,6 +1553,7 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
         print("[train] Computing four factors")
         team_df = _compute_four_factors(team_df)
         team_df = _attach_opponent_rows(team_df)
+        team_df = _estimate_possessions(team_df)  # Fill missing possession data with estimates
         team_df = _compute_factor_differentials(team_df)
 
         # Train four factors model on NET_RATING_DIFF (not PLUS_MINUS)
@@ -1633,6 +1686,240 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
 
     except Exception as e:
         print(f"[error] train-models failed: {e}")
+        return 1
+
+
+def train_season_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
+    """Train a season-level Eight Factors model.
+
+    Unlike train_models which uses individual games as rows, this function:
+    1. Aggregates game-level data to team-season level (one row per team per season)
+    2. Uses 8 factors as features (team's own 4 factors + opponent's 4 factors)
+    3. Predicts the team's season net rating from those 8 factors
+
+    This model is used for the Contribution Analysis page to decompose
+    a team's net rating into contributions from each factor.
+    """
+    start = time.time()
+    try:
+        repo_dir = ensure_data_repo(repo_dir)
+        models_dir = repo_dir / "models"
+
+        seasons = [s.strip() for s in seasons_csv.split(",") if s.strip()]
+        if not seasons:
+            raise ValueError("No seasons provided. Example: --seasons 2000-01,2001-02,...,2024-25")
+
+        frames: list[pd.DataFrame] = []
+        adv_frames: list[pd.DataFrame] = []
+        missing: list[str] = []
+        missing_adv: list[str] = []
+
+        for season in seasons:
+            fp = repo_dir / _season_to_filename(season)
+            if not fp.exists():
+                missing.append(season)
+                continue
+            df = _load_existing_season_csv(fp)
+            if df is not None:
+                norm_df = _normalize_game_level_df(df)
+                norm_df["season"] = season  # Ensure season is set
+                frames.append(norm_df)
+
+            # Load advanced stats for possessions
+            adv_fp = repo_dir / _advanced_filename(season)
+            if adv_fp.exists():
+                adv_df = pd.read_csv(adv_fp)
+                adv_frames.append(adv_df)
+            else:
+                missing_adv.append(season)
+
+        if missing:
+            raise FileNotFoundError(
+                f"Missing season CSVs for: {', '.join(missing)}. Run update-data or download-data first."
+            )
+
+        if missing_adv:
+            print(f"[warn] Missing advanced stats for: {', '.join(missing_adv)}. Games without possessions will be excluded.")
+
+        game_df = pd.concat(frames, ignore_index=True)
+        adv_df = pd.concat(adv_frames, ignore_index=True) if adv_frames else None
+
+        print("[train-season] Expanding game logs into team-level rows (with possession data)")
+        team_df = _gamelogs_to_teamrows(game_df, adv_df)
+
+        # Add season column to team_df by parsing from GAME_ID or GAME_DATE
+        # The season info was in the original game_df, so we need to merge it back
+        # Actually, let's add season to the team rows based on the game dates
+        team_df["GAME_DATE"] = pd.to_datetime(team_df["GAME_DATE"], errors="coerce")
+
+        # Derive season from game date: Oct-Dec = year-year+1, Jan-Sep = year-1-year
+        def get_season_from_date(dt):
+            if pd.isna(dt):
+                return None
+            year = dt.year
+            month = dt.month
+            if month >= 10:  # Oct-Dec
+                return f"{year}-{str(year + 1)[-2:]}"
+            else:  # Jan-Sep
+                return f"{year - 1}-{str(year)[-2:]}"
+
+        team_df["SEASON"] = team_df["GAME_DATE"].apply(get_season_from_date)
+
+        print("[train-season] Computing four factors")
+        team_df = _compute_four_factors(team_df)
+        team_df = _attach_opponent_rows(team_df)
+        team_df = _estimate_possessions(team_df)  # Fill missing possession data with estimates
+        team_df = _compute_factor_differentials(team_df)
+
+        # Compute Ball Handling = 1 - TOV_PCT (higher is better)
+        team_df["BH"] = 1.0 - team_df["TOV_PCT"]
+        team_df["OPP_BH"] = 1.0 - team_df["OPP_TOV_PCT"]
+
+        # Drop rows without NET_RATING
+        before_count = len(team_df)
+        team_df = team_df.dropna(subset=["NET_RATING", "SEASON"])
+        after_count = len(team_df)
+        if before_count > after_count:
+            print(f"[train-season] Dropped {before_count - after_count} rows without rating/season data")
+
+        # Aggregate to team-season level
+        print("[train-season] Aggregating to team-season level")
+        agg_cols = {
+            "NET_RATING": "mean",
+            "OFF_RATING": "mean",
+            "DEF_RATING": "mean",
+            "EFG_PCT": "mean",
+            "BH": "mean",
+            "OREB_PCT": "mean",
+            "FT_RATE": "mean",
+            "OPP_EFG_PCT": "mean",
+            "OPP_BH": "mean",
+            "GAME_ID": "count",  # Count games for reference
+        }
+        # Add OPP_OREB_PCT if available
+        if "OPP_OREB" in team_df.columns and "DREB" in team_df.columns:
+            denom = team_df["OPP_OREB"] + team_df["DREB"]
+            team_df["OPP_OREB_PCT"] = team_df["OPP_OREB"] / denom.replace(0, pd.NA)
+            agg_cols["OPP_OREB_PCT"] = "mean"
+
+        # Add OPP_FT_RATE if available
+        if "OPP_FT_RATE" in team_df.columns:
+            agg_cols["OPP_FT_RATE"] = "mean"
+
+        season_df = team_df.groupby(["SEASON", "TEAM_ABBREVIATION"]).agg(agg_cols).reset_index()
+        season_df = season_df.rename(columns={"GAME_ID": "GAMES_PLAYED"})
+
+        print(f"[train-season] Created {len(season_df)} team-season rows from {len(seasons)} seasons")
+
+        # Define feature columns for the eight-factor model
+        feature_cols = [
+            "EFG_PCT", "BH", "OREB_PCT", "FT_RATE",
+            "OPP_EFG_PCT", "OPP_BH", "OPP_OREB_PCT", "OPP_FT_RATE"
+        ]
+        # Keep only columns that exist
+        feature_cols = [c for c in feature_cols if c in season_df.columns]
+
+        print(f"[train-season] Training Eight Factors model on: {', '.join(feature_cols)}")
+        print(f"[train-season] Target: NET_RATING (per-100-possession rating)")
+
+        # Save training data CSV
+        export_df = season_df[["SEASON", "TEAM_ABBREVIATION", "GAMES_PLAYED", "NET_RATING"] + feature_cols].copy()
+        export_df = export_df.rename(columns={
+            "SEASON": "Season",
+            "TEAM_ABBREVIATION": "Team",
+            "GAMES_PLAYED": "Games",
+            "NET_RATING": "Net_Rating",
+            "EFG_PCT": "EFG",
+            "BH": "BH",
+            "OREB_PCT": "OREB",
+            "FT_RATE": "FT_Rate",
+            "OPP_EFG_PCT": "Opp_EFG",
+            "OPP_BH": "Opp_BH",
+            "OPP_OREB_PCT": "Opp_OREB",
+            "OPP_FT_RATE": "Opp_FT_Rate",
+        })
+        export_df = export_df.round(6)
+
+        # Derive CSV filename from output name
+        csv_name = output_name.replace(".json", "_modeldata.csv")
+        csv_path = models_dir / csv_name
+        export_df.to_csv(csv_path, index=False)
+        print(f"[train-season] Saved training data: {csv_path.name} ({len(export_df)} team-seasons)")
+
+        # Train the model
+        work = season_df.dropna(subset=feature_cols + ["NET_RATING"]).copy()
+
+        if work.empty:
+            raise ValueError("No training rows after dropping NaNs. Check your feature/target columns.")
+
+        X = work[feature_cols].values
+        y = work["NET_RATING"].values
+
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+        model = LinearRegression()
+        model.fit(X_train, y_train)
+
+        y_pred = model.predict(X_test)
+        r2 = r2_score(y_test, y_pred)
+
+        # Map coefficient names
+        coef_name_map = {
+            "EFG_PCT": "shooting",
+            "BH": "ball_handling",
+            "OREB_PCT": "orebounding",
+            "FT_RATE": "free_throws",
+            "OPP_EFG_PCT": "opp_shooting",
+            "OPP_BH": "opp_ball_handling",
+            "OPP_OREB_PCT": "opp_orebounding",
+            "OPP_FT_RATE": "opp_free_throws",
+        }
+        mapped_coefficients = {
+            coef_name_map.get(k, k): float(coef)
+            for k, coef in zip(feature_cols, model.coef_)
+        }
+
+        # Compute league averages
+        league_averages = {}
+        for col in feature_cols:
+            if col in season_df.columns:
+                avg_key = coef_name_map.get(col, col)
+                league_averages[avg_key] = float(season_df[col].mean())
+
+        # Build the output
+        eight_factors_output = {
+            "coefficients": mapped_coefficients,
+            "intercept": float(model.intercept_),
+            "league_averages": league_averages,
+            "r_squared": float(r2),
+            "training_team_seasons": int(len(work)),
+        }
+
+        models_output: Dict[str, dict] = {
+            "trained_at": datetime.now().isoformat(timespec="seconds"),
+            "training_seasons": seasons,
+            "model_type": "season_level",
+            "eight_factors": eight_factors_output,
+        }
+
+        output_path = models_dir / output_name
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(models_output, f, indent=2)
+
+        elapsed = time.time() - start
+        print("\n[train-season] Saved model")
+        print(f"  file: {output_path}")
+        print(f"  r_squared: {r2:.4f}")
+        print(f"  training_team_seasons: {len(work)}")
+        print(f"  time: {elapsed:.1f}s")
+        return 0
+
+    except Exception as e:
+        print(f"[error] train-season-models failed: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
@@ -1831,6 +2118,33 @@ for manual verification.
         help="Output JSON filename (saved under NBA_Data/models/), e.g. latest.json",
     )
 
+    p_train_season = sub.add_parser(
+        "train-season-models",
+        help="Train season-level Eight Factors model for Contribution Analysis",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py train-season-models --seasons 2000-01,2001-02,...,2024-25 --output season_2000-2025.json
+
+Trains a season-level Eight Factors linear regression model. Unlike train-models
+which uses individual games as rows, this aggregates to team-season level and
+uses 8 factors (team's own 4 + opponent's 4) to predict season net rating.
+
+This model is used for the Contribution Analysis page to decompose a team's
+net rating into contributions from each of the eight factors.
+""",
+    )
+    p_train_season.add_argument(
+        "--seasons",
+        required=True,
+        help="Comma-separated seasons, e.g. 2000-01,2001-02,...,2024-25",
+    )
+    p_train_season.add_argument(
+        "--output",
+        required=True,
+        help="Output JSON filename (saved under NBA_Data/models/), e.g. season_2000-2025.json",
+    )
+
     sub.add_parser(
         "list-models",
         help="List saved model JSON files in NBA_Data/models",
@@ -1889,6 +2203,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.command == "train-models":
         return train_models(args.seasons, args.output, repo_dir)
+
+    if args.command == "train-season-models":
+        return train_season_models(args.seasons, args.output, repo_dir)
 
     if args.command == "list-models":
         return list_models(repo_dir)

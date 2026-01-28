@@ -19,6 +19,9 @@ function Layout() {
             <NavLink to="/trends" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
               Statistical Trends
             </NavLink>
+            <NavLink to="/contribution-analysis" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
+              Contribution Analysis
+            </NavLink>
           </nav>
         </div>
       </header>

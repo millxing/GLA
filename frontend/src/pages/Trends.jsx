@@ -11,6 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts'
 import { getSeasons, getTeams, getTrends } from '../api'
+import { usePersistedState } from '../hooks/usePersistedState'
 import './Trends.css'
 
 const STAT_OPTIONS = [
@@ -52,9 +53,9 @@ const GLOSSARY_ITEMS = [
 function Trends() {
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
-  const [selectedSeason, setSelectedSeason] = useState('')
-  const [selectedTeam, setSelectedTeam] = useState('')
-  const [selectedStat, setSelectedStat] = useState('net_rating')
+  const [selectedSeason, setSelectedSeason] = usePersistedState('trends_season', '')
+  const [selectedTeam, setSelectedTeam] = usePersistedState('trends_team', '')
+  const [selectedStat, setSelectedStat] = usePersistedState('trends_stat', 'net_rating')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -65,9 +66,11 @@ function Trends() {
       try {
         const res = await getSeasons()
         setSeasons(res.seasons)
-        if (res.seasons.length > 0) {
-          setSelectedSeason(res.seasons[0])
-        }
+        // Keep persisted season if valid, otherwise default to first
+        setSelectedSeason(prev => {
+          if (prev && res.seasons.includes(prev)) return prev
+          return res.seasons.length > 0 ? res.seasons[0] : ''
+        })
       } catch (err) {
         setError(err.message)
       }
@@ -81,14 +84,13 @@ function Trends() {
       try {
         const res = await getTeams(selectedSeason)
         setTeams(res.teams)
-        // Default to BOS if available, otherwise first team
-        if (res.teams.includes('BOS')) {
-          setSelectedTeam('BOS')
-        } else if (res.teams.length > 0) {
-          setSelectedTeam(res.teams[0])
-        } else {
-          setSelectedTeam('')
-        }
+        // Keep persisted team if valid, otherwise default to BOS or first team
+        setSelectedTeam(prev => {
+          if (prev && res.teams.includes(prev)) return prev
+          if (res.teams.includes('BOS')) return 'BOS'
+          if (res.teams.length > 0) return res.teams[0]
+          return ''
+        })
         setData(null)
       } catch (err) {
         setError(err.message)

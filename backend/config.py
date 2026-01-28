@@ -42,3 +42,6 @@ AVAILABLE_MODELS = [
     {"id": "2018-2025", "name": "2018-2025 Model", "file": "models/2018-2025.json"},
     {"id": "2017-2025", "name": "2017-2025 Model", "file": "models/2017-2025.json"},
 ]
+
+# Season-level models are now discovered dynamically from the GitHub repo
+# See services/data_loader.py:discover_season_models()

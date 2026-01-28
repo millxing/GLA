@@ -117,3 +117,72 @@ class TrendsResponse(BaseModel):
     data: List[TrendPoint]
     season_average: float
     league_average: float
+
+
+# Contribution Analysis schemas
+class SeasonModelItem(BaseModel):
+    id: str
+    name: str
+
+
+class SeasonModelsResponse(BaseModel):
+    models: List[SeasonModelItem]
+
+
+class ContributionTrendPoint(BaseModel):
+    """Simplified trend point for contribution analysis mini-charts."""
+    game_id: str
+    game_date: str
+    opponent: str
+    home_away: str
+    value: float
+    ma_5: float
+    wl: str
+
+
+class TopContributor(BaseModel):
+    """A top contributing factor with its trend data."""
+    factor: str
+    factor_label: str
+    value: float
+    league_avg: float
+    contribution: float
+    trend_data: List[ContributionTrendPoint]
+
+
+class ContributionAnalysisResponse(BaseModel):
+    """Response for contribution analysis endpoint."""
+    team: str
+    season: str
+    date_range_label: str
+    start_date: str
+    end_date: str
+    games_analyzed: int
+    net_rating: float
+    predicted_net_rating: float
+    contributions: Dict[str, float]
+    factor_values: Dict[str, float]
+    league_averages: Dict[str, float]
+    top_contributors: List[TopContributor]
+    intercept: float
+
+
+class LeagueContributorItem(BaseModel):
+    """A single contributor (team + factor) for league-wide top contributors."""
+    team: str
+    factor: str
+    factor_label: str
+    value: float
+    contribution: float
+
+
+class LeagueTopContributorsResponse(BaseModel):
+    """Response for league-wide top contributors endpoint."""
+    season: str
+    start_date: str
+    end_date: str
+    model_id: str
+    top_positive: List[LeagueContributorItem]
+    top_negative: List[LeagueContributorItem]
+    league_averages: Dict[str, float]
+    coefficients: Dict[str, float]  # Model coefficients for debugging

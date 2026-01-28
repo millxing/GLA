@@ -56,3 +56,47 @@ export async function getTrends(season, team, stat) {
   const params = new URLSearchParams({ season, team, stat })
   return fetchApi(`/api/trends?${params}`)
 }
+
+export async function getSeasonModels() {
+  return fetchApi('/api/season-models')
+}
+
+export async function getContributionAnalysis(
+  season,
+  team,
+  modelId,
+  dateRangeType = 'season',
+  lastNGames = null,
+  startDate = null,
+  endDate = null,
+  excludePlayoffs = false
+) {
+  const params = new URLSearchParams({
+    season,
+    team,
+    model_id: modelId,
+    date_range_type: dateRangeType,
+  })
+  if (lastNGames) params.append('last_n_games', lastNGames)
+  if (startDate) params.append('start_date', startDate)
+  if (endDate) params.append('end_date', endDate)
+  params.append('exclude_playoffs', excludePlayoffs ? 'true' : 'false')
+  return fetchApi(`/api/contribution-analysis?${params}`)
+}
+
+export async function getLeagueTopContributors(
+  season,
+  modelId,
+  startDate = null,
+  endDate = null,
+  excludePlayoffs = false
+) {
+  const params = new URLSearchParams({
+    season,
+    model_id: modelId,
+  })
+  if (startDate) params.append('start_date', startDate)
+  if (endDate) params.append('end_date', endDate)
+  params.append('exclude_playoffs', excludePlayoffs ? 'true' : 'false')
+  return fetchApi(`/api/league-top-contributors?${params}`)
+}

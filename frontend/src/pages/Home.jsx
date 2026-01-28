@@ -36,7 +36,7 @@ function Home() {
         </p>
       </div>
 
-      <div className="features grid grid-3">
+      <div className="features grid grid-2">
         <Link to="/four-factor" className="feature-card card">
           <div className="feature-icon">📊</div>
           <h2 className="feature-title">Game Analysis</h2>
@@ -68,6 +68,17 @@ function Home() {
             have evolved throughout the season.
           </p>
           <span className="feature-link">Explore Trends</span>
+        </Link>
+
+        <Link to="/contribution-analysis" className="feature-card card">
+          <div className="feature-icon">🎯</div>
+          <h2 className="feature-title">Contribution Analysis</h2>
+          <p className="feature-description">
+            Analyze a team's net rating over a period and see how each of the eight factors
+            contributed to their performance relative to league average. Identify strengths
+            and weaknesses across shooting, ball handling, rebounding, and free throws.
+          </p>
+          <span className="feature-link">Analyze Performance</span>
         </Link>
       </div>
 

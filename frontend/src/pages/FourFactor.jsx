@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import { getSeasons, getGames, getModels, getDecomposition } from '../api'
+import { usePersistedState } from '../hooks/usePersistedState'
 import './FourFactor.css'
 
 // BBRef uses different abbreviations for some teams
@@ -16,10 +17,10 @@ function FourFactor() {
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [models, setModels] = useState([])
-  const [selectedSeason, setSelectedSeason] = useState('')
+  const [selectedSeason, setSelectedSeason] = usePersistedState('fourfactor_season', '')
   const [selectedGame, setSelectedGame] = useState('')
-  const [selectedModel, setSelectedModel] = useState('')
-  const [factorType, setFactorType] = useState('eight_factors')
+  const [selectedModel, setSelectedModel] = usePersistedState('fourfactor_model', '')
+  const [factorType, setFactorType] = usePersistedState('fourfactor_factortype', 'eight_factors')
   const [decomposition, setDecomposition] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -31,12 +32,16 @@ function FourFactor() {
         const [seasonsRes, modelsRes] = await Promise.all([getSeasons(), getModels()])
         setSeasons(seasonsRes.seasons)
         setModels(modelsRes.models)
-        if (seasonsRes.seasons.length > 0) {
-          setSelectedSeason(seasonsRes.seasons[0])
-        }
-        if (modelsRes.models.length > 0) {
-          setSelectedModel(modelsRes.models[0].id)
-        }
+        // Keep persisted season if valid, otherwise default to first
+        setSelectedSeason(prev => {
+          if (prev && seasonsRes.seasons.includes(prev)) return prev
+          return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
+        })
+        // Keep persisted model if valid, otherwise default to first
+        setSelectedModel(prev => {
+          if (prev && modelsRes.models.some(m => m.id === prev)) return prev
+          return modelsRes.models.length > 0 ? modelsRes.models[0].id : ''
+        })
       } catch (err) {
         setError(err.message)
       }
@@ -122,6 +127,27 @@ function FourFactor() {
 
     return factorBars
   }
+
+  // Calculate X-axis ticks for contribution chart (every 1 point)
+  const contributionXAxisConfig = useMemo(() => {
+    const chartData = getContributionChartData()
+    if (chartData.length === 0) return { domain: [-5, 5], ticks: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5] }
+
+    const values = chartData.map(d => d.value)
+    const minVal = Math.min(...values)
+    const maxVal = Math.max(...values)
+
+    // Round to nearest integer, with some padding
+    const tickMin = Math.floor(minVal) - 1
+    const tickMax = Math.ceil(maxVal) + 1
+
+    const ticks = []
+    for (let t = tickMin; t <= tickMax; t++) {
+      ticks.push(t)
+    }
+
+    return { domain: [tickMin, tickMax], ticks }
+  }, [decomposition, factorType])
 
   const formatFactorValue = (value) => {
     if (value === null || value === undefined) return '-'
@@ -472,6 +498,8 @@ function FourFactor() {
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                   <XAxis
                     type="number"
+                    domain={contributionXAxisConfig.domain}
+                    ticks={contributionXAxisConfig.ticks}
                     tick={{ fill: 'var(--color-text-secondary)' }}
                     label={{
                       value: 'Contribution',
