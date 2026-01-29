@@ -6,6 +6,9 @@ GITHUB_BRANCH = "main"
 DATA_REPO = "NBA_Data"
 MODEL_REPO = "NBA_Data"
 
+# GitHub token for API requests (increases rate limit from 60 to 5000 requests/hour)
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
 MODEL_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{MODEL_REPO}/{GITHUB_BRANCH}"
 
@@ -43,5 +46,8 @@ AVAILABLE_MODELS = [
     {"id": "2017-2025", "name": "2017-2025 Model", "file": "models/2017-2025.json"},
 ]
 
-# Season-level models are now discovered dynamically from the GitHub repo
-# See services/data_loader.py:discover_season_models()
+# Fallback list of known season-level models (used if GitHub API discovery fails)
+# These are discovered dynamically when possible, see services/data_loader.py:discover_season_models()
+KNOWN_SEASON_MODELS = [
+    {"id": "season_2018-2025", "name": "2018-2025 Model", "file": "models/season_2018-2025.json"},
+]

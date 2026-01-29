@@ -10,6 +10,8 @@ services:
         value: https://extrapass.onrender.com,http://localhost:5173
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: GITHUB_TOKEN
+        sync: false  # Set this in Render dashboard - increases GitHub API rate limit from 60 to 5000/hour
 
   - type: web
     name: extrapass
