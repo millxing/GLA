@@ -1542,7 +1542,7 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
             )
 
         if missing_adv:
-            print(f"[warn] Missing advanced stats for: {', '.join(missing_adv)}. Games without possessions will be excluded.")
+            print(f"[info] Missing advanced stats for: {', '.join(missing_adv)}. Possessions will be estimated from box score data.")
 
         game_df = pd.concat(frames, ignore_index=True)
         adv_df = pd.concat(adv_frames, ignore_index=True) if adv_frames else None
@@ -1739,7 +1739,7 @@ def train_season_models(seasons_csv: str, output_name: str, repo_dir: Path) -> i
             )
 
         if missing_adv:
-            print(f"[warn] Missing advanced stats for: {', '.join(missing_adv)}. Games without possessions will be excluded.")
+            print(f"[info] Missing advanced stats for: {', '.join(missing_adv)}. Possessions will be estimated from box score data.")
 
         game_df = pd.concat(frames, ignore_index=True)
         adv_df = pd.concat(adv_frames, ignore_index=True) if adv_frames else None
