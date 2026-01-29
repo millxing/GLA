@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
-from config import get_available_seasons, AVAILABLE_MODELS
+from config import get_available_seasons, AVAILABLE_MODELS, ADMIN_SECRET_KEY
+from services.cache import clear_cache
 from services.data_loader import (
     get_normalized_season_data,
     get_normalized_data_with_possessions,
@@ -559,3 +560,17 @@ async def get_league_top_contributors(
         league_averages=result["league_averages"],
         coefficients=result["coefficients"],
     )
+
+
+@router.post("/admin/clear-cache")
+async def admin_clear_cache(
+    key: str = Query(..., description="Admin secret key"),
+):
+    """Clear the in-memory cache. Requires ADMIN_SECRET_KEY."""
+    if not ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Admin endpoint not configured")
+    if key != ADMIN_SECRET_KEY:
+        raise HTTPException(status_code=403, detail="Invalid key")
+
+    clear_cache()
+    return {"status": "ok", "message": "Cache cleared"}

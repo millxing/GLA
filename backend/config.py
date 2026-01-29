@@ -9,10 +9,13 @@ MODEL_REPO = "NBA_Data"
 # GitHub token for API requests (increases rate limit from 60 to 5000 requests/hour)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 
+# Admin secret key for protected endpoints (e.g., cache clearing)
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
+
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
 MODEL_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{MODEL_REPO}/{GITHUB_BRANCH}"
 
-CACHE_TTL_SECONDS = 3600
+CACHE_TTL_SECONDS = 1800  # 30 minutes
 CACHE_MAX_SIZE = 50
 
 SEASON_START_YEAR = 2000
