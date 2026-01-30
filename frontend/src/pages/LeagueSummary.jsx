@@ -614,32 +614,32 @@ function LeagueSummary() {
               Loading top contributors...
             </div>
           )}
-
-          <div className="glossary-section">
-            <button
-              className="glossary-toggle"
-              onClick={() => setGlossaryExpanded(!glossaryExpanded)}
-              aria-expanded={glossaryExpanded}
-            >
-              <span>Glossary</span>
-              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
-            </button>
-
-            {glossaryExpanded && (
-              <div className="glossary-content">
-                <dl className="glossary-list">
-                  {GLOSSARY_ITEMS.map(item => (
-                    <div key={item.term} className="glossary-item">
-                      <dt>{item.term}</dt>
-                      <dd>{item.definition}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            )}
-          </div>
         </div>
       )}
+
+      <div className="glossary-section card">
+          <button
+            className="glossary-toggle"
+            onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+            aria-expanded={glossaryExpanded}
+          >
+            <span>Glossary</span>
+            <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
+          </button>
+
+          {glossaryExpanded && (
+            <div className="glossary-content">
+              <dl className="glossary-list">
+                {GLOSSARY_ITEMS.map(item => (
+                  <div key={item.term} className="glossary-item">
+                    <dt>{item.term}</dt>
+                    <dd>{item.definition}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
+        </div>
     </div>
   )
 }

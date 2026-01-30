@@ -35,6 +35,18 @@ const STAT_OPTIONS = [
   { value: 'pace', label: 'Pace' },
 ]
 
+// Stats where lower values are better for the team
+const LOWER_IS_BETTER_STATS = new Set([
+  'def_rating',
+  'opp_efg_pct',
+  'opp_ball_handling',
+  'opp_oreb_pct',
+  'opp_ft_rate',
+  'opp_fg2_pct',
+  'opp_fg3_pct',
+  'opp_fg3a_rate',
+])
+
 const GLOSSARY_ITEMS = [
   { term: 'Net Rating', definition: 'Offensive Rating minus Defensive Rating. Measures overall point differential per 100 possessions.' },
   { term: 'ORtg', definition: 'Offensive Rating - Points scored per 100 possessions.' },
@@ -125,7 +137,7 @@ function Trends() {
     }))
   }, [data])
 
-  // Calculate Y-axis ticks at multiples of 5
+  // Calculate Y-axis ticks at multiples of 2
   const yAxisConfig = useMemo(() => {
     if (!data?.data || data.data.length === 0) return { ticks: [], domain: [0, 100] }
 
@@ -133,13 +145,13 @@ function Trends() {
     const minVal = Math.min(...values)
     const maxVal = Math.max(...values)
 
-    // Round down to nearest 5 for min, round up for max, with small padding
-    const tickMin = Math.floor((minVal - 2) / 5) * 5
-    const tickMax = Math.ceil((maxVal + 2) / 5) * 5
+    // Round down to nearest 2 for min, round up for max, with small padding
+    const tickMin = Math.floor((minVal - 1) / 2) * 2
+    const tickMax = Math.ceil((maxVal + 1) / 2) * 2
 
-    // Generate ticks at every 5
+    // Generate ticks at every 2
     const ticks = []
-    for (let t = tickMin; t <= tickMax; t += 5) {
+    for (let t = tickMin; t <= tickMax; t += 2) {
       ticks.push(t)
     }
 
@@ -176,6 +188,15 @@ function Trends() {
 
   const vsLeague = data ? (data.season_average - data.league_average).toFixed(1) : 0
   const vsLeagueFormatted = data ? (vsLeague >= 0 ? `+${vsLeague}` : vsLeague) : '-'
+
+  // Determine if team is performing better than league average
+  // For lower-is-better stats, being below league avg is good
+  const isLowerBetter = LOWER_IS_BETTER_STATS.has(selectedStat)
+  const isBetterThanLeague = data
+    ? isLowerBetter
+      ? data.season_average < data.league_average
+      : data.season_average > data.league_average
+    : false
 
   return (
     <div className="trends container">
@@ -242,16 +263,19 @@ function Trends() {
       {data && !loading && (
         <div className="results">
           <div className="chart-card card">
-            <h2 className="card-title">{data.team} {data.stat_label}</h2>
+            <h2 className="card-title">{data.team} {STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label}</h2>
             <div className="chart-legend">
               <span className="legend-item">
-                <span className="legend-line team-avg"></span> Team Average
+                <span
+                  className="legend-line"
+                  style={{ backgroundColor: isBetterThanLeague ? 'var(--color-positive)' : 'var(--color-negative)' }}
+                ></span> Team Average
               </span>
               <span className="legend-item">
                 <span className="legend-line league-avg"></span> League Average
               </span>
               <span className="legend-item">
-                <span className="legend-line ma5"></span> 5-Game Moving Average
+                <span className="legend-line ma5"></span> 5-Game Avg
               </span>
             </div>
             <div className="chart-container">
@@ -274,26 +298,24 @@ function Trends() {
                     domain={yAxisConfig.domain}
                     ticks={yAxisConfig.ticks}
                     label={{
-                      value: data.stat_label,
+                      value: STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label,
                       angle: -90,
                       position: 'insideLeft',
                       style: { fill: 'var(--color-text)', fontWeight: 600 }
                     }}
                   />
                   <Tooltip content={<CustomTooltip />} />
-                  {/* Team average line - red */}
-                  <ReferenceLine
-                    y={data.season_average}
-                    stroke="#dc2626"
-                    strokeWidth={2}
-                    strokeDasharray="none"
-                  />
                   {/* League average line - black */}
                   <ReferenceLine
                     y={data.league_average}
                     stroke="#000000"
                     strokeWidth={2}
-                    strokeDasharray="none"
+                  />
+                  {/* Team average line - green if better than league, red if worse */}
+                  <ReferenceLine
+                    y={data.season_average}
+                    stroke={isBetterThanLeague ? 'var(--color-positive)' : 'var(--color-negative)'}
+                    strokeWidth={2}
                   />
                   <Bar
                     dataKey="value"
@@ -307,8 +329,9 @@ function Trends() {
                     type="monotone"
                     dataKey="ma_5"
                     name="5-Game Avg"
-                    stroke="#16a34a"
+                    stroke="#2563eb"
                     strokeWidth={2}
+                    strokeDasharray="4 4"
                     dot={false}
                   />
                 </ComposedChart>
@@ -333,35 +356,11 @@ function Trends() {
               </div>
               <div className="stat-item">
                 <span className="stat-label">vs League</span>
-                <span className={`stat-value ${parseFloat(vsLeague) >= 0 ? 'text-positive' : 'text-negative'}`}>
+                <span className={`stat-value ${isBetterThanLeague ? 'text-positive' : 'text-negative'}`}>
                   {vsLeagueFormatted}
                 </span>
               </div>
             </div>
-          </div>
-
-          <div className="glossary-section card">
-            <button
-              className="glossary-toggle"
-              onClick={() => setGlossaryExpanded(!glossaryExpanded)}
-              aria-expanded={glossaryExpanded}
-            >
-              <span>Glossary</span>
-              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
-            </button>
-
-            {glossaryExpanded && (
-              <div className="glossary-content">
-                <dl className="glossary-list">
-                  {GLOSSARY_ITEMS.map(item => (
-                    <div key={item.term} className="glossary-item">
-                      <dt>{item.term}</dt>
-                      <dd>{item.definition}</dd>
-                    </div>
-                  ))}
-                </dl>
-              </div>
-            )}
           </div>
 
           <div className="games-table card">
@@ -396,6 +395,30 @@ function Trends() {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          <div className="glossary-section card">
+            <button
+              className="glossary-toggle"
+              onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+              aria-expanded={glossaryExpanded}
+            >
+              <span>Glossary</span>
+              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
+            </button>
+
+            {glossaryExpanded && (
+              <div className="glossary-content">
+                <dl className="glossary-list">
+                  {GLOSSARY_ITEMS.map(item => (
+                    <div key={item.term} className="glossary-item">
+                      <dt>{item.term}</dt>
+                      <dd>{item.definition}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </div>
+            )}
           </div>
         </div>
       )}

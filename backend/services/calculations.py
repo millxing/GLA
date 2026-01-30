@@ -566,6 +566,11 @@ def compute_contribution_analysis(
 
     games_analyzed = len(filtered_team)
 
+    # Compute wins/losses from points
+    wins = (filtered_team["pts"] > filtered_team["opp_pts"]).sum()
+    losses = games_analyzed - wins
+    win_pct = round(wins / games_analyzed, 3) if games_analyzed > 0 else 0.0
+
     # Compute team's aggregated stats over the period
     # Using the same logic as compute_league_aggregates but for a single team
     team_stats = _compute_team_period_stats(filtered_team)
@@ -645,6 +650,9 @@ def compute_contribution_analysis(
 
     return {
         "games_analyzed": games_analyzed,
+        "wins": int(wins),
+        "losses": int(losses),
+        "win_pct": win_pct,
         "net_rating": round(actual_net_rating, 1),
         "predicted_net_rating": round(total_contribution, 1),
         "contributions": contributions,

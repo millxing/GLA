@@ -86,16 +86,18 @@
   height: 3px;
 }
 
-.legend-line.team-avg {
-  background-color: #dc2626;
-}
-
 .legend-line.league-avg {
   background-color: #000000;
 }
 
 .legend-line.ma5 {
-  background-color: #16a34a;
+  background: repeating-linear-gradient(
+    90deg,
+    #2563eb 0px,
+    #2563eb 4px,
+    transparent 4px,
+    transparent 8px
+  );
 }
 
 .chart-container {

@@ -158,6 +158,9 @@ class ContributionAnalysisResponse(BaseModel):
     start_date: str
     end_date: str
     games_analyzed: int
+    wins: int
+    losses: int
+    win_pct: float
     net_rating: float
     predicted_net_rating: float
     contributions: Dict[str, float]

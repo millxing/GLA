@@ -192,12 +192,37 @@
   background-color: rgba(244, 67, 54, 0.15);
 }
 
+.table-legend {
+  display: flex;
+  gap: var(--spacing-md);
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--spacing-sm);
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 2px;
+}
+
 .contributions-chart {
   width: 100%;
 }
 
+.contributions-chart .card-title {
+  font-size: 1.25rem;
+}
+
 .chart-subtitle {
-  font-size: 0.875rem;
+  font-size: 1rem;
   color: var(--color-text-secondary);
   margin-bottom: var(--spacing-md);
 }

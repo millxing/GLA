@@ -130,6 +130,17 @@ async def get_decomposition(
     if model is None:
         raise HTTPException(status_code=500, detail="Failed to load model")
 
+    # Load season data to compute league average ratings
+    season_df = await get_normalized_data_with_possessions(season)
+    league_avg_off_rating = None
+    league_avg_def_rating = None
+    if season_df is not None and len(season_df) > 0:
+        # Use compute_league_aggregates to get team stats with computed ratings
+        team_stats = compute_league_aggregates(season_df, None, None, exclude_playoffs=False)
+        if len(team_stats) > 0:
+            league_avg_off_rating = round(team_stats["off_rating"].mean(), 1)
+            league_avg_def_rating = round(team_stats["def_rating"].mean(), 1)
+
     home_row = game_data["home"]
     road_row = game_data["road"]
 
@@ -251,8 +262,13 @@ async def get_decomposition(
     if factor_type == "eight_factors":
         response.factor_values = decomposition.get("factor_values")
 
-    # Include league averages for both factor types
-    response.league_averages = decomposition.get("league_averages")
+    # Include league averages for both factor types, adding ratings averages
+    league_avgs = decomposition.get("league_averages", {}) or {}
+    if league_avg_off_rating is not None:
+        league_avgs["off_rating"] = league_avg_off_rating
+    if league_avg_def_rating is not None:
+        league_avgs["def_rating"] = league_avg_def_rating
+    response.league_averages = league_avgs
 
     return response
 
@@ -478,6 +494,9 @@ async def get_contribution_analysis(
         start_date=result["start_date"],
         end_date=result["end_date"],
         games_analyzed=result["games_analyzed"],
+        wins=result["wins"],
+        losses=result["losses"],
+        win_pct=result["win_pct"],
         net_rating=result["net_rating"],
         predicted_net_rating=result["predicted_net_rating"],
         contributions=result["contributions"],

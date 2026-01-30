@@ -164,8 +164,6 @@
 /* Glossary section */
 .glossary-section {
   margin-top: var(--spacing-lg);
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--spacing-md);
 }
 
 .glossary-toggle {
@@ -335,10 +333,6 @@
   color: var(--color-text-secondary);
 }
 
-/* Extra spacing before glossary */
-.glossary-section {
-  margin-top: var(--spacing-xl, 2rem);
-}
 
 @media (max-width: 768px) {
   .summary-table {

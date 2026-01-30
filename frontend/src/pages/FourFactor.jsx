@@ -174,6 +174,25 @@ function FourFactor() {
     return value >= avg ? 'bg-positive' : 'bg-negative'
   }
 
+  // Determine color class for ratings based on league average
+  // For ORtg: higher is better (above avg = green)
+  // For DRtg: lower is better (below avg = green)
+  const getRatingCellClass = (value, ratingType) => {
+    if (!decomposition?.league_averages || value === null || value === undefined) return ''
+
+    const avgKey = ratingType === 'off' ? 'off_rating' : 'def_rating'
+    const avg = decomposition.league_averages[avgKey]
+    if (avg === undefined) return ''
+
+    if (ratingType === 'off') {
+      // Higher ORtg is better
+      return value >= avg ? 'bg-positive' : 'bg-negative'
+    } else {
+      // Lower DRtg is better
+      return value <= avg ? 'bg-positive' : 'bg-negative'
+    }
+  }
+
   // Format game type from snake_case to readable format
   const formatGameType = (type) => {
     if (!type) return ''
@@ -397,6 +416,10 @@ function FourFactor() {
           <div className="analysis-grid">
             <div className="factors-table card">
               <h2 className="card-title">Factor Comparison</h2>
+              <p className="table-legend">
+                <span className="legend-item"><span className="legend-swatch bg-positive"></span> Better than league avg</span>
+                <span className="legend-item"><span className="legend-swatch bg-negative"></span> Worse than league avg</span>
+              </p>
               <table>
                 <thead>
                   <tr>
@@ -445,6 +468,10 @@ function FourFactor() {
 
             <div className="ratings-table card">
               <h2 className="card-title">Game Ratings</h2>
+              <p className="table-legend">
+                <span className="legend-item"><span className="legend-swatch bg-positive"></span> Better than league avg</span>
+                <span className="legend-item"><span className="legend-swatch bg-negative"></span> Worse than league avg</span>
+              </p>
               <table>
                 <thead>
                   <tr>
@@ -456,13 +483,13 @@ function FourFactor() {
                 <tbody>
                   <tr>
                     <td>Offensive Rating</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.offensive_rating)}</td>
+                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
+                    <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.road_ratings.offensive_rating)}</td>
                   </tr>
                   <tr>
                     <td>Defensive Rating</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.defensive_rating)}</td>
+                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
+                    <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.road_ratings.defensive_rating)}</td>
                   </tr>
                   <tr>
                     <td>Net Rating</td>
@@ -484,9 +511,11 @@ function FourFactor() {
           </div>
 
           <div className="contributions-chart card">
-            <h2 className="card-title">Factor Contributions to Predicted Rating Differential</h2>
+            <h2 className="card-title">Factor Contributions to Rating Differential</h2>
             <p className="chart-subtitle">
-              Per-100-possession contribution. Positive values favor the home team ({decomposition.home_team}), negative favor road ({decomposition.road_team})
+              green bars show factors helping the home team ({decomposition.home_team})
+              <br />
+              red bars show factors helping the road team ({decomposition.road_team})
             </p>
             <div className="chart-container">
               <ResponsiveContainer width="100%" height={550}>

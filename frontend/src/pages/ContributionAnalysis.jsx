@@ -14,6 +14,7 @@ import {
   Cell,
 } from 'recharts'
 import { getSeasons, getTeams, getLeagueSummary, getSeasonModels, getContributionAnalysis } from '../api'
+import { getTeamName } from '../constants/teams'
 import './ContributionAnalysis.css'
 
 const DATE_RANGE_OPTIONS = [
@@ -57,6 +58,14 @@ const FACTOR_LABELS = {
   opp_orebounding: 'Opp Off Rebounding',
   opp_free_throws: 'Opp Free Throws',
 }
+
+// Factors where lower values are better (opponent stats)
+const LOWER_IS_BETTER_FACTORS = new Set([
+  'opp_shooting',
+  'opp_ball_handling',
+  'opp_orebounding',
+  'opp_free_throws',
+])
 
 function ContributionAnalysis() {
   const [seasons, setSeasons] = useState([])
@@ -381,7 +390,8 @@ function ContributionAnalysis() {
               <div className="games-count">{data.games_analyzed} games</div>
             </div>
             <div className="summary-team">
-              {data.team}
+              <div className="team-name">{getTeamName(data.team)}</div>
+              <div className="team-record">{data.wins}-{data.losses} .{(data.win_pct * 1000).toFixed(0).padStart(3, '0')}</div>
             </div>
             <div className="summary-ratings">
               <div className="rating-row">
@@ -582,6 +592,22 @@ function MiniContributorChart({ contributor, index }) {
               width={35}
             />
             <Tooltip content={<CustomTooltip />} />
+            <ReferenceLine
+              y={contributor.league_avg}
+              stroke="#000000"
+              strokeWidth={1.5}
+            />
+            <ReferenceLine
+              y={contributor.value}
+              stroke={(() => {
+                const isLowerBetter = LOWER_IS_BETTER_FACTORS.has(contributor.factor)
+                const isBetter = isLowerBetter
+                  ? contributor.value < contributor.league_avg
+                  : contributor.value >= contributor.league_avg
+                return isBetter ? 'var(--color-positive)' : 'var(--color-negative)'
+              })()}
+              strokeWidth={1.5}
+            />
             <Bar
               dataKey="value"
               barSize={8}
@@ -594,6 +620,7 @@ function MiniContributorChart({ contributor, index }) {
               dataKey="ma_5"
               stroke="#2563eb"
               strokeWidth={2}
+              strokeDasharray="4 4"
               dot={false}
             />
           </ComposedChart>

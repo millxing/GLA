@@ -63,10 +63,19 @@
 }
 
 .summary-team {
-  font-size: 2.5rem;
-  font-weight: 700;
   text-align: center;
   flex: 1;
+}
+
+.team-name {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.team-record {
+  font-size: 1.25rem;
+  color: var(--color-text-secondary);
+  margin-top: var(--spacing-xs);
 }
 
 .summary-ratings {
