@@ -144,11 +144,32 @@ function FourFactor() {
       'road_free_throws': `${decomposition.road_team} FT Rate`,
     }
 
+    // Map contribution keys to actual factor values
+    const getFactorValue = (factor) => {
+      const valueMap = {
+        'shooting': `${decomposition.road_factors.efg.toFixed(1)} vs ${decomposition.home_factors.efg.toFixed(1)}`,
+        'ball_handling': `${decomposition.road_factors.ball_handling.toFixed(1)} vs ${decomposition.home_factors.ball_handling.toFixed(1)}`,
+        'orebounding': `${decomposition.road_factors.oreb.toFixed(1)} vs ${decomposition.home_factors.oreb.toFixed(1)}`,
+        'free_throws': `${decomposition.road_factors.ft_rate.toFixed(1)} vs ${decomposition.home_factors.ft_rate.toFixed(1)}`,
+        'home_shooting': decomposition.home_factors.efg.toFixed(1),
+        'road_shooting': decomposition.road_factors.efg.toFixed(1),
+        'home_ball_handling': decomposition.home_factors.ball_handling.toFixed(1),
+        'road_ball_handling': decomposition.road_factors.ball_handling.toFixed(1),
+        'home_orebounding': decomposition.home_factors.oreb.toFixed(1),
+        'road_orebounding': decomposition.road_factors.oreb.toFixed(1),
+        'home_free_throws': decomposition.home_factors.ft_rate.toFixed(1),
+        'road_free_throws': decomposition.road_factors.ft_rate.toFixed(1),
+      }
+      return valueMap[factor] || null
+    }
+
     // Build factor bars sorted by value descending (most positive at top)
     const factorBars = Object.entries(contributions)
       .map(([factor, value]) => ({
         factor: factorLabels[factor] || factor,
+        factorKey: factor,
         value,
+        actualValue: getFactorValue(factor),
         fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
       }))
       .sort((a, b) => b.value - a.value)
@@ -547,12 +568,80 @@ function FourFactor() {
           </div>
 
           <div className="contributions-chart card">
-            <h2 className="card-title">Factor Contributions to Rating Differential</h2>
-            <p className="chart-subtitle">
-              green bars show factors helping the home team ({decomposition.home_team})
-              <br />
-              red bars show factors helping the road team ({decomposition.road_team})
-            </p>
+            <div className="chart-header">
+              <h2 className="card-title">Factor Contributions to Rating Differential</h2>
+              <div className="chart-legend">
+                <span className="legend-item">
+                  <span className="legend-swatch bg-positive"></span>
+                  Helps {decomposition.home_team}
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch bg-negative"></span>
+                  Helps {decomposition.road_team}
+                </span>
+              </div>
+            </div>
+
+            <div className="chart-container">
+              <ResponsiveContainer width="100%" height={550}>
+                <BarChart
+                  data={getContributionChartData()}
+                  layout="vertical"
+                  margin={{ top: 20, right: 30, left: 160, bottom: 20 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                  <XAxis
+                    type="number"
+                    domain={contributionXAxisConfig.domain}
+                    ticks={contributionXAxisConfig.ticks}
+                    tick={{ fill: 'var(--color-text-secondary)' }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="factor"
+                    tick={{ fill: 'var(--color-text-secondary)' }}
+                    width={150}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'var(--color-background)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--border-radius-sm)',
+                    }}
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null
+                      const data = payload[0].payload
+                      return (
+                        <div style={{
+                          backgroundColor: 'var(--color-background)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--border-radius-sm)',
+                          padding: '8px 12px',
+                        }}>
+                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>{data.factor}</div>
+                          {data.actualValue && (
+                            <div style={{ color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+                              Value: {data.actualValue}
+                            </div>
+                          )}
+                          <div>Contribution: {data.value.toFixed(1)}</div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <ReferenceLine x={0} stroke="var(--color-neutral)" />
+                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                    {getContributionChartData().map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000000" strokeWidth={1} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="chart-axis-labels">
+              <span className="axis-label-left">← Helps {decomposition.road_team}</span>
+              <span className="axis-label-right">Helps {decomposition.home_team} →</span>
+            </div>
 
             {/* AI Interpretation */}
             <div className="interpretation-box">
@@ -568,50 +657,6 @@ function FourFactor() {
                   <p>{interpretation}</p>
                 </div>
               )}
-            </div>
-
-            <div className="chart-container">
-              <ResponsiveContainer width="100%" height={550}>
-                <BarChart
-                  data={getContributionChartData()}
-                  layout="vertical"
-                  margin={{ top: 20, right: 30, left: 160, bottom: 40 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis
-                    type="number"
-                    domain={contributionXAxisConfig.domain}
-                    ticks={contributionXAxisConfig.ticks}
-                    tick={{ fill: 'var(--color-text-secondary)' }}
-                    label={{
-                      value: 'Contribution',
-                      position: 'bottom',
-                      offset: 10,
-                      style: { fill: 'var(--color-text)', fontWeight: 600 }
-                    }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="factor"
-                    tick={{ fill: 'var(--color-text-secondary)' }}
-                    width={150}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--color-background)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--border-radius-sm)',
-                    }}
-                    formatter={(value) => [value.toFixed(1), 'Contribution']}
-                  />
-                  <ReferenceLine x={0} stroke="var(--color-neutral)" />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {getContributionChartData().map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000000" strokeWidth={1} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
             </div>
           </div>
 
