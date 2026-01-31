@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { getSeasons, getGames, getModels, getDecomposition } from '../api'
+import { getSeasons, getGames, getModels, getDecomposition, getInterpretation } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
 import './FourFactor.css'
 
@@ -12,6 +12,23 @@ const BBREF_TEAM_MAP = {
 }
 
 const toBBRefTeam = (team) => BBREF_TEAM_MAP[team] || team
+
+// Team abbreviation to city name mapping
+const TEAM_CITIES = {
+  ATL: 'Atlanta', BOS: 'Boston', BKN: 'Brooklyn', CHA: 'Charlotte',
+  CHI: 'Chicago', CLE: 'Cleveland', DAL: 'Dallas', DEN: 'Denver',
+  DET: 'Detroit', GSW: 'Golden State', HOU: 'Houston', IND: 'Indiana',
+  LAC: 'LA Clippers', LAL: 'LA Lakers', MEM: 'Memphis', MIA: 'Miami',
+  MIL: 'Milwaukee', MIN: 'Minnesota', NOP: 'New Orleans', NYK: 'New York',
+  OKC: 'Oklahoma City', ORL: 'Orlando', PHI: 'Philadelphia', PHX: 'Phoenix',
+  POR: 'Portland', SAC: 'Sacramento', SAS: 'San Antonio', TOR: 'Toronto',
+  UTA: 'Utah', WAS: 'Washington',
+  // Historical/alternate abbreviations
+  NJN: 'New Jersey', SEA: 'Seattle', VAN: 'Vancouver', CHO: 'Charlotte',
+  NOH: 'New Orleans', NOK: 'New Orleans/Oklahoma City',
+}
+
+const toCityName = (abbr) => TEAM_CITIES[abbr] || abbr
 
 function FourFactor() {
   const [seasons, setSeasons] = useState([])
@@ -25,6 +42,8 @@ function FourFactor() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const [interpretation, setInterpretation] = useState(null)
+  const [interpretationLoading, setInterpretationLoading] = useState(false)
 
   useEffect(() => {
     async function loadInitialData() {
@@ -85,6 +104,24 @@ function FourFactor() {
     }
     loadDecomposition()
   }, [selectedSeason, selectedGame, selectedModel, factorType])
+
+  useEffect(() => {
+    async function loadInterpretation() {
+      if (!decomposition || !selectedModel) return
+
+      setInterpretationLoading(true)
+      try {
+        const data = await getInterpretation(decomposition, factorType, selectedModel)
+        setInterpretation(data.interpretation)
+      } catch (err) {
+        // Silently fail - interpretation is optional enhancement
+        setInterpretation(null)
+      } finally {
+        setInterpretationLoading(false)
+      }
+    }
+    loadInterpretation()
+  }, [decomposition, factorType, selectedModel])
 
   const getContributionChartData = () => {
     if (!decomposition) return []
@@ -335,12 +372,12 @@ function FourFactor() {
             <div className="game-header-content">
               <div className="matchup-left">
                 <div className="team road-team">
-                  <span className="team-abbr">{decomposition.road_team}</span>
+                  <span className="team-abbr">{toCityName(decomposition.road_team)}</span>
                   <span className="team-score">{decomposition.road_pts}</span>
                 </div>
                 <div className="at-symbol">@</div>
                 <div className="team home-team">
-                  <span className="team-abbr">{decomposition.home_team}</span>
+                  <span className="team-abbr">{toCityName(decomposition.home_team)}</span>
                   <span className="team-score">{decomposition.home_pts}</span>
                 </div>
               </div>
@@ -387,10 +424,12 @@ function FourFactor() {
                 </div>
               )}
               <div className="game-info-right">
-                <div className="game-date">{decomposition.game_date}</div>
-                {decomposition.game_type && (
-                  <div className="game-type">{formatGameType(decomposition.game_type)}</div>
-                )}
+                <div className="game-info-details">
+                  <div className="game-date">{decomposition.game_date}</div>
+                  {decomposition.game_type && (
+                    <div className="game-type">{formatGameType(decomposition.game_type)}</div>
+                  )}
+                </div>
                 <div className="external-links">
                   <a
                     href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
@@ -424,43 +463,35 @@ function FourFactor() {
                 <thead>
                   <tr>
                     <th>Factor</th>
-                    <th className="text-center">{decomposition.home_team} (Home)</th>
-                    <th className="text-center">{decomposition.road_team} (Road)</th>
-                    <th className="text-center">Differential</th>
+                    <th className="text-center">{decomposition.road_team}</th>
+                    <th className="text-center">{decomposition.home_team}</th>
+                    <th className="text-center">Lg Avg</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td>Shooting</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.home_factors.efg)}</td>
+                    <td>Shooting (eFG%)</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.road_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.road_factors.efg)}</td>
-                    <td className={`text-center ${(decomposition.home_factors.efg - decomposition.road_factors.efg) >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {formatFactorValue(decomposition.home_factors.efg - decomposition.road_factors.efg)}
-                    </td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.home_factors.efg)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.efg)}</td>
                   </tr>
                   <tr>
                     <td>Ball Handling</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.road_factors.ball_handling)}</td>
-                    <td className={`text-center ${(decomposition.home_factors.ball_handling - decomposition.road_factors.ball_handling) >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {formatFactorValue(decomposition.home_factors.ball_handling - decomposition.road_factors.ball_handling)}
-                    </td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.ball_handling)}</td>
                   </tr>
                   <tr>
                     <td>Off Rebounding</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.home_factors.oreb)}</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.road_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.road_factors.oreb)}</td>
-                    <td className={`text-center ${(decomposition.home_factors.oreb - decomposition.road_factors.oreb) >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {formatFactorValue(decomposition.home_factors.oreb - decomposition.road_factors.oreb)}
-                    </td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.home_factors.oreb)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.oreb)}</td>
                   </tr>
                   <tr>
                     <td>FT Rate</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
                     <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.road_factors.ft_rate)}</td>
-                    <td className={`text-center ${(decomposition.home_factors.ft_rate - decomposition.road_factors.ft_rate) >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {formatFactorValue(decomposition.home_factors.ft_rate - decomposition.road_factors.ft_rate)}
-                    </td>
+                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.ft_rate)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -476,34 +507,39 @@ function FourFactor() {
                 <thead>
                   <tr>
                     <th>Metric</th>
-                    <th className="text-center">{decomposition.home_team}</th>
                     <th className="text-center">{decomposition.road_team}</th>
+                    <th className="text-center">{decomposition.home_team}</th>
+                    <th className="text-center">Lg Avg</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
                     <td>Offensive Rating</td>
-                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
                     <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.road_ratings.offensive_rating)}</td>
+                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.off_rating)}</td>
                   </tr>
                   <tr>
                     <td>Defensive Rating</td>
-                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
                     <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.road_ratings.defensive_rating)}</td>
+                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.def_rating)}</td>
                   </tr>
                   <tr>
                     <td>Net Rating</td>
-                    <td className={`text-center ${decomposition.home_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {decomposition.home_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.home_ratings.net_rating)}
-                    </td>
                     <td className={`text-center ${decomposition.road_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
                       {decomposition.road_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.road_ratings.net_rating)}
                     </td>
+                    <td className={`text-center ${decomposition.home_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                      {decomposition.home_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.home_ratings.net_rating)}
+                    </td>
+                    <td className="text-center text-secondary">0.0</td>
                   </tr>
                   <tr>
                     <td>Pace</td>
+                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.pace ?? decomposition.road_ratings.possessions)}</td>
                     <td className="text-center">{formatFactorValue(decomposition.home_ratings.pace ?? decomposition.home_ratings.possessions)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.pace ?? decomposition.home_ratings.possessions)}</td>
+                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.pace)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -517,6 +553,23 @@ function FourFactor() {
               <br />
               red bars show factors helping the road team ({decomposition.road_team})
             </p>
+
+            {/* AI Interpretation */}
+            <div className="interpretation-box">
+              {interpretationLoading && (
+                <div className="interpretation-loading">
+                  <span className="interpretation-spinner"></span>
+                  Generating analysis...
+                </div>
+              )}
+              {interpretation && !interpretationLoading && (
+                <div className="interpretation-content">
+                  <span className="interpretation-icon">AI</span>
+                  <p>{interpretation}</p>
+                </div>
+              )}
+            </div>
+
             <div className="chart-container">
               <ResponsiveContainer width="100%" height={550}>
                 <BarChart

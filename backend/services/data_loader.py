@@ -123,6 +123,23 @@ async def load_linescores(season: str) -> Optional[pd.DataFrame]:
     url = f"{DATA_BASE_URL}/linescores_{season}.csv"
     return await fetch_csv(url)
 
+def _normalize_game_type(game_type: str) -> str:
+    """Normalize game_type values to consistent format.
+
+    Older seasons use 'playoff' and 'playin', newer seasons use 'playoffs' and 'play_in'.
+    Standardize to the newer format for consistent filtering.
+    """
+    if not game_type:
+        return "regular_season"
+    gt = str(game_type).strip().lower()
+    # Normalize variations
+    if gt == "playoff":
+        return "playoffs"
+    if gt == "playin":
+        return "play_in"
+    return gt
+
+
 def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
     cache_key = get_cache_key("normalize_game_logs", season)
     cached = get_cached(cache_key)
@@ -134,7 +151,7 @@ def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
     for _, row in df.iterrows():
         game_id = row.get("game_id")
         game_date = row.get("game_date")
-        game_type = row.get("game_type", "Regular Season")
+        game_type = _normalize_game_type(row.get("game_type", "regular_season"))
 
         home_team = row.get("team_abbreviation_home")
         road_team = row.get("team_abbreviation_road")

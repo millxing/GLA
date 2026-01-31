@@ -22,6 +22,7 @@ from services.calculations import (
     compute_contribution_analysis,
     compute_league_top_contributors,
 )
+from services.llm import generate_interpretation, is_llm_configured
 from schemas.models import (
     SeasonResponse,
     GamesResponse,
@@ -43,6 +44,8 @@ from schemas.models import (
     ContributionTrendPoint,
     LeagueContributorItem,
     LeagueTopContributorsResponse,
+    InterpretationRequest,
+    InterpretationResponse,
 )
 
 STAT_ALIASES = {
@@ -134,12 +137,15 @@ async def get_decomposition(
     season_df = await get_normalized_data_with_possessions(season)
     league_avg_off_rating = None
     league_avg_def_rating = None
+    league_avg_pace = None
     if season_df is not None and len(season_df) > 0:
         # Use compute_league_aggregates to get team stats with computed ratings
         team_stats = compute_league_aggregates(season_df, None, None, exclude_playoffs=False)
         if len(team_stats) > 0:
             league_avg_off_rating = round(team_stats["off_rating"].mean(), 1)
             league_avg_def_rating = round(team_stats["def_rating"].mean(), 1)
+            if "pace" in team_stats.columns:
+                league_avg_pace = round(team_stats["pace"].mean(), 1)
 
     home_row = game_data["home"]
     road_row = game_data["road"]
@@ -264,13 +270,53 @@ async def get_decomposition(
 
     # Include league averages for both factor types, adding ratings averages
     league_avgs = decomposition.get("league_averages", {}) or {}
+    # Normalize oreb_pct to oreb for consistency with home_factors/road_factors
+    if "oreb_pct" in league_avgs and "oreb" not in league_avgs:
+        league_avgs["oreb"] = league_avgs.pop("oreb_pct")
     if league_avg_off_rating is not None:
         league_avgs["off_rating"] = league_avg_off_rating
     if league_avg_def_rating is not None:
         league_avgs["def_rating"] = league_avg_def_rating
+    if league_avg_pace is not None:
+        league_avgs["pace"] = league_avg_pace
     response.league_averages = league_avgs
 
     return response
+
+
+@router.post("/interpretation", response_model=InterpretationResponse)
+async def get_interpretation(request: InterpretationRequest):
+    """Generate AI interpretation of factor contributions for a game."""
+    if not is_llm_configured():
+        raise HTTPException(status_code=503, detail="Interpretation service not configured")
+
+    # Build data dict for LLM service
+    decomposition_data = {
+        "game_id": request.game_id,
+        "game_date": request.game_date,
+        "home_team": request.home_team,
+        "road_team": request.road_team,
+        "home_pts": request.home_pts,
+        "road_pts": request.road_pts,
+        "contributions": request.contributions,
+        "predicted_rating_diff": request.predicted_rating_diff,
+        "actual_rating_diff": request.actual_rating_diff,
+        "home_factors": request.home_factors,
+        "road_factors": request.road_factors,
+        "league_averages": request.league_averages,
+    }
+
+    interpretation = await generate_interpretation(
+        decomposition_data=decomposition_data,
+        factor_type=request.factor_type,
+        model_id=request.model_id,
+    )
+
+    if interpretation is None:
+        raise HTTPException(status_code=503, detail="Failed to generate interpretation")
+
+    return InterpretationResponse(interpretation=interpretation)
+
 
 @router.get("/league-summary", response_model=LeagueSummaryResponse)
 async def get_league_summary(

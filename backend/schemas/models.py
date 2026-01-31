@@ -189,3 +189,26 @@ class LeagueTopContributorsResponse(BaseModel):
     top_negative: List[LeagueContributorItem]
     league_averages: Dict[str, float]
     coefficients: Dict[str, float]  # Model coefficients for debugging
+
+
+class InterpretationRequest(BaseModel):
+    """Request body for chart interpretation."""
+    game_id: str
+    game_date: str
+    home_team: str
+    road_team: str
+    home_pts: int
+    road_pts: int
+    contributions: Dict[str, float]
+    predicted_rating_diff: float
+    actual_rating_diff: float
+    factor_type: str
+    model_id: str
+    home_factors: Optional[Dict[str, float]] = None
+    road_factors: Optional[Dict[str, float]] = None
+    league_averages: Optional[Dict[str, float]] = None
+
+
+class InterpretationResponse(BaseModel):
+    """Response for chart interpretation."""
+    interpretation: str

@@ -198,6 +198,12 @@ STAT_MAP = {
 # Expected CSV format: date,game_type (e.g., "2024-12-14,nba_cup_semi")
 NBA_CUP_DATES_FILE = Path(__file__).parent.parent.parent / "NBACup_knockout_dates.csv"
 
+# Cancelled/invalid games to exclude (game was scheduled but never played)
+# IND @ BOS on 2013-04-16 was cancelled due to Boston Marathon bombing, never rescheduled
+CANCELLED_GAME_IDS = {
+    "0021201214",  # 2012-13 IND @ BOS cancelled 4/16/2013
+}
+
 
 def _load_nba_cup_dates() -> Dict[str, str]:
     """Load NBA Cup knockout dates from CSV file.
@@ -357,9 +363,13 @@ def _advanced_filename(season: str) -> str:
 def _snake_case(x: object) -> str:
     s = str(x).strip().lower()
     s = re.sub(r"[^a-z0-9]+", "_", s).strip("_")
-    # Common normalization
+    # Common normalization for game_type consistency
     if s == "regularseason":
         return "regular_season"
+    if s == "playoff":
+        return "playoffs"
+    if s == "playin":
+        return "play_in"
     return s
 
 
@@ -438,6 +448,12 @@ def _normalize_game_level_df(df: pd.DataFrame) -> pd.DataFrame:
 
     # De-dupe by game_id (game-level identity)
     d = d.drop_duplicates(subset=["game_id"], keep="first")
+
+    # Remove known cancelled games
+    cancelled_mask = d["game_id"].isin(CANCELLED_GAME_IDS)
+    if cancelled_mask.any():
+        print(f"[data] Filtering out {cancelled_mask.sum()} cancelled game(s)")
+        d = d[~cancelled_mask].copy()
 
     # Sort by game_date
     if "game_date" in d.columns:

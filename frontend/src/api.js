@@ -100,3 +100,25 @@ export async function getLeagueTopContributors(
   params.append('exclude_playoffs', excludePlayoffs ? 'true' : 'false')
   return fetchApi(`/api/league-top-contributors?${params}`)
 }
+
+export async function getInterpretation(decomposition, factorType, modelId) {
+  return fetchApi('/api/interpretation', {
+    method: 'POST',
+    body: JSON.stringify({
+      game_id: decomposition.game_id,
+      game_date: decomposition.game_date,
+      home_team: decomposition.home_team,
+      road_team: decomposition.road_team,
+      home_pts: decomposition.home_pts,
+      road_pts: decomposition.road_pts,
+      contributions: decomposition.contributions,
+      predicted_rating_diff: decomposition.predicted_rating_diff,
+      actual_rating_diff: decomposition.actual_rating_diff,
+      factor_type: factorType,
+      model_id: modelId,
+      home_factors: decomposition.home_factors,
+      road_factors: decomposition.road_factors,
+      league_averages: decomposition.league_averages,
+    }),
+  })
+}

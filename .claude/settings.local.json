@@ -15,7 +15,12 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Read(//Users/robschoen/Dropbox/CC/NBA_Data/models/**)",
       "Read(//Users/robschoen/Dropbox/CC/NBA_Data/**)",
-      "Read(//Users/robschoen/Dropbox/CC/**)"
+      "Read(//Users/robschoen/Dropbox/CC/**)",
+      "Bash(git -C /Users/robschoen/Dropbox/CC/GLA log --oneline --max-count=20)",
+      "Bash(git add:*)",
+      "Bash(git push)",
+      "Bash(gh run view:*)",
+      "Bash(launchctl list:*)"
     ]
   }
 }
