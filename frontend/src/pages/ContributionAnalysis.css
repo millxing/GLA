@@ -125,8 +125,70 @@
   margin: 0 0 var(--spacing-sm) 0;
 }
 
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+.chart-header .card-title {
+  margin-bottom: 0;
+}
+
+.chart-legend {
+  display: flex;
+  gap: var(--spacing-lg);
+}
+
+.chart-legend .legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 1rem;
+}
+
+.chart-legend .legend-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+
+.chart-wrapper {
+  position: relative;
+}
+
+.y-axis-labels {
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 1rem;
+  font-weight: 600;
+  width: 70px;
+  text-align: center;
+}
+
+.axis-label-positive {
+  color: var(--color-positive);
+}
+
+.axis-label-negative {
+  color: var(--color-negative);
+}
+
 .chart-container {
   width: 100%;
+}
+
+.chart-wrapper .chart-container {
+  margin-left: 70px;
 }
 
 .chart-container--main {

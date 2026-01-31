@@ -12,6 +12,7 @@ import {
 } from 'recharts'
 import { getSeasons, getTeams, getTrends } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { getTeamName } from '../constants/teams'
 import './Trends.css'
 
 const STAT_OPTIONS = [
@@ -263,7 +264,7 @@ function Trends() {
       {data && !loading && (
         <div className="results">
           <div className="chart-card card">
-            <h2 className="card-title">{data.team} {STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label}</h2>
+            <h2 className="card-title">{getTeamName(data.team)} {STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label}</h2>
             <div className="chart-legend">
               <span className="legend-item">
                 <span

@@ -246,15 +246,21 @@ function ContributionAnalysis() {
         name: 'Net Rating',
         value: data.net_rating,
         fill: 'var(--color-primary)',
+        isNetRating: true,
       },
     ]
 
     // Factor contributions sorted from most positive to most negative
     const contributionBars = FACTOR_ORDER.map((factor) => {
       const contribution = data.contributions[factor] || 0
+      const actualValue = data.factor_values?.[factor]
+      const leagueAvg = data.league_averages?.[factor]
       return {
         name: FACTOR_LABELS[factor] || factor,
+        factor: factor,
         value: contribution,
+        actualValue: actualValue,
+        leagueAvg: leagueAvg,
         fill: contribution >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
       }
     }).sort((a, b) => b.value - a.value)
@@ -416,47 +422,78 @@ function ContributionAnalysis() {
           </div>
 
           <div className="main-chart card">
-            <h2 className="card-title">Net Rating Decomposition</h2>
-            <p className="chart-subtitle">
-              How each factor contributed to the team's net rating relative to league average
-            </p>
-            <div className="chart-container chart-container--main">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={mainChartData}
-                  margin={{ top: 5, right: 10, left: 10, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fill: 'var(--color-text)', fontSize: 14 }}
-                    textAnchor="middle"
-                    height={40}
-                    interval={0}
-                  />
-                  <YAxis
-                    domain={mainChartYAxis.domain}
-                    ticks={mainChartYAxis.ticks}
-                    tick={{ fill: 'var(--color-text-secondary)' }}
-                    width={40}
-                  />
-                  <Tooltip
-                    formatter={(value) => [value.toFixed(2), 'Value']}
-                    labelStyle={{ color: '#1f2937' }}
-                    contentStyle={{
-                      backgroundColor: '#ffffff',
-                      border: '1px solid var(--color-border)',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                    }}
-                  />
-                  <ReferenceLine y={0} stroke="var(--color-text)" strokeWidth={2} />
-                  <Bar dataKey="value" barSize={45}>
-                    {mainChartData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000" strokeWidth={1} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+            <div className="chart-header">
+              <h2 className="card-title">Net Rating Decomposition</h2>
+              <div className="chart-legend">
+                <span className="legend-item">
+                  <span className="legend-swatch bg-positive"></span>
+                  Above Avg
+                </span>
+                <span className="legend-item">
+                  <span className="legend-swatch bg-negative"></span>
+                  Below Avg
+                </span>
+              </div>
+            </div>
+            <div className="chart-wrapper">
+              <div className="y-axis-labels">
+                <span className="axis-label-positive">Above Avg</span>
+                <span className="axis-label-negative">Below Avg</span>
+              </div>
+              <div className="chart-container chart-container--main">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={mainChartData}
+                    margin={{ top: 5, right: 50, left: 10, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fill: 'var(--color-text)', fontSize: 14 }}
+                      textAnchor="middle"
+                      height={40}
+                      interval={0}
+                    />
+                    <YAxis
+                      domain={mainChartYAxis.domain}
+                      ticks={mainChartYAxis.ticks}
+                      tick={{ fill: 'var(--color-text-secondary)' }}
+                      width={40}
+                    />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !payload || !payload.length) return null
+                        const d = payload[0].payload
+                        return (
+                          <div style={{
+                            backgroundColor: '#ffffff',
+                            border: '1px solid var(--color-border)',
+                            borderRadius: '4px',
+                            padding: '8px 12px',
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                          }}>
+                            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{d.name}</div>
+                            {!d.isNetRating && d.actualValue != null && (
+                              <div style={{ color: '#6b7280', marginBottom: '4px' }}>
+                                {d.actualValue.toFixed(1)} (Lg Avg: {d.leagueAvg?.toFixed(1)})
+                              </div>
+                            )}
+                            <div>
+                              {d.isNetRating ? 'Net Rating' : 'Contribution'}: {d.value >= 0 ? '+' : ''}{d.value.toFixed(2)}
+                            </div>
+                          </div>
+                        )
+                      }}
+                    />
+                    <ReferenceLine y={0} stroke="var(--color-text)" strokeWidth={2} />
+                    <Bar dataKey="value" barSize={45}>
+                      {mainChartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000" strokeWidth={1} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
 

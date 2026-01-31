@@ -680,7 +680,7 @@ function FourFactor() {
                       <dd>Effective field goal percentage, which adjusts for the added value of three-pointers. Formula: (FGM + 0.5 × 3PM) / FGA × 100</dd>
 
                       <dt>Ball Handling</dt>
-                      <dd>A team's ability to take care of the ball, calculated as 100 − TOV%. Higher is better. TOV% = TOV / (FGA + 0.44×FTA + TOV) × 100</dd>
+                      <dd>A team's ability to take care of the ball, calculated as 100 − TOV%. Higher is better. TOV% = TOV / Possessions × 100</dd>
 
                       <dt>Off Rebounding (OREB%)</dt>
                       <dd>The percentage of available offensive rebounds a team grabs. Formula: OREB / (OREB + OPP_DREB) × 100</dd>
