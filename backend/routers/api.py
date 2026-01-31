@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
+import subprocess
 from config import get_available_seasons, AVAILABLE_MODELS, ADMIN_SECRET_KEY
 from services.cache import clear_cache
 from services.data_loader import (
@@ -60,6 +61,33 @@ STAT_ALIASES = {
 }
 
 router = APIRouter(prefix="/api")
+
+
+def _get_git_commit() -> str:
+    """Get the current git commit hash."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()[:7]  # Short hash
+    except Exception:
+        pass
+    return "unknown"
+
+
+# Cache at startup
+GIT_COMMIT = _get_git_commit()
+
+
+@router.get("/version")
+async def get_version():
+    """Return the current git commit hash for deployment verification."""
+    return {"commit": GIT_COMMIT}
+
 
 STAT_LABELS = {
     "pts": "Points",
