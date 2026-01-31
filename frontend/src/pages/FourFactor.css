@@ -253,7 +253,7 @@
 .chart-axis-labels {
   display: flex;
   justify-content: space-between;
-  margin: var(--spacing-xs) 30px 0 310px;
+  margin: var(--spacing-xs) 30px 0 140px;
   font-size: 1rem;
   font-weight: 600;
 }
