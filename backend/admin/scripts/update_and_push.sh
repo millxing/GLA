@@ -6,20 +6,13 @@ PROJECT_DIR="/Users/robschoen/Dropbox/CC/GLA"
 REPO_DIR="/Users/robschoen/Dropbox/CC/NBA_Data"
 SEASON="2025-26"
 ENV_NAME="gla_admin"
+CONDA_PATH="/opt/miniconda3"
 # --------------------------
 
 cd "$PROJECT_DIR"
 
-# Make sure conda is available
-if ! command -v conda >/dev/null 2>&1; then
-  echo "Error: conda not found in PATH."
-  echo "If you're using Miniconda/Anaconda, try:"
-  echo "  source ~/miniconda3/etc/profile.d/conda.sh"
-  exit 1
-fi
-
-# Initialize conda for scripts
-eval "$(conda shell.bash hook)"
+# Initialize conda (use full path for launchd compatibility)
+source "$CONDA_PATH/etc/profile.d/conda.sh"
 
 # Activate env
 conda activate "$ENV_NAME"

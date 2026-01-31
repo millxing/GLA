@@ -309,6 +309,14 @@ async def get_decomposition(
         league_avgs["pace"] = league_avg_pace
     response.league_averages = league_avgs
 
+    # Include factor ranges for AI summary context
+    factor_ranges = decomposition.get("factor_ranges", {}) or {}
+    # Normalize oreb_pct to oreb for consistency
+    if "oreb_pct" in factor_ranges and "oreb" not in factor_ranges:
+        factor_ranges["oreb"] = factor_ranges.pop("oreb_pct")
+    if factor_ranges:
+        response.factor_ranges = factor_ranges
+
     return response
 
 
@@ -332,6 +340,7 @@ async def get_interpretation(request: InterpretationRequest):
         "home_factors": request.home_factors,
         "road_factors": request.road_factors,
         "league_averages": request.league_averages,
+        "factor_ranges": request.factor_ranges,
     }
 
     interpretation = await generate_interpretation(
@@ -416,7 +425,7 @@ async def get_trends(
     season: str = Query(..., description="Season in format YYYY-YY"),
     team: str = Query(..., description="Team abbreviation"),
     stat: str = Query(..., description="Statistic to plot"),
-    exclude_non_regular: bool = Query(True, description="Exclude playoffs, play-in, and NBA Cup final from trends"),
+    exclude_non_regular: bool = Query(False, description="Exclude playoffs, play-in, and NBA Cup final from trends"),
 ):
     df = await get_normalized_data_with_possessions(season)
     if df is None:

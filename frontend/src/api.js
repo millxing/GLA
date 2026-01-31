@@ -119,6 +119,7 @@ export async function getInterpretation(decomposition, factorType, modelId) {
       home_factors: decomposition.home_factors,
       road_factors: decomposition.road_factors,
       league_averages: decomposition.league_averages,
+      factor_ranges: decomposition.factor_ranges,
     }),
   })
 }

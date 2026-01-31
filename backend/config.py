@@ -42,6 +42,7 @@ def get_available_seasons() -> list:
     return seasons
 
 AVAILABLE_MODELS = [
+    {"id": "2023-2025", "name": "2023-2025 Model", "file": "models/2023-2025.json"},
     {"id": "2021-2025", "name": "2021-2025 Model", "file": "models/2021-2025.json"},
     {"id": "2020-2025", "name": "2020-2025 Model", "file": "models/2020-2025.json"},
     {"id": "2019-2025", "name": "2019-2025 Model", "file": "models/2019-2025.json"},

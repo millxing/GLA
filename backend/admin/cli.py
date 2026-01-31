@@ -1672,10 +1672,36 @@ def train_models(seasons_csv: str, output_name: str, repo_dir: Path) -> int:
         if "FT_RATE" in team_df.columns:
             league_averages["ft_rate"] = float(team_df["FT_RATE"].mean())
 
+        # Compute interquartile ranges (Q1, Q3) for context on typical ranges
+        # This helps AI summaries understand magnitude of deviations
+        factor_ranges = {}
+        if "EFG_PCT" in team_df.columns:
+            factor_ranges["efg"] = {
+                "q1": float(team_df["EFG_PCT"].quantile(0.25)),
+                "q3": float(team_df["EFG_PCT"].quantile(0.75)),
+            }
+        if "TOV_PCT" in team_df.columns:
+            # ball_handling = 1 - TOV_PCT, so Q1/Q3 are inverted
+            factor_ranges["ball_handling"] = {
+                "q1": float(1.0 - team_df["TOV_PCT"].quantile(0.75)),
+                "q3": float(1.0 - team_df["TOV_PCT"].quantile(0.25)),
+            }
+        if "OREB_PCT" in team_df.columns:
+            factor_ranges["oreb_pct"] = {
+                "q1": float(team_df["OREB_PCT"].quantile(0.25)),
+                "q3": float(team_df["OREB_PCT"].quantile(0.75)),
+            }
+        if "FT_RATE" in team_df.columns:
+            factor_ranges["ft_rate"] = {
+                "q1": float(team_df["FT_RATE"].quantile(0.25)),
+                "q3": float(team_df["FT_RATE"].quantile(0.75)),
+            }
+
         four_factors_output = {
             "coefficients": mapped_coefficients,
             "intercept": raw_model["intercept"],
             "league_averages": league_averages,
+            "factor_ranges": factor_ranges,
             "r_squared": raw_model["r_squared"],
             "training_games": raw_model["training_games"],
         }
@@ -1902,11 +1928,23 @@ def train_season_models(seasons_csv: str, output_name: str, repo_dir: Path) -> i
                 avg_key = coef_name_map.get(col, col)
                 league_averages[avg_key] = float(season_df[col].mean())
 
+        # Compute interquartile ranges (Q1, Q3) for context on typical ranges
+        # This helps AI summaries understand magnitude of deviations
+        factor_ranges = {}
+        for col in feature_cols:
+            if col in season_df.columns:
+                range_key = coef_name_map.get(col, col)
+                factor_ranges[range_key] = {
+                    "q1": float(season_df[col].quantile(0.25)),
+                    "q3": float(season_df[col].quantile(0.75)),
+                }
+
         # Build the output
         eight_factors_output = {
             "coefficients": mapped_coefficients,
             "intercept": float(model.intercept_),
             "league_averages": league_averages,
+            "factor_ranges": factor_ranges,
             "r_squared": float(r2),
             "training_team_seasons": int(len(work)),
         }

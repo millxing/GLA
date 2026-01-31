@@ -124,6 +124,7 @@ def compute_decomposition(
         coefficients = model_data.get("coefficients", {})
         intercept = model_data.get("intercept", 0)
         model_league_avgs = model_data.get("league_averages", {}) or {}
+        model_factor_ranges = model_data.get("factor_ranges", {}) or {}
 
         contributions = {}
         total_contribution = intercept
@@ -149,6 +150,19 @@ def compute_decomposition(
                 vv *= 100.0
             league_avgs_out[k] = round(vv, 2)
 
+        # Convert factor ranges to percentage scale
+        factor_ranges_out: Dict[str, Dict[str, float]] = {}
+        for k, v in model_factor_ranges.items():
+            if isinstance(v, dict):
+                q1 = float(v.get("q1", 0) or 0)
+                q3 = float(v.get("q3", 0) or 0)
+                # Convert from proportion to percentage if needed
+                if 0 <= q1 <= 1.5:
+                    q1 *= 100.0
+                if 0 <= q3 <= 1.5:
+                    q3 *= 100.0
+                factor_ranges_out[k] = {"q1": round(q1, 2), "q3": round(q3, 2)}
+
         return {
             "factor_type": "four_factors",
             "contributions": contributions,
@@ -156,6 +170,7 @@ def compute_decomposition(
             "predicted_rating_diff": round(total_contribution, 2),
             "differentials": {k: v for k, v in differentials.items() if k in MODEL_FACTOR_MAP.values()},
             "league_averages": league_avgs_out,
+            "factor_ranges": factor_ranges_out,
         }
 
     elif factor_type == "eight_factors":
@@ -172,6 +187,7 @@ def compute_decomposition(
         coefficients = model_data.get("coefficients", {})
         intercept = model_data.get("intercept", 0)
         model_league_avgs = model_data.get("league_averages", {}) or {}
+        model_factor_ranges = model_data.get("factor_ranges", {}) or {}
 
         if home_factors is None or away_factors is None:
             raise ValueError("Eight factors requires home_factors and away_factors")
@@ -234,6 +250,19 @@ def compute_decomposition(
                 vv *= 100.0
             league_avgs_out[k] = round(vv, 2)
 
+        # Convert factor ranges to percentage scale
+        factor_ranges_out: Dict[str, Dict[str, float]] = {}
+        for k, v in model_factor_ranges.items():
+            if isinstance(v, dict):
+                q1 = float(v.get("q1", 0) or 0)
+                q3 = float(v.get("q3", 0) or 0)
+                # Convert from proportion to percentage if needed
+                if 0 <= q1 <= 1.5:
+                    q1 *= 100.0
+                if 0 <= q3 <= 1.5:
+                    q3 *= 100.0
+                factor_ranges_out[k] = {"q1": round(q1, 2), "q3": round(q3, 2)}
+
         return {
             "factor_type": "eight_factors",
             "contributions": contributions,
@@ -241,6 +270,7 @@ def compute_decomposition(
             "predicted_rating_diff": round(predicted, 2),
             "factor_values": factor_values,
             "league_averages": league_avgs_out,
+            "factor_ranges": factor_ranges_out,
         }
 
     else:
@@ -463,7 +493,7 @@ def compute_league_average(df: pd.DataFrame, stat: str) -> float:
     return round(values.mean(), 1) if len(values) > 0 else 0.0
 
 
-def compute_trend_series(df: pd.DataFrame, team: str, stat: str, exclude_non_regular: bool = True) -> pd.DataFrame:
+def compute_trend_series(df: pd.DataFrame, team: str, stat: str, exclude_non_regular: bool = False) -> pd.DataFrame:
     team_df = df[df["team"] == team].copy()
 
     # NBA Cup final never counts in stats (always excluded)

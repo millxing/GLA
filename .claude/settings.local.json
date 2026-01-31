@@ -20,7 +20,9 @@
       "Bash(git add:*)",
       "Bash(git push)",
       "Bash(gh run view:*)",
-      "Bash(launchctl list:*)"
+      "Bash(launchctl list:*)",
+      "Bash(echo:*)",
+      "Bash(/bin/bash:*)"
     ]
   }
 }

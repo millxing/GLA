@@ -127,21 +127,49 @@ function FourFactor() {
     if (!decomposition) return []
     const contributions = decomposition.contributions
 
+    // Helper to determine Good/Bad prefix for Eight Factors mode
+    const getQualityPrefix = (factorKey) => {
+      if (!decomposition.league_averages) return ''
+
+      // Map factor keys to the corresponding factors object key and league avg key
+      const factorMapping = {
+        'home_shooting': { factors: 'home_factors', key: 'efg', avgKey: 'efg' },
+        'road_shooting': { factors: 'road_factors', key: 'efg', avgKey: 'efg' },
+        'home_ball_handling': { factors: 'home_factors', key: 'ball_handling', avgKey: 'ball_handling' },
+        'road_ball_handling': { factors: 'road_factors', key: 'ball_handling', avgKey: 'ball_handling' },
+        'home_orebounding': { factors: 'home_factors', key: 'oreb', avgKey: 'oreb' },
+        'road_orebounding': { factors: 'road_factors', key: 'oreb', avgKey: 'oreb' },
+        'home_free_throws': { factors: 'home_factors', key: 'ft_rate', avgKey: 'ft_rate' },
+        'road_free_throws': { factors: 'road_factors', key: 'ft_rate', avgKey: 'ft_rate' },
+      }
+
+      const mapping = factorMapping[factorKey]
+      if (!mapping) return ''
+
+      const factorValue = decomposition[mapping.factors]?.[mapping.key]
+      const leagueAvg = decomposition.league_averages[mapping.avgKey]
+
+      if (factorValue === undefined || leagueAvg === undefined) return ''
+
+      return factorValue >= leagueAvg ? 'Good ' : 'Bad '
+    }
+
     // Map factor names to display labels with team abbreviations
+    // For Eight Factors, we use a two-line format: "Good/Bad TEAM" on line 1, stat name on line 2
     const factorLabels = {
-      'shooting': `Shooting`,
-      'ball_handling': `Ball Handling`,
-      'orebounding': `Off Rebounding`,
-      'free_throws': `FT Rate`,
-      // Eight factors mode
-      'home_shooting': `${decomposition.home_team} Shooting`,
-      'road_shooting': `${decomposition.road_team} Shooting`,
-      'home_ball_handling': `${decomposition.home_team} Ball Handling`,
-      'road_ball_handling': `${decomposition.road_team} Ball Handling`,
-      'home_orebounding': `${decomposition.home_team} Off Rebounding`,
-      'road_orebounding': `${decomposition.road_team} Off Rebounding`,
-      'home_free_throws': `${decomposition.home_team} FT Rate`,
-      'road_free_throws': `${decomposition.road_team} FT Rate`,
+      'shooting': { line1: 'Shooting', line2: null },
+      'ball_handling': { line1: 'Ball Handling', line2: null },
+      'orebounding': { line1: 'Off Rebounds', line2: null },
+      'free_throws': { line1: 'FT Rate', line2: null },
+      // Eight factors mode - split into two lines for better readability
+      'home_shooting': { line1: `${getQualityPrefix('home_shooting')}${decomposition.home_team}`, line2: 'Shooting' },
+      'road_shooting': { line1: `${getQualityPrefix('road_shooting')}${decomposition.road_team}`, line2: 'Shooting' },
+      'home_ball_handling': { line1: `${getQualityPrefix('home_ball_handling')}${decomposition.home_team}`, line2: 'Ball Handling' },
+      'road_ball_handling': { line1: `${getQualityPrefix('road_ball_handling')}${decomposition.road_team}`, line2: 'Ball Handling' },
+      'home_orebounding': { line1: `${getQualityPrefix('home_orebounding')}${decomposition.home_team}`, line2: 'Off Rebounds' },
+      'road_orebounding': { line1: `${getQualityPrefix('road_orebounding')}${decomposition.road_team}`, line2: 'Off Rebounds' },
+      'home_free_throws': { line1: `${getQualityPrefix('home_free_throws')}${decomposition.home_team}`, line2: 'FT Rate' },
+      'road_free_throws': { line1: `${getQualityPrefix('road_free_throws')}${decomposition.road_team}`, line2: 'FT Rate' },
     }
 
     // Map contribution keys to actual factor values
@@ -165,13 +193,18 @@ function FourFactor() {
 
     // Build factor bars sorted by value descending (most positive at top)
     const factorBars = Object.entries(contributions)
-      .map(([factor, value]) => ({
-        factor: factorLabels[factor] || factor,
-        factorKey: factor,
-        value,
-        actualValue: getFactorValue(factor),
-        fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
-      }))
+      .map(([factor, value]) => {
+        const label = factorLabels[factor] || { line1: factor, line2: null }
+        return {
+          factor: label.line2 ? `${label.line1}\n${label.line2}` : label.line1,
+          labelLine1: label.line1,
+          labelLine2: label.line2,
+          factorKey: factor,
+          value,
+          actualValue: getFactorValue(factor),
+          fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+        }
+      })
       .sort((a, b) => b.value - a.value)
 
     // Add error bar at the end (always at bottom, not sorted)
@@ -179,6 +212,8 @@ function FourFactor() {
     const error = decomposition.actual_rating_diff - decomposition.predicted_rating_diff
     factorBars.push({
       factor: 'Error',
+      labelLine1: 'Error',
+      labelLine2: null,
       value: error,
       fill: 'var(--color-neutral)',
     })
@@ -218,10 +253,11 @@ function FourFactor() {
     if (!decomposition?.league_averages || value === null || value === undefined) return ''
 
     // Map internal factor keys to league_averages keys
+    // Note: backend normalizes oreb_pct to oreb in the response (api.py:301-303)
     const keyMap = {
       efg: 'efg',
       ball_handling: 'ball_handling',
-      oreb: 'oreb_pct',
+      oreb: 'oreb',
       ft_rate: 'ft_rate',
     }
 
@@ -587,7 +623,7 @@ function FourFactor() {
                 <BarChart
                   data={getContributionChartData()}
                   layout="vertical"
-                  margin={{ top: 20, right: 30, left: 160, bottom: 20 }}
+                  margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                   <XAxis
@@ -599,8 +635,29 @@ function FourFactor() {
                   <YAxis
                     type="category"
                     dataKey="factor"
-                    tick={{ fill: 'var(--color-text-secondary)' }}
-                    width={150}
+                    tick={(props) => {
+                      const { x, y, payload } = props
+                      // Find the data entry to get line1/line2
+                      const chartData = getContributionChartData()
+                      const entry = chartData.find(d => d.factor === payload.value)
+                      const line1 = entry?.labelLine1 || payload.value
+                      const line2 = entry?.labelLine2
+
+                      if (line2) {
+                        return (
+                          <text x={x} y={y} textAnchor="end" fill="var(--color-text-secondary)" fontSize={14}>
+                            <tspan x={x} dy="-0.35em">{line1}</tspan>
+                            <tspan x={x} dy="1.3em">{line2}</tspan>
+                          </text>
+                        )
+                      }
+                      return (
+                        <text x={x} y={y} textAnchor="end" fill="var(--color-text-secondary)" fontSize={14} dy="0.35em">
+                          {line1}
+                        </text>
+                      )
+                    }}
+                    width={120}
                   />
                   <Tooltip
                     contentStyle={{
@@ -618,7 +675,9 @@ function FourFactor() {
                           borderRadius: 'var(--border-radius-sm)',
                           padding: '8px 12px',
                         }}>
-                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>{data.factor}</div>
+                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>
+                          {data.labelLine2 ? `${data.labelLine1} ${data.labelLine2}` : data.labelLine1}
+                        </div>
                           {data.actualValue && (
                             <div style={{ color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
                               Value: {data.actualValue}

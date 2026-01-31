@@ -43,6 +43,11 @@ class LinescoreData(BaseModel):
     home: QuarterScores
     road: QuarterScores
 
+class FactorRange(BaseModel):
+    """Interquartile range for a factor (Q1 and Q3 values)."""
+    q1: float
+    q3: float
+
 class DecompositionResponse(BaseModel):
     game_id: str
     game_date: str
@@ -62,6 +67,7 @@ class DecompositionResponse(BaseModel):
     road_ratings: Dict[str, float]
     factor_values: Optional[Dict[str, float]] = None
     league_averages: Optional[Dict[str, float]] = None
+    factor_ranges: Optional[Dict[str, FactorRange]] = None
     linescore: Optional[LinescoreData] = None
     is_overtime: bool = False
     overtime_count: int = 0
@@ -207,6 +213,7 @@ class InterpretationRequest(BaseModel):
     home_factors: Optional[Dict[str, float]] = None
     road_factors: Optional[Dict[str, float]] = None
     league_averages: Optional[Dict[str, float]] = None
+    factor_ranges: Optional[Dict[str, Dict[str, float]]] = None
 
 
 class InterpretationResponse(BaseModel):

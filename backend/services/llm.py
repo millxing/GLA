@@ -104,12 +104,56 @@ def _build_interpretation_prompt(data: Dict[str, Any], factor_type: str) -> str:
     home_factors = data.get("home_factors", {})
     road_factors = data.get("road_factors", {})
     league_avgs = data.get("league_averages", {})
+    factor_ranges = data.get("factor_ranges", {}) or {}
 
     # Get league average values
     lg_efg = league_avgs.get("efg", 52.0)
     lg_bh = league_avgs.get("ball_handling", 86.0)
     lg_oreb = league_avgs.get("oreb", 25.0)
     lg_ft = league_avgs.get("ft_rate", 20.0)
+
+    # Get interquartile ranges (Q1-Q3 represent typical game range)
+    efg_range = factor_ranges.get("efg", {})
+    bh_range = factor_ranges.get("ball_handling", {})
+    oreb_range = factor_ranges.get("oreb", {})
+    ft_range = factor_ranges.get("ft_rate", {})
+
+    def get_magnitude_label(val: float, avg: float, q1: float, q3: float, higher_is_better: bool = True) -> str:
+        """Classify deviation magnitude based on percentile position.
+
+        Uses Q1 (25th percentile) and Q3 (75th percentile) as boundaries:
+        - Below Q1: bottom 25% of games
+        - Q1 to avg: 25th-50th percentile
+        - avg to Q3: 50th-75th percentile
+        - Above Q3: top 25% of games
+        """
+        if q1 <= 0 or q3 <= 0 or q3 <= q1:
+            # Fallback if no valid range data
+            diff = val - avg
+            if higher_is_better:
+                return "GOOD" if diff > 0 else "BAD"
+            else:
+                return "BAD" if diff > 0 else "GOOD"
+
+        if higher_is_better:
+            if val > q3:
+                return "EXCELLENT"
+            elif val > avg:
+                return "GOOD"
+            elif val >= q1:
+                return "BELOW_AVG"
+            else:
+                return "POOR"
+        else:
+            # For metrics where lower is better
+            if val < q1:
+                return "EXCELLENT"
+            elif val < avg:
+                return "GOOD"
+            elif val <= q3:
+                return "BELOW_AVG"
+            else:
+                return "POOR"
 
     # Format factor values with comparison to league average
     def format_factors_with_comparison(factors: dict, team: str) -> str:
@@ -120,19 +164,12 @@ def _build_interpretation_prompt(data: Dict[str, Any], factor_type: str) -> str:
         oreb = factors.get("oreb", 0)
         ft = factors.get("ft_rate", 0)
 
-        def compare(val, avg, higher_is_better=True):
-            diff = val - avg
-            if higher_is_better:
-                return "GOOD" if diff > 0 else "BAD"
-            else:
-                return "BAD" if diff > 0 else "GOOD"
-
         lines = [
             f"  {team}:",
-            f"    - eFG%: {efg:.1f}% (league avg: {lg_efg:.1f}%) → {compare(efg, lg_efg)}",
-            f"    - Ball Handling: {bh:.1f}% (league avg: {lg_bh:.1f}%) → {compare(bh, lg_bh)}",
-            f"    - OREB%: {oreb:.1f}% (league avg: {lg_oreb:.1f}%) → {compare(oreb, lg_oreb)}",
-            f"    - FT Rate: {ft:.1f}% (league avg: {lg_ft:.1f}%) → {compare(ft, lg_ft)}",
+            f"    - eFG% (shooting efficiency): {efg:.1f}% (league avg: {lg_efg:.1f}%, typical range: {efg_range.get('q1', 48):.0f}-{efg_range.get('q3', 58):.0f}%) → {get_magnitude_label(efg, lg_efg, efg_range.get('q1', 48), efg_range.get('q3', 58))}",
+            f"    - Ball Handling (100 - TOV%): {bh:.1f}% (league avg: {lg_bh:.1f}%, typical range: {bh_range.get('q1', 83):.0f}-{bh_range.get('q3', 90):.0f}%) → {get_magnitude_label(bh, lg_bh, bh_range.get('q1', 83), bh_range.get('q3', 90))}",
+            f"    - OREB% (offensive rebounding): {oreb:.1f}% (league avg: {lg_oreb:.1f}%, typical range: {oreb_range.get('q1', 18):.0f}-{oreb_range.get('q3', 32):.0f}%) → {get_magnitude_label(oreb, lg_oreb, oreb_range.get('q1', 18), oreb_range.get('q3', 32))}",
+            f"    - FT Rate (FTM/FGA, measures getting to the line): {ft:.1f}% (league avg: {lg_ft:.1f}%, typical range: {ft_range.get('q1', 14):.0f}-{ft_range.get('q3', 26):.0f}%) → {get_magnitude_label(ft, lg_ft, ft_range.get('q1', 14), ft_range.get('q3', 26))}",
         ]
         return "\n".join(lines)
 
@@ -194,12 +231,16 @@ Write a brief paragraph (3-6 sentences) explaining what decided this game.
 
 CRITICAL RULES:
 1. Focus on the biggest contributors first - these decided the game
-2. A factor marked "GOOD" means above league average (positive for that team)
-3. A factor marked "BAD" means below league average (negative for that team)
-4. Describe BAD factors negatively: "struggled", "poor shooting", "sloppy with the ball"
-5. Describe GOOD factors positively: "shot well", "took care of the ball", "dominated the glass"
-6. Reference actual percentages (e.g., "shot 55.6% eFG" or "grabbed 32% of offensive rebounds")
-7. Only mention "above/below league average" when it adds clarity, not every time
+2. MAGNITUDE MATTERS - pay attention to labels:
+   - EXCELLENT or POOR = standout performance, emphasize strongly
+   - GOOD or BELOW_AVG = moderate deviation, mention briefly or skip entirely
+3. Describe POOR factors negatively: "struggled badly", "shot poorly", "were careless"
+4. Describe EXCELLENT factors positively: "shot exceptionally well", "dominated", "excelled"
+5. IMPORTANT: For GOOD/BELOW_AVG factors, do NOT use strong language like "excelled" or "exceptionally" - use mild terms like "slightly above average", "solid but unremarkable", "a bit below average"
+6. Reference actual percentages (e.g., "shot just 43.4% eFG" or "grabbed 32% of offensive rebounds")
+7. STAT DEFINITIONS - use these correctly:
+   - FT Rate = how often a team gets to the free throw line (FTM/FGA ratio), NOT free throw shooting accuracy
+   - Ball Handling = 100 minus turnover rate, measures ball security
 8. Do NOT quote the +/- contribution numbers
 9. Use city names ({home_city}, {road_city}), never abbreviations
 10. Write naturally for casual basketball fans"""
