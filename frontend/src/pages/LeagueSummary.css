@@ -19,7 +19,7 @@
 }
 
 .summary-table {
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
   table-layout: fixed;
   width: 100%;
 }
@@ -49,13 +49,25 @@
 }
 
 .rank-col {
-  width: 45px;
-  min-width: 45px;
-  max-width: 45px;
+  width: 50px;
+  min-width: 50px;
+  max-width: 50px;
   text-align: center;
   color: var(--color-text-secondary);
   vertical-align: bottom;
   font-weight: 600;
+}
+
+.rank-col .header-content {
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+}
+
+.rank-col .header-line1 {
+  display: block;
+  text-align: center;
+  width: 100%;
 }
 
 .team-cell {
@@ -336,7 +348,7 @@
 
 @media (max-width: 768px) {
   .summary-table {
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
   }
 
   .summary-table th,
