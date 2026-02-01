@@ -204,6 +204,25 @@ CANCELLED_GAME_IDS = {
     "0021201214",  # 2012-13 IND @ BOS cancelled 4/16/2013
 }
 
+# Fallback data for games missing from boxscoreadvancedv3 endpoint
+# When the API fails to return data for these games, use this hardcoded data instead
+ADVANCED_FALLBACK_DATA = {
+    # 2003-04 WAS @ NOP 2/18/2004 - not in boxscoreadvancedv3
+    "0020300778": {
+        "game_id": "0020300778",
+        "game_date": "2004-02-18",
+        "season": "2003-04",
+        "team_id_home": 1610612740,
+        "team_abbreviation_home": "NOH",
+        "minutes_home": 240,
+        "possessions_home": 97.0,
+        "team_id_road": 1610612764,
+        "team_abbreviation_road": "WAS",
+        "minutes_road": 240,
+        "possessions_road": 97.0,
+    },
+}
+
 
 def _load_nba_cup_dates() -> Dict[str, str]:
     """Load NBA Cup knockout dates from CSV file.
@@ -881,11 +900,14 @@ def _fetch_boxscore_data(
             print("LS:FAIL", end=" ", flush=True)
         time.sleep(1.0)  # Delay to avoid rate limiting
 
-        # Fetch advanced stats
+        # Fetch advanced stats (with fallback for known missing games)
         adv_row = _fetch_advanced_stats(gid, game_date, season, home_team_id)
         if adv_row:
             advanced_rows.append(adv_row)
             print("ADV:OK")
+        elif gid in ADVANCED_FALLBACK_DATA:
+            advanced_rows.append(ADVANCED_FALLBACK_DATA[gid].copy())
+            print("ADV:FALLBACK")
         else:
             print("ADV:FAIL")
         time.sleep(1.0)  # Delay to avoid rate limiting
