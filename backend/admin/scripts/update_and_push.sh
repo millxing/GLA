@@ -34,8 +34,24 @@ echo "[run] Commit + push data updates if needed"
 echo "[run] Regenerating contributions for $SEASON"
 "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/generate_contributions.py" --season "$SEASON" --repo-dir "$REPO_DIR"
 
-echo "[run] Generating LLM interpretations for new games"
-"$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" generate-interpretations --season "$SEASON" --current --incremental --max-new 20
+echo "[run] Commit + push contribution updates if needed"
+CONTRIB_MSG="Update ${SEASON} contributions (${TODAY})"
+"$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$CONTRIB_MSG"
 
-echo "[run] Commit + push contributions + interpretations if needed"
-"$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$MSG"
+echo "[run] Generating LLM interpretations for new games"
+INTERP_EXIT=0
+if "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" generate-interpretations --season "$SEASON" --current --incremental --max-new 20; then
+    :
+else
+    INTERP_EXIT=$?
+    echo "[warn] Interpretation generation failed with exit code $INTERP_EXIT; continuing so contributions are already pushed."
+fi
+
+echo "[run] Commit + push interpretation updates if needed"
+INTERP_MSG="Update ${SEASON} interpretations (${TODAY})"
+"$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$INTERP_MSG"
+
+if [ "$INTERP_EXIT" -ne 0 ]; then
+    echo "[warn] Exiting with interpretation failure code: $INTERP_EXIT"
+    exit "$INTERP_EXIT"
+fi

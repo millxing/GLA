@@ -35,7 +35,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, Optional, TypeVar
+from typing import Any, Callable, Dict, Optional, TypeVar
 
 import pandas as pd
 
@@ -397,6 +397,21 @@ def _snake_case(x: object) -> str:
     if s == "playin":
         return "play_in"
     return s
+
+
+def _normalize_game_id(game_id: Any) -> str:
+    """Normalize game_id to a 10-digit string for reliable cross-file joins."""
+    if pd.isna(game_id):
+        return ""
+
+    gid = str(game_id).strip()
+    if gid.endswith(".0"):
+        gid = gid[:-2]
+
+    digits = "".join(ch for ch in gid if ch.isdigit())
+    if not digits:
+        return gid
+    return digits.zfill(10)
 
 
 def _load_existing_season_csv(path: Path) -> Optional[pd.DataFrame]:
@@ -2171,6 +2186,12 @@ def generate_interpretations(
         if incremental and output_file.exists():
             with open(output_file, "r") as f:
                 existing_data = json.load(f)
+            existing_interpretations = existing_data.get("interpretations", {})
+            existing_data["interpretations"] = {
+                _normalize_game_id(gid): payload
+                for gid, payload in existing_interpretations.items()
+                if _normalize_game_id(gid)
+            }
             print(f"[interp] Loaded {len(existing_data.get('interpretations', {}))} existing interpretations")
 
         # Load season data
@@ -2179,19 +2200,17 @@ def generate_interpretations(
             print(f"[error] Season CSV not found: {csv_path}")
             return 1
 
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, dtype={"game_id": "string"})
+        df["game_id"] = df["game_id"].map(_normalize_game_id)
+        df = df[df["game_id"] != ""].copy()
         print(f"[interp] Loaded {len(df)} games from {csv_path.name}")
 
         # Merge actual possessions from advanced stats
         adv_path = repo_dir / _advanced_filename(season)
         if adv_path.exists():
-            adv_df = pd.read_csv(adv_path)
-            adv_df["game_id"] = adv_df["game_id"].astype(str).map(
-                lambda v: v.zfill(10) if v.isdigit() else v
-            )
-            df["game_id"] = df["game_id"].astype(str).map(
-                lambda v: v.zfill(10) if v.isdigit() else v
-            )
+            adv_df = pd.read_csv(adv_path, dtype={"game_id": "string"})
+            adv_df["game_id"] = adv_df["game_id"].map(_normalize_game_id)
+            adv_df = adv_df[adv_df["game_id"] != ""].copy()
             df = df.merge(
                 adv_df[["game_id", "possessions_home", "possessions_road", "minutes_home", "minutes_road"]],
                 on="game_id",
@@ -2214,11 +2233,11 @@ def generate_interpretations(
         factor_ranges = _compute_factor_ranges(df)
 
         # Get list of games to process
-        game_ids = df["game_id"].unique().tolist()
+        game_ids = [gid for gid in df["game_id"].astype(str).unique().tolist() if gid]
         existing_ids = set(existing_data.get("interpretations", {}).keys())
 
         if incremental:
-            games_to_process = [gid for gid in game_ids if str(gid) not in existing_ids]
+            games_to_process = [gid for gid in game_ids if gid not in existing_ids]
         else:
             games_to_process = game_ids
 
@@ -2249,12 +2268,12 @@ def generate_interpretations(
         interpretations = existing_data.get("interpretations", {})
 
         for i, game_id in enumerate(games_to_process):
-            game_id_str = str(game_id)
+            game_id_str = _normalize_game_id(game_id)
             print(f"[interp] [{i+1}/{len(games_to_process)}] Processing game {game_id_str}...")
 
             try:
                 # Get game row from dataframe
-                game_row = df[df["game_id"] == game_id].iloc[0]
+                game_row = df[df["game_id"] == game_id_str].iloc[0]
 
                 # Build game data in flat format with quintile classifications
                 game_data = _build_game_data_with_quintiles(game_row, model_data, league_avgs)
