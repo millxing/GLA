@@ -13,17 +13,19 @@ import {
   ReferenceLine,
   Cell,
 } from 'recharts'
-import { getSeasons, getTeams, getLeagueSummary, getSeasonModels, getContributionAnalysis } from '../api'
+import { getSeasons, getTeams, getLeagueSummary, getContributionAnalysis } from '../api'
 import { getTeamName } from '../constants/teams'
 import './ContributionAnalysis.css'
 
 const DATE_RANGE_OPTIONS = [
-  { value: 'season', label: 'Season-to-Date' },
-  { value: 'season_no_playoffs', label: 'Season-to-Date, No Playoffs' },
-  { value: 'month', label: 'Month-to-Date' },
-  { value: 'last_10', label: 'Last 10 Games' },
-  { value: 'last_20', label: 'Last 20 Games' },
-  { value: 'last_30', label: 'Last 30 Games' },
+  { value: 'season', label: 'Season' },
+  { value: 'season_regular', label: 'Season (Regular Season only)' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'last_2_months', label: 'Last 2 months' },
+  { value: 'last_3_months', label: 'Last 3 months' },
+  { value: 'last_10_games', label: 'Last 10 games' },
+  { value: 'last_15_games', label: 'Last 15 games' },
+  { value: 'last_20_games', label: 'Last 20 games' },
   { value: 'custom', label: 'Custom Date Range' },
 ]
 
@@ -70,10 +72,8 @@ const LOWER_IS_BETTER_FACTORS = new Set([
 function ContributionAnalysis() {
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
-  const [models, setModels] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '2025-26')
   const [selectedTeam, setSelectedTeam] = usePersistedState('contribution_team', 'BOS')
-  const [selectedModel, setSelectedModel] = usePersistedState('contribution_model', 'season_2018-2025')
   const [dateRangeType, setDateRangeType] = usePersistedState('contribution_daterange', 'season')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -81,31 +81,20 @@ function ContributionAnalysis() {
   const [seasonBounds, setSeasonBounds] = useState({ first: '', last: '' })
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
 
-  // Load seasons and models on mount
+  // Load seasons on mount
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [seasonsRes, modelsRes] = await Promise.all([
-          getSeasons(),
-          getSeasonModels(),
-        ])
+        const seasonsRes = await getSeasons()
         setSeasons(seasonsRes.seasons)
-        setModels(modelsRes.models)
 
         // Default to most recent season if 2025-26 not available
         if (seasonsRes.seasons.length > 0 && !seasonsRes.seasons.includes('2025-26')) {
           setSelectedSeason(seasonsRes.seasons[0])
-        }
-
-        // Default to first model if season_2018-2025 not available
-        if (modelsRes.models.length > 0) {
-          const defaultModel = modelsRes.models.find(m => m.id === 'season_2018-2025')
-          if (!defaultModel) {
-            setSelectedModel(modelsRes.models[0].id)
-          }
         }
       } catch (err) {
         setError(err.message)
@@ -114,15 +103,29 @@ function ContributionAnalysis() {
     loadInitialData()
   }, [])
 
+  // Keep persisted date preset valid when option list changes
+  useEffect(() => {
+    if (!DATE_RANGE_OPTIONS.some(opt => opt.value === dateRangeType)) {
+      setDateRangeType('season')
+    }
+  }, [dateRangeType, setDateRangeType])
+
   // Load teams and season bounds when season changes
   useEffect(() => {
+    let isCurrent = true
     async function loadTeamsAndBounds() {
       if (!selectedSeason) return
+      // Clear stale analysis immediately when (re)initializing season context.
+      // Doing this before async calls avoids wiping freshly loaded data later.
+      setInitializing(true)
+      if (isCurrent) setData(null)
       try {
         const [teamsRes, summaryRes] = await Promise.all([
           getTeams(selectedSeason),
           getLeagueSummary(selectedSeason, null, null, false),
         ])
+        if (!isCurrent) return
+
         setTeams(teamsRes.teams)
         // Keep persisted team if it exists in this season, otherwise default to BOS or first team
         setSelectedTeam(prevTeam => {
@@ -136,13 +139,14 @@ function ContributionAnalysis() {
         if (summaryRes.first_game_date && summaryRes.last_game_date) {
           setSeasonBounds({ first: summaryRes.first_game_date, last: summaryRes.last_game_date })
         }
-
-        setData(null)
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
+      } finally {
+        if (isCurrent) setInitializing(false)
       }
     }
     loadTeamsAndBounds()
+    return () => { isCurrent = false }
   }, [selectedSeason])
 
   // Populate custom date fields when switching to custom and bounds are available
@@ -158,83 +162,197 @@ function ContributionAnalysis() {
     }
   }, [dateRangeType, seasonBounds.first, seasonBounds.last, customDatesInitialized])
 
-  // Calculate API parameters based on date range preset (like LeagueSummary)
-  const { apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs } = useMemo(() => {
-    // Default: season-to-date
-    let rangeType = 'season'
-    let startDate = null
-    let endDate = null
-    let lastNGames = null
-    let excludePlayoffs = false
+  const formatUtcDate = (dateObj) => {
+    const y = dateObj.getUTCFullYear()
+    const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(dateObj.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
 
-    if (dateRangeType.startsWith('last_')) {
-      rangeType = 'last_n'
-      lastNGames = parseInt(dateRangeType.split('_')[1])
-    } else if (dateRangeType === 'custom') {
-      if (customStartDate && customEndDate) {
-        rangeType = 'custom'
-        startDate = customStartDate
-        endDate = customEndDate
+  // Calculate API parameters from preset (aligned with LeagueSummary)
+  const { apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs } = useMemo(() => {
+    const hasBounds = Boolean(seasonBounds.first && seasonBounds.last)
+
+    if (!hasBounds) {
+      if (dateRangeType === 'last_10_games') {
+        return { apiRangeType: 'last_n', apiStartDate: null, apiEndDate: null, apiLastNGames: 10, apiExcludePlayoffs: false }
       }
-    } else if (dateRangeType === 'season_no_playoffs') {
-      rangeType = 'season'
-      excludePlayoffs = true
-    } else if (dateRangeType === 'month') {
-      if (seasonBounds.last) {
-        // Calculate first day of the month containing the last game
-        // Parse the date string directly to avoid timezone issues
-        const [year, month] = seasonBounds.last.split('-')
-        const monthStartStr = `${year}-${month}-01`
-        // Use season start if month start is before season start
-        startDate = monthStartStr < seasonBounds.first ? seasonBounds.first : monthStartStr
-        endDate = seasonBounds.last
-        rangeType = 'custom'
+      if (dateRangeType === 'last_15_games') {
+        return { apiRangeType: 'last_n', apiStartDate: null, apiEndDate: null, apiLastNGames: 15, apiExcludePlayoffs: false }
+      }
+      if (dateRangeType === 'last_20_games') {
+        return { apiRangeType: 'last_n', apiStartDate: null, apiEndDate: null, apiLastNGames: 20, apiExcludePlayoffs: false }
+      }
+      if (dateRangeType === 'custom') {
+        return { apiRangeType: 'custom', apiStartDate: '', apiEndDate: '', apiLastNGames: null, apiExcludePlayoffs: false }
+      }
+      return {
+        apiRangeType: 'season',
+        apiStartDate: null,
+        apiEndDate: null,
+        apiLastNGames: null,
+        apiExcludePlayoffs: dateRangeType === 'season_regular',
       }
     }
 
-    return {
-      apiRangeType: rangeType,
-      apiStartDate: startDate,
-      apiEndDate: endDate,
-      apiLastNGames: lastNGames,
-      apiExcludePlayoffs: excludePlayoffs,
+    const seasonStart = seasonBounds.first
+    const seasonEnd = seasonBounds.last
+
+    const getMonthStart = (anchorDateStr, monthsBack) => {
+      const [year, month] = anchorDateStr.split('-').map(Number)
+      const monthStart = new Date(Date.UTC(year, month - 1 - monthsBack, 1))
+      return formatUtcDate(monthStart)
+    }
+
+    switch (dateRangeType) {
+      case 'season':
+        return {
+          apiRangeType: 'season',
+          apiStartDate: null,
+          apiEndDate: null,
+          apiLastNGames: null,
+          apiExcludePlayoffs: false,
+        }
+
+      case 'season_regular':
+        return {
+          apiRangeType: 'season',
+          apiStartDate: null,
+          apiEndDate: null,
+          apiLastNGames: null,
+          apiExcludePlayoffs: true,
+        }
+
+      case 'this_month': {
+        const monthStart = getMonthStart(seasonEnd, 0)
+        return {
+          apiRangeType: 'custom',
+          apiStartDate: monthStart < seasonStart ? seasonStart : monthStart,
+          apiEndDate: seasonEnd,
+          apiLastNGames: null,
+          apiExcludePlayoffs: false,
+        }
+      }
+
+      case 'last_2_months': {
+        const start = getMonthStart(seasonEnd, 1)
+        return {
+          apiRangeType: 'custom',
+          apiStartDate: start < seasonStart ? seasonStart : start,
+          apiEndDate: seasonEnd,
+          apiLastNGames: null,
+          apiExcludePlayoffs: false,
+        }
+      }
+
+      case 'last_3_months': {
+        const start = getMonthStart(seasonEnd, 2)
+        return {
+          apiRangeType: 'custom',
+          apiStartDate: start < seasonStart ? seasonStart : start,
+          apiEndDate: seasonEnd,
+          apiLastNGames: null,
+          apiExcludePlayoffs: false,
+        }
+      }
+
+      case 'last_10_games':
+        return {
+          apiRangeType: 'last_n',
+          apiStartDate: null,
+          apiEndDate: null,
+          apiLastNGames: 10,
+          apiExcludePlayoffs: false,
+        }
+
+      case 'last_15_games':
+        return {
+          apiRangeType: 'last_n',
+          apiStartDate: null,
+          apiEndDate: null,
+          apiLastNGames: 15,
+          apiExcludePlayoffs: false,
+        }
+
+      case 'last_20_games':
+        return {
+          apiRangeType: 'last_n',
+          apiStartDate: null,
+          apiEndDate: null,
+          apiLastNGames: 20,
+          apiExcludePlayoffs: false,
+        }
+
+      case 'custom': {
+        const safeStart = customStartDate || seasonStart
+        const safeEnd = customEndDate || seasonEnd
+        const clampedStart = safeStart < seasonStart ? seasonStart : safeStart
+        const clampedEnd = safeEnd > seasonEnd ? seasonEnd : safeEnd
+        if (clampedStart > clampedEnd) {
+          return {
+            apiRangeType: 'custom',
+            apiStartDate: seasonStart,
+            apiEndDate: seasonEnd,
+            apiLastNGames: null,
+            apiExcludePlayoffs: false,
+          }
+        }
+        return {
+          apiRangeType: 'custom',
+          apiStartDate: clampedStart,
+          apiEndDate: clampedEnd,
+          apiLastNGames: null,
+          apiExcludePlayoffs: false,
+        }
+      }
+
+      default:
+        return {
+          apiRangeType: 'custom',
+          apiStartDate: seasonStart,
+          apiEndDate: seasonEnd,
+          apiLastNGames: null,
+          apiExcludePlayoffs: false,
+        }
     }
   }, [dateRangeType, customStartDate, customEndDate, seasonBounds.first, seasonBounds.last])
 
   // Load contribution analysis when parameters change
   useEffect(() => {
+    let isCurrent = true
     async function loadAnalysis() {
-      if (!selectedSeason || !selectedTeam || !selectedModel) return
+      if (!selectedSeason || !selectedTeam) return
 
-      // Don't load if custom dates are selected but not filled in
-      if (dateRangeType === 'custom' && (!customStartDate || !customEndDate)) return
+      const hasValidRange =
+        apiRangeType === 'season' ||
+        (apiRangeType === 'last_n' && Boolean(apiLastNGames)) ||
+        (apiRangeType === 'custom' && Boolean(apiStartDate) && Boolean(apiEndDate))
 
-      // Don't load month-to-date if we don't have the calculated dates yet
-      if (dateRangeType === 'month' && !apiEndDate) return
+      if (!hasValidRange) return
 
       setLoading(true)
-      setError(null)
+      if (isCurrent) setError(null)
 
       try {
         const res = await getContributionAnalysis(
           selectedSeason,
           selectedTeam,
-          selectedModel,
           apiRangeType,
           apiLastNGames,
           apiStartDate,
           apiEndDate,
           apiExcludePlayoffs
         )
-        setData(res)
+        if (isCurrent) setData(res)
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       } finally {
-        setLoading(false)
+        if (isCurrent) setLoading(false)
       }
     }
     loadAnalysis()
-  }, [selectedSeason, selectedTeam, selectedModel, dateRangeType, customStartDate, customEndDate, apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs])
+    return () => { isCurrent = false }
+  }, [selectedSeason, selectedTeam, dateRangeType, customStartDate, customEndDate, apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs])
 
   // Prepare main chart data
   const mainChartData = useMemo(() => {
@@ -339,19 +457,6 @@ function ContributionAnalysis() {
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Model</label>
-            <select
-              className="form-select"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-            >
-              <option value="">Select model...</option>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>{model.name}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         {dateRangeType === 'custom' && (
@@ -380,14 +485,14 @@ function ContributionAnalysis() {
 
       {error && <div className="error">{error}</div>}
 
-      {loading && (
+      {(loading || initializing) && (
         <div className="loading">
           <div className="loading-spinner"></div>
           Loading analysis...
         </div>
       )}
 
-      {data && !loading && (
+      {data && !loading && !initializing && (
         <div className="results">
           <div className="summary-header card">
             <div className="summary-dates-info">

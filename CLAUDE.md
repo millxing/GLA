@@ -77,6 +77,9 @@ FF is Four-Factor decomp
 EF is Eight-Factor decomp
 BH is Ball Handling (1-TOV%)
 
+### Game IDs
+Game IDs are 10-digit zero-padded strings (e.g., `"0022400062"`). The raw CSVs store them as integers, which strips leading zeros. Always use `str(game_id).zfill(10)` when converting from CSV/numeric data to ensure the leading zeros are preserved. All APIs, contribution JSONs, and interpretation lookups expect the 10-digit format.
+
 ## Environment Variables
 
 Backend (.env):

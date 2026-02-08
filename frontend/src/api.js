@@ -34,20 +34,26 @@ export async function getModels() {
   return fetchApi('/api/models')
 }
 
-export async function getDecomposition(season, gameId, modelId, factorType) {
+export async function getDecomposition(season, gameId, factorType) {
   const params = new URLSearchParams({
     season,
     game_id: gameId,
-    model_id: modelId,
     factor_type: factorType,
   })
   return fetchApi(`/api/decomposition?${params}`)
 }
 
-export async function getLeagueSummary(season, startDate, endDate, excludePlayoffs = false) {
+export async function getLeagueSummary(
+  season,
+  startDate,
+  endDate,
+  excludePlayoffs = false,
+  lastNGames = null
+) {
   const params = new URLSearchParams({ season })
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
+  if (lastNGames) params.append('last_n_games', lastNGames)
   params.append('exclude_playoffs', excludePlayoffs ? 'true' : 'false')
   return fetchApi(`/api/league-summary?${params}`)
 }
@@ -64,7 +70,6 @@ export async function getSeasonModels() {
 export async function getContributionAnalysis(
   season,
   team,
-  modelId,
   dateRangeType = 'season',
   lastNGames = null,
   startDate = null,
@@ -74,7 +79,6 @@ export async function getContributionAnalysis(
   const params = new URLSearchParams({
     season,
     team,
-    model_id: modelId,
     date_range_type: dateRangeType,
   })
   if (lastNGames) params.append('last_n_games', lastNGames)
@@ -86,27 +90,26 @@ export async function getContributionAnalysis(
 
 export async function getLeagueTopContributors(
   season,
-  modelId,
   startDate = null,
   endDate = null,
-  excludePlayoffs = false
+  excludePlayoffs = false,
+  lastNGames = null
 ) {
-  const params = new URLSearchParams({
-    season,
-    model_id: modelId,
-  })
+  const params = new URLSearchParams({ season })
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
+  if (lastNGames) params.append('last_n_games', lastNGames)
   params.append('exclude_playoffs', excludePlayoffs ? 'true' : 'false')
   return fetchApi(`/api/league-top-contributors?${params}`)
 }
 
-export async function getInterpretation(decomposition, factorType, modelId) {
+export async function getInterpretation(decomposition, factorType, season = null) {
   return fetchApi('/api/interpretation', {
     method: 'POST',
     body: JSON.stringify({
       game_id: decomposition.game_id,
       game_date: decomposition.game_date,
+      season: season || decomposition.season,
       home_team: decomposition.home_team,
       road_team: decomposition.road_team,
       home_pts: decomposition.home_pts,
@@ -115,9 +118,10 @@ export async function getInterpretation(decomposition, factorType, modelId) {
       predicted_rating_diff: decomposition.predicted_rating_diff,
       actual_rating_diff: decomposition.actual_rating_diff,
       factor_type: factorType,
-      model_id: modelId,
       home_factors: decomposition.home_factors,
       road_factors: decomposition.road_factors,
+      home_ratings: decomposition.home_ratings,
+      road_ratings: decomposition.road_ratings,
       league_averages: decomposition.league_averages,
       factor_ranges: decomposition.factor_ranges,
     }),

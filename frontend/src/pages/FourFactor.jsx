@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { getSeasons, getGames, getModels, getDecomposition, getInterpretation } from '../api'
+import { getSeasons, getGames, getDecomposition, getInterpretation } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
 import './FourFactor.css'
 
@@ -30,49 +30,56 @@ const TEAM_CITIES = {
 
 const toCityName = (abbr) => TEAM_CITIES[abbr] || abbr
 
+// Temporary kill-switch for LLM summaries without removing implementation code.
+const AI_SUMMARIES_ENABLED = false
+const AI_SUMMARY_MAINTENANCE_MESSAGE = 'AI game summaries closed for renovations'
+
 function FourFactor() {
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
-  const [models, setModels] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('fourfactor_season', '')
   const [selectedGame, setSelectedGame] = useState('')
-  const [selectedModel, setSelectedModel] = usePersistedState('fourfactor_model', '')
   const [factorType, setFactorType] = usePersistedState('fourfactor_factortype', 'eight_factors')
   const [decomposition, setDecomposition] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
   const [interpretation, setInterpretation] = useState(null)
   const [interpretationLoading, setInterpretationLoading] = useState(false)
 
   useEffect(() => {
+    let isCurrent = true
     async function loadInitialData() {
       try {
-        const [seasonsRes, modelsRes] = await Promise.all([getSeasons(), getModels()])
+        const seasonsRes = await getSeasons()
+        if (!isCurrent) return
         setSeasons(seasonsRes.seasons)
-        setModels(modelsRes.models)
         // Keep persisted season if valid, otherwise default to first
         setSelectedSeason(prev => {
           if (prev && seasonsRes.seasons.includes(prev)) return prev
           return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
         })
-        // Keep persisted model if valid, otherwise default to first
-        setSelectedModel(prev => {
-          if (prev && modelsRes.models.some(m => m.id === prev)) return prev
-          return modelsRes.models.length > 0 ? modelsRes.models[0].id : ''
-        })
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       }
     }
     loadInitialData()
+    return () => { isCurrent = false }
   }, [])
 
   useEffect(() => {
+    let isCurrent = true
     async function loadGames() {
       if (!selectedSeason) return
+      setInitializing(true)
+      if (isCurrent) {
+        setDecomposition(null)
+        setSelectedGame('')
+      }
       try {
         const gamesRes = await getGames(selectedSeason)
+        if (!isCurrent) return
         setGames(gamesRes.games)
         // Default to most recent game (first in list, sorted by date descending)
         if (gamesRes.games.length > 0) {
@@ -80,48 +87,68 @@ function FourFactor() {
         } else {
           setSelectedGame('')
         }
-        setDecomposition(null)
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
+      } finally {
+        if (isCurrent) setInitializing(false)
       }
     }
     loadGames()
+    return () => { isCurrent = false }
   }, [selectedSeason])
 
   useEffect(() => {
+    let isCurrent = true
     async function loadDecomposition() {
-      if (!selectedSeason || !selectedGame || !selectedModel) return
+      if (!selectedSeason || !selectedGame) return
       setLoading(true)
-      setError(null)
+      if (isCurrent) setError(null)
       try {
-        const data = await getDecomposition(selectedSeason, selectedGame, selectedModel, factorType)
-        setDecomposition(data)
+        const data = await getDecomposition(selectedSeason, selectedGame, factorType)
+        if (isCurrent) setDecomposition(data)
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       } finally {
-        setLoading(false)
+        if (isCurrent) setLoading(false)
       }
     }
     loadDecomposition()
-  }, [selectedSeason, selectedGame, selectedModel, factorType])
+    return () => { isCurrent = false }
+  }, [selectedSeason, selectedGame, factorType])
 
   useEffect(() => {
+    let isCurrent = true
     async function loadInterpretation() {
-      if (!decomposition || !selectedModel) return
+      if (AI_SUMMARIES_ENABLED === false) {
+        if (isCurrent) {
+          setInterpretation(AI_SUMMARY_MAINTENANCE_MESSAGE)
+          setInterpretationLoading(false)
+        }
+        return
+      }
+
+      if (!decomposition || factorType !== 'eight_factors') {
+        if (isCurrent) {
+          setInterpretation(null)
+          setInterpretationLoading(false)
+        }
+        return
+      }
 
       setInterpretationLoading(true)
       try {
-        const data = await getInterpretation(decomposition, factorType, selectedModel)
-        setInterpretation(data.interpretation)
+        const data = await getInterpretation(decomposition, factorType, selectedSeason)
+        if (isCurrent) setInterpretation(data.interpretation)
       } catch (err) {
         // Silently fail - interpretation is optional enhancement
-        setInterpretation(null)
+        if (isCurrent) setInterpretation(null)
       } finally {
-        setInterpretationLoading(false)
+        if (isCurrent) setInterpretationLoading(false)
       }
     }
     loadInterpretation()
-  }, [decomposition, factorType, selectedModel])
+    return () => { isCurrent = false }
+  }, [decomposition, factorType])
 
   const getContributionChartData = () => {
     if (!decomposition) return []
@@ -299,56 +326,6 @@ function FourFactor() {
     return typeMap[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   }
 
-  <div style={{ marginBottom: "1rem" }}>
-    <label>
-      Season:&nbsp;
-      <select
-        value={selectedSeason}
-        onChange={(e) => setSelectedSeason(e.target.value)}
-      >
-        {seasons.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-    </label>
-
-    &nbsp;&nbsp;
-
-    <label>
-      Game:&nbsp;
-      <select
-        value={selectedGame}
-        onChange={(e) => setSelectedGame(e.target.value)}
-        disabled={!games.length}
-      >
-        <option value="">-- select game --</option>
-        {games.map((g) => (
-          <option key={g.game_id} value={g.game_id}>
-            {g.label}
-          </option>
-        ))}
-      </select>
-    </label>
-
-    &nbsp;&nbsp;
-
-    <label>
-      Model:&nbsp;
-      <select
-        value={selectedModel}
-        onChange={(e) => setSelectedModel(e.target.value)}
-      >
-        {models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.name}
-          </option>
-        ))}
-      </select>
-    </label>
-  </div>
-
   return (
     <div className="four-factor container">
       <h1 className="page-title">Game Analysis</h1>
@@ -388,19 +365,6 @@ function FourFactor() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Model</label>
-            <select
-              className="form-select"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-            >
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>{model.name}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
             <label className="form-label">Factor Type</label>
             <select
               className="form-select"
@@ -416,14 +380,14 @@ function FourFactor() {
 
       {error && <div className="error">{error}</div>}
 
-      {loading && (
+      {(loading || initializing) && (
         <div className="loading">
           <div className="loading-spinner"></div>
           Loading analysis...
         </div>
       )}
 
-      {decomposition && !loading && (
+      {decomposition && !loading && !initializing && (
         <div className="results">
           <div className="game-header card">
             <div className="game-header-content">
@@ -712,8 +676,21 @@ function FourFactor() {
               )}
               {interpretation && !interpretationLoading && (
                 <div className="interpretation-content">
-                  <span className="interpretation-icon">AI</span>
-                  <p>{interpretation}</p>
+                  <div className="interpretation-text">
+                    {interpretation.includes('-') ? (
+                      <ul>
+                        {interpretation
+                          .split(/\n|(?=- )/)
+                          .map(line => line.trim())
+                          .filter(line => line.startsWith('-') || line.startsWith('•'))
+                          .map((line, i) => (
+                            <li key={i}>{line.replace(/^[-•]\s*/, '')}</li>
+                          ))}
+                      </ul>
+                    ) : (
+                      <p>{interpretation}</p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

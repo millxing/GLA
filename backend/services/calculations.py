@@ -28,19 +28,18 @@ MODEL_FACTOR_MAP = {
     "free_throws": "ft_rate",
 }
 
-def compute_four_factors(team_row: Dict, opponent_row: Dict) -> Dict[str, float]:
+def compute_four_factors(team_row: Dict, opponent_row: Dict, possessions: Optional[float] = None) -> Dict[str, float]:
     fgm = team_row.get("fgm", 0) or 0
     fga = team_row.get("fga", 0) or 0
     fg3m = team_row.get("fg3m", 0) or 0
     ftm = team_row.get("ftm", 0) or 0
-    fta = team_row.get("fta", 0) or 0
     oreb = team_row.get("oreb", 0) or 0
     tov = team_row.get("tov", 0) or 0
 
     opp_dreb = opponent_row.get("dreb", 0) or 0
 
     efg = (fgm + 0.5 * fg3m) / fga * 100 if fga > 0 else 0
-    tov_pct = tov / (fga + 0.32 * fta + tov) * 100 if (fga + 0.32 * fta + tov) > 0 else 0
+    tov_pct = tov / possessions * 100 if possessions and possessions > 0 else 0
     ball_handling = 100 - tov_pct
     oreb_pct = oreb / (oreb + opp_dreb) * 100 if (oreb + opp_dreb) > 0 else 0
     ft_rate = ftm / fga * 100 if fga > 0 else 0
@@ -53,15 +52,6 @@ def compute_four_factors(team_row: Dict, opponent_row: Dict) -> Dict[str, float]
         "ft_rate": round(ft_rate, 2),
     }
 
-def compute_possessions(team_row: Dict) -> float:
-    fga = team_row.get("fga", 0) or 0
-    fta = team_row.get("fta", 0) or 0
-    oreb = team_row.get("oreb", 0) or 0
-    tov = team_row.get("tov", 0) or 0
-
-    possessions = fga + 0.32 * fta - oreb + tov
-    return round(possessions, 2)
-
 def compute_game_ratings(
     team_row: Dict,
     opponent_row: Dict,
@@ -72,16 +62,8 @@ def compute_game_ratings(
     pts = team_row.get("pts", 0) or 0
     opp_pts = opponent_row.get("pts", 0) or 0
 
-    # Use actual possessions if available, otherwise estimate
-    if actual_possessions is not None and actual_possessions > 0:
-        team_poss = actual_possessions
-    else:
-        team_poss = compute_possessions(team_row)
-
-    if opp_actual_possessions is not None and opp_actual_possessions > 0:
-        opp_poss = opp_actual_possessions
-    else:
-        opp_poss = compute_possessions(opponent_row)
+    team_poss = actual_possessions if actual_possessions and actual_possessions > 0 else 0
+    opp_poss = opp_actual_possessions if opp_actual_possessions and opp_actual_possessions > 0 else 0
 
     off_rating = pts / team_poss * 100 if team_poss > 0 else 0
     def_rating = opp_pts / opp_poss * 100 if opp_poss > 0 else 0
@@ -102,6 +84,31 @@ def compute_game_ratings(
         "possessions": round(team_poss, 1),
         "pace": pace,
     }
+
+
+def _estimated_team_possessions(df: pd.DataFrame) -> pd.Series:
+    return df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
+
+
+def _estimated_opp_possessions(df: pd.DataFrame) -> pd.Series:
+    return df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
+
+
+def _resolve_team_possessions(df: pd.DataFrame) -> pd.Series:
+    estimated = _estimated_team_possessions(df)
+    if "actual_poss" in df.columns:
+        actual = pd.to_numeric(df["actual_poss"], errors="coerce")
+        return actual.where(actual > 0, estimated)
+    return estimated
+
+
+def _resolve_opp_possessions(df: pd.DataFrame) -> pd.Series:
+    estimated = _estimated_opp_possessions(df)
+    if "opp_actual_poss" in df.columns:
+        actual = pd.to_numeric(df["opp_actual_poss"], errors="coerce")
+        return actual.where(actual > 0, estimated)
+    return estimated
+
 
 def compute_factor_differentials(home_factors: Dict, away_factors: Dict) -> Dict[str, float]:
     differentials = {}
@@ -276,7 +283,13 @@ def compute_decomposition(
     else:
         raise ValueError(f"Unknown factor type: {factor_type}")
 
-def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_date: Optional[str], exclude_playoffs: bool = False) -> pd.DataFrame:
+def compute_league_aggregates(
+    df: pd.DataFrame,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    exclude_playoffs: bool = False,
+    last_n_games: Optional[int] = None,
+) -> pd.DataFrame:
     filtered_df = df.copy()
 
     if start_date:
@@ -290,6 +303,14 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
         # Exclude playoffs and play-in games
         # Note: nba_cup_semi IS included as it counts toward regular season stats
         filtered_df = filtered_df[~filtered_df["game_type"].isin(["playoffs", "play_in"])]
+
+    # Last N games is applied per team (different teams can span different date windows)
+    if last_n_games is not None and last_n_games > 0:
+        filtered_df = (
+            filtered_df.sort_values("game_date")
+            .groupby("team", group_keys=False)
+            .tail(last_n_games)
+        )
 
     agg_cols = {
         "fgm": "sum",
@@ -335,37 +356,31 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
     team_stats["oreb_pct"] = (team_stats["oreb"] / (team_stats["oreb"] + team_stats["opp_dreb"]) * 100).round(1)
     team_stats["dreb_pct"] = (team_stats["dreb"] / (team_stats["dreb"] + team_stats["opp_oreb"]) * 100).round(1)
 
-    tov_denom = team_stats["fga"] + 0.32 * team_stats["fta"] + team_stats["tov"]
-    team_stats["tov_pct"] = (team_stats["tov"] / tov_denom * 100).round(1)
+    team_stats["possessions"] = _resolve_team_possessions(team_stats).round(1)
+    team_stats["opp_possessions"] = _resolve_opp_possessions(team_stats).round(1)
+
+    team_stats["tov_pct"] = (
+        team_stats["tov"] / team_stats["possessions"].replace(0, pd.NA) * 100
+    ).fillna(0).round(1)
     team_stats["ball_handling"] = (100 - team_stats["tov_pct"]).round(1)
 
     team_stats["ft_rate"] = (team_stats["ftm"] / team_stats["fga"] * 100).round(1)
 
-    # Calculate estimated possessions
-    estimated_poss = team_stats["fga"] + 0.32 * team_stats["fta"] - team_stats["oreb"] + team_stats["tov"]
-    estimated_opp_poss = team_stats["opp_fga"] + 0.32 * team_stats["opp_fta"] - team_stats["opp_oreb"] + team_stats["opp_tov"]
-
-    # Use actual possessions if available, otherwise use estimated
-    if "actual_poss" in team_stats.columns:
-        team_stats["possessions"] = team_stats["actual_poss"].fillna(estimated_poss).round(1)
-    else:
-        team_stats["possessions"] = estimated_poss.round(1)
-
-    if "opp_actual_poss" in team_stats.columns:
-        team_stats["opp_possessions"] = team_stats["opp_actual_poss"].fillna(estimated_opp_poss).round(1)
-    else:
-        team_stats["opp_possessions"] = estimated_opp_poss.round(1)
-
-    team_stats["off_rating"] = (team_stats["pts"] / team_stats["possessions"] * 100).round(1)
-    team_stats["def_rating"] = (team_stats["opp_pts"] / team_stats["opp_possessions"] * 100).round(1)
+    team_stats["off_rating"] = (
+        team_stats["pts"] / team_stats["possessions"].replace(0, pd.NA) * 100
+    ).fillna(0).round(1)
+    team_stats["def_rating"] = (
+        team_stats["opp_pts"] / team_stats["opp_possessions"].replace(0, pd.NA) * 100
+    ).fillna(0).round(1)
     team_stats["net_rating"] = (team_stats["off_rating"] - team_stats["def_rating"]).round(1)
 
     team_stats["ppg"] = (team_stats["pts"] / team_stats["games"]).round(1)
     team_stats["opp_ppg"] = (team_stats["opp_pts"] / team_stats["games"]).round(1)
 
     team_stats["opp_efg_pct"] = ((team_stats["opp_fgm"] + 0.5 * team_stats["opp_fg3m"]) / team_stats["opp_fga"] * 100).round(1)
-    opp_tov_denom = team_stats["opp_fga"] + 0.32 * team_stats["opp_fta"] + team_stats["opp_tov"]
-    team_stats["opp_tov_pct"] = (team_stats["opp_tov"] / opp_tov_denom * 100).round(1)
+    team_stats["opp_tov_pct"] = (
+        team_stats["opp_tov"] / team_stats["opp_possessions"].replace(0, pd.NA) * 100
+    ).fillna(0).round(1)
     team_stats["opp_ball_handling"] = (100 - team_stats["opp_tov_pct"]).round(1)
     team_stats["opp_ft_rate"] = (team_stats["opp_ftm"] / team_stats["opp_fga"] * 100).round(1)
     # Opponent OREB% = 100 - your DREB% (since DREB% + Opp OREB% = 100 for the same rebound pool)
@@ -381,12 +396,58 @@ def compute_league_aggregates(df: pd.DataFrame, start_date: Optional[str], end_d
     team_stats["win_pct"] = (team_stats["wins"] / team_stats["games"] * 100).where(team_stats["games"] > 0, 0).round(1)
 
     # Pace = average possessions per game (both teams combined / 2)
-    team_stats["pace"] = ((team_stats["possessions"] + team_stats["opp_possessions"]) / 2 / team_stats["games"]).round(1)
+    team_stats["pace"] = (
+        (team_stats["possessions"] + team_stats["opp_possessions"]) / 2 / team_stats["games"].replace(0, pd.NA)
+    ).fillna(0).round(1)
+
+    # Strength of Schedule (SOS): average opponent ratings over games played.
+    # This is game-weighted (teams faced more often have greater influence).
+    if not filtered_df.empty:
+        opponent_ratings = team_stats.set_index("team")[["off_rating", "def_rating", "net_rating"]]
+        schedule_df = filtered_df[["team", "opponent"]].merge(
+            opponent_ratings,
+            left_on="opponent",
+            right_index=True,
+            how="left",
+        )
+
+        sos_by_team = schedule_df.groupby("team").agg(
+            sos=("net_rating", "mean"),
+            opp_avg_off_rating=("off_rating", "mean"),
+            opp_avg_def_rating=("def_rating", "mean"),
+        ).reset_index()
+
+        team_stats = team_stats.merge(sos_by_team, on="team", how="left")
+    else:
+        team_stats["sos"] = 0.0
+        team_stats["opp_avg_off_rating"] = 0.0
+        team_stats["opp_avg_def_rating"] = 0.0
+
+    league_avg_off_rating = float(team_stats["off_rating"].mean()) if len(team_stats) > 0 else 0.0
+    league_avg_def_rating = float(team_stats["def_rating"].mean()) if len(team_stats) > 0 else 0.0
+
+    team_stats["sos"] = team_stats["sos"].fillna(0).round(1)
+    team_stats["off_sos"] = (team_stats["opp_avg_off_rating"].fillna(0) - league_avg_off_rating).round(1)
+    team_stats["def_sos"] = (team_stats["opp_avg_def_rating"].fillna(0) - league_avg_def_rating).round(1)
+
+    # Apply schedule adjustments in the opposite phase:
+    # - Opponents with strong offense (high Off SOS) should make your defensive rating look better,
+    #   so subtract Off SOS from DRtg.
+    # - Opponents with weak/strong defense (Def SOS) should adjust ORtg in the opposite direction,
+    #   so subtract Def SOS from ORtg.
+    team_stats["adj_net_rating"] = (team_stats["net_rating"] + team_stats["sos"]).round(1)
+    team_stats["adj_off_rating"] = (team_stats["off_rating"] - team_stats["def_sos"]).round(1)
+    team_stats["adj_def_rating"] = (team_stats["def_rating"] - team_stats["off_sos"]).round(1)
+
+    team_stats = team_stats.drop(columns=["opp_avg_off_rating", "opp_avg_def_rating"], errors="ignore")
 
     return team_stats
 
 def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     """Compute a stat value for each row in the dataframe."""
+    poss = _resolve_team_possessions(df)
+    opp_poss = _resolve_opp_possessions(df)
+
     if stat == "pts":
         return df["pts"]
     elif stat == "fg_pct":
@@ -406,42 +467,18 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     elif stat == "tov":
         return df["tov"]
     elif stat == "tov_pct":
-        denom = df["fga"] + 0.32 * df["fta"] + df["tov"]
-        return (df["tov"] / denom * 100).round(1)
+        return (df["tov"] / poss.replace(0, pd.NA) * 100).fillna(0).round(1)
     elif stat == "off_rating":
-        # Use actual possessions if available, otherwise fall back to estimated
-        estimated_poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
-        if "actual_poss" in df.columns:
-            poss = df["actual_poss"].fillna(estimated_poss)
-        else:
-            poss = estimated_poss
-        return (df["pts"] / poss * 100).round(1)
+        return (df["pts"] / poss.replace(0, pd.NA) * 100).fillna(0).round(1)
     elif stat == "def_rating":
-        # Use opponent actual possessions if available
-        estimated_opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
-        if "opp_actual_poss" in df.columns:
-            opp_poss = df["opp_actual_poss"].fillna(estimated_opp_poss)
-        else:
-            opp_poss = estimated_opp_poss
-        return (df["opp_pts"] / opp_poss * 100).round(1)
+        return (df["opp_pts"] / opp_poss.replace(0, pd.NA) * 100).fillna(0).round(1)
     elif stat == "net_rating":
-        estimated_poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
-        estimated_opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
-        if "actual_poss" in df.columns:
-            poss = df["actual_poss"].fillna(estimated_poss)
-        else:
-            poss = estimated_poss
-        if "opp_actual_poss" in df.columns:
-            opp_poss = df["opp_actual_poss"].fillna(estimated_opp_poss)
-        else:
-            opp_poss = estimated_opp_poss
-        off_rtg = df["pts"] / poss * 100
-        def_rtg = df["opp_pts"] / opp_poss * 100
-        return (off_rtg - def_rtg).round(1)
+        off_rtg = df["pts"] / poss.replace(0, pd.NA) * 100
+        def_rtg = df["opp_pts"] / opp_poss.replace(0, pd.NA) * 100
+        return (off_rtg - def_rtg).fillna(0).round(1)
     elif stat == "ball_handling":
-        denom = df["fga"] + 0.32 * df["fta"] + df["tov"]
-        tov_pct = df["tov"] / denom * 100
-        return (100 - tov_pct).round(1)
+        tov_pct = df["tov"] / poss.replace(0, pd.NA) * 100
+        return (100 - tov_pct).fillna(100).round(1)
     elif stat == "oreb_pct":
         return (df["oreb"] / (df["oreb"] + df["opp_dreb"]) * 100).round(1)
     elif stat == "ft_rate":
@@ -449,9 +486,8 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     elif stat == "opp_efg_pct":
         return ((df["opp_fgm"] + 0.5 * df["opp_fg3m"]) / df["opp_fga"] * 100).round(1)
     elif stat == "opp_ball_handling":
-        opp_denom = df["opp_fga"] + 0.32 * df["opp_fta"] + df["opp_tov"]
-        opp_tov_pct = df["opp_tov"] / opp_denom * 100
-        return (100 - opp_tov_pct).round(1)
+        opp_tov_pct = df["opp_tov"] / opp_poss.replace(0, pd.NA) * 100
+        return (100 - opp_tov_pct).fillna(100).round(1)
     elif stat == "opp_oreb_pct":
         return (df["opp_oreb"] / (df["opp_oreb"] + df["dreb"]) * 100).round(1)
     elif stat == "opp_ft_rate":
@@ -471,17 +507,7 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     elif stat == "opp_fg3a_rate":
         return (df["opp_fg3a"] / df["opp_fga"] * 100).round(1)
     elif stat == "pace":
-        estimated_poss = df["fga"] + 0.32 * df["fta"] - df["oreb"] + df["tov"]
-        estimated_opp_poss = df["opp_fga"] + 0.32 * df["opp_fta"] - df["opp_oreb"] + df["opp_tov"]
-        if "actual_poss" in df.columns:
-            poss = df["actual_poss"].fillna(estimated_poss)
-        else:
-            poss = estimated_poss
-        if "opp_actual_poss" in df.columns:
-            opp_poss = df["opp_actual_poss"].fillna(estimated_opp_poss)
-        else:
-            opp_poss = estimated_opp_poss
-        return ((poss + opp_poss) / 2).round(1)
+        return ((poss + opp_poss) / 2).fillna(0).round(1)
     else:
         return pd.Series([0] * len(df), index=df.index)
 
@@ -550,121 +576,199 @@ CONTRIBUTION_FACTOR_TO_STAT = {
 }
 
 
+def _normalize_contrib_game_id(game_id: Any) -> str:
+    """Normalize game IDs to 10-digit strings for joins with contribution JSON."""
+    if pd.isna(game_id):
+        return ""
+    gid = str(game_id).strip()
+    if gid.endswith(".0"):
+        gid = gid[:-2]
+    digits = "".join(ch for ch in gid if ch.isdigit())
+    if not digits:
+        return gid
+    return digits.zfill(10)
+
+
+def _compute_factor_trend_from_snapshots(factor_snapshots: list, factor_key: str) -> list:
+    """Build mini-chart trend series from per-game JSON factor values."""
+    ordered = sorted(factor_snapshots, key=lambda s: s["game_date"])
+    running_values = []
+    trend_data = []
+
+    for snap in ordered:
+        value = float(snap["factor_values"].get(factor_key, 0) or 0)
+        running_values.append(value)
+        ma_5 = sum(running_values[-5:]) / min(5, len(running_values))
+
+        trend_data.append({
+            "game_id": snap["game_id"],
+            "game_date": snap["game_date"].strftime("%Y-%m-%d") if pd.notna(snap["game_date"]) else "",
+            "opponent": snap["opponent"],
+            "home_away": snap["home_away"],
+            "value": round(value, 1),
+            "ma_5": round(ma_5, 1),
+            "wl": snap["wl"],
+        })
+
+    return trend_data
+
+
 def compute_contribution_analysis(
     team_df: pd.DataFrame,
     league_df: pd.DataFrame,
-    model: Dict,
+    contributions_data: Dict[str, Any],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     exclude_playoffs: bool = False,
+    last_n_games: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Compute contribution analysis for a team over a period.
+    """Compute contribution analysis from per-game contribution JSON values.
 
-    Uses a season-level eight-factor model to decompose the team's net rating
-    into contributions from each factor.
-
-    Args:
-        team_df: DataFrame with team's games (already filtered to team)
-        league_df: DataFrame with all league games (for computing league averages)
-        model: Season-level model with eight_factors coefficients
-        start_date: Optional start date filter (inclusive)
-        end_date: Optional end date filter (inclusive)
-        exclude_playoffs: If True, exclude playoff and play-in games
-
-    Returns:
-        Dict with contributions, factor_values, top_contributors, etc.
+    Contributions in the source JSON are stored from the home-team perspective.
+    This function converts each game to the selected team's perspective, then
+    averages each of the 8 factors over the selected period.
     """
-    # Apply date filters to team games only
+    del league_df  # Kept in signature for compatibility with existing call sites.
+
     filtered_team = team_df.copy()
 
-    # Exclude nba_cup_final from all calculations
+    # NBA Cup final is always excluded.
     filtered_team = filtered_team[filtered_team["game_type"] != "nba_cup_final"]
-    full_season_league = league_df[league_df["game_type"] != "nba_cup_final"].copy()
 
-    # Exclude playoffs/play-in if requested
     if exclude_playoffs:
         filtered_team = filtered_team[~filtered_team["game_type"].isin(["playoffs", "play_in"])]
-        full_season_league = full_season_league[~full_season_league["game_type"].isin(["playoffs", "play_in"])]
 
     if start_date:
         filtered_team = filtered_team[filtered_team["game_date"] >= pd.to_datetime(start_date)]
     if end_date:
         filtered_team = filtered_team[filtered_team["game_date"] <= pd.to_datetime(end_date)]
 
+    filtered_team = filtered_team.sort_values("game_date")
+
+    if last_n_games is not None and last_n_games > 0:
+        filtered_team = filtered_team.tail(last_n_games)
+
     if filtered_team.empty:
         raise ValueError("No games found for the specified team and date range")
 
-    games_analyzed = len(filtered_team)
+    contrib_games = contributions_data.get("games", []) if isinstance(contributions_data, dict) else []
+    contrib_by_game_id = {
+        _normalize_contrib_game_id(g.get("game_id")): g
+        for g in contrib_games
+        if isinstance(g, dict)
+    }
 
-    # Compute wins/losses from points
-    wins = (filtered_team["pts"] > filtered_team["opp_pts"]).sum()
+    base_factors = ["shooting", "ball_handling", "orebounding", "free_throws"]
+    all_factors = [
+        "shooting",
+        "ball_handling",
+        "orebounding",
+        "free_throws",
+        "opp_shooting",
+        "opp_ball_handling",
+        "opp_orebounding",
+        "opp_free_throws",
+    ]
+    league_avg_key_map = {
+        "shooting": "efg",
+        "ball_handling": "ball_handling",
+        "orebounding": "oreb",
+        "free_throws": "ft_rate",
+    }
+
+    factor_snapshots = []
+    usable_game_ids = set()
+
+    for _, row in filtered_team.iterrows():
+        gid = _normalize_contrib_game_id(row.get("game_id"))
+        game_entry = contrib_by_game_id.get(gid)
+        if not game_entry:
+            continue
+
+        factors = game_entry.get("factors", {})
+        home_factors = factors.get("home", []) if isinstance(factors, dict) else []
+        road_factors = factors.get("road", []) if isinstance(factors, dict) else []
+        if len(home_factors) < 4 or len(road_factors) < 4:
+            continue
+
+        home_away = str(row.get("home_away", "home") or "home")
+        perspective_sign = 1.0 if home_away == "home" else -1.0
+        team_factors = home_factors if home_away == "home" else road_factors
+        opp_factors = road_factors if home_away == "home" else home_factors
+
+        game_contributions: Dict[str, float] = {}
+        game_factor_values: Dict[str, float] = {}
+        game_league_averages: Dict[str, float] = {}
+
+        model_info = game_entry.get("model", {})
+        model_league_avgs = model_info.get("league_averages", {}) if isinstance(model_info, dict) else {}
+
+        for i, factor in enumerate(base_factors):
+            team_item = team_factors[i] if i < len(team_factors) else {}
+            opp_item = opp_factors[i] if i < len(opp_factors) else {}
+
+            game_contributions[factor] = perspective_sign * float(team_item.get("contribution", 0) or 0)
+            game_contributions[f"opp_{factor}"] = perspective_sign * float(opp_item.get("contribution", 0) or 0)
+
+            game_factor_values[factor] = float(team_item.get("value", 0) or 0)
+            game_factor_values[f"opp_{factor}"] = float(opp_item.get("value", 0) or 0)
+
+            league_avg_val = float(model_league_avgs.get(league_avg_key_map[factor], 0) or 0)
+            game_league_averages[factor] = league_avg_val
+            game_league_averages[f"opp_{factor}"] = league_avg_val
+
+        wl_value = row.get("wl")
+        if pd.isna(wl_value) or wl_value not in ["W", "L"]:
+            wl_value = "W" if float(row.get("pts", 0) or 0) > float(row.get("opp_pts", 0) or 0) else "L"
+
+        factor_snapshots.append({
+            "game_id": gid,
+            "game_date": pd.to_datetime(row.get("game_date"), errors="coerce"),
+            "opponent": str(row.get("opponent", "")),
+            "home_away": home_away,
+            "wl": str(wl_value),
+            "contributions": game_contributions,
+            "factor_values": game_factor_values,
+            "league_averages": game_league_averages,
+        })
+        usable_game_ids.add(gid)
+
+    if not factor_snapshots:
+        raise ValueError("No contribution records found for the specified team and date range")
+
+    games_mask = filtered_team["game_id"].map(_normalize_contrib_game_id).isin(usable_game_ids)
+    filtered_team_with_contrib = filtered_team[games_mask].copy()
+    filtered_team_with_contrib = filtered_team_with_contrib.sort_values("game_date")
+
+    games_analyzed = len(filtered_team_with_contrib)
+    wins = int((filtered_team_with_contrib["pts"] > filtered_team_with_contrib["opp_pts"]).sum())
     losses = games_analyzed - wins
     win_pct = round(wins / games_analyzed, 3) if games_analyzed > 0 else 0.0
 
-    # Compute team's aggregated stats over the period
-    # Using the same logic as compute_league_aggregates but for a single team
-    team_stats = _compute_team_period_stats(filtered_team)
+    team_stats = _compute_team_period_stats(filtered_team_with_contrib)
+    actual_net_rating = team_stats.get("net_rating", 0.0)
 
-    # Compute league averages for the FULL SEASON (not filtered by date range)
-    # This provides a stable baseline that doesn't change with the analysis period
-    season_league_avgs = _compute_league_period_averages(full_season_league)
+    contributions: Dict[str, float] = {}
+    factor_values: Dict[str, float] = {}
+    league_avgs_out: Dict[str, float] = {}
 
-    # Get model data (coefficients only - league averages come from season data)
-    # Season-level models store coefficients under eight_factors
-    model_data = model.get("eight_factors", {})
-    coefficients = model_data.get("coefficients", {})
-    intercept = model_data.get("intercept", 0)
+    for factor in all_factors:
+        contribution_vals = [snap["contributions"].get(factor, 0) for snap in factor_snapshots]
+        value_vals = [snap["factor_values"].get(factor, 0) for snap in factor_snapshots]
+        avg_vals = [snap["league_averages"].get(factor, 0) for snap in factor_snapshots]
 
-    # Map factor keys to stats
-    factor_stats = {
-        "shooting": ("efg_pct", team_stats.get("efg_pct", 0)),
-        "ball_handling": ("ball_handling", team_stats.get("ball_handling", 0)),
-        "orebounding": ("oreb_pct", team_stats.get("oreb_pct", 0)),
-        "free_throws": ("ft_rate", team_stats.get("ft_rate", 0)),
-        "opp_shooting": ("opp_efg_pct", team_stats.get("opp_efg_pct", 0)),
-        "opp_ball_handling": ("opp_ball_handling", team_stats.get("opp_ball_handling", 0)),
-        "opp_orebounding": ("opp_oreb_pct", team_stats.get("opp_oreb_pct", 0)),
-        "opp_free_throws": ("opp_ft_rate", team_stats.get("opp_ft_rate", 0)),
-    }
+        contributions[factor] = round(sum(contribution_vals) / len(contribution_vals), 2)
+        factor_values[factor] = round(sum(value_vals) / len(value_vals), 2)
+        league_avgs_out[factor] = round(sum(avg_vals) / len(avg_vals), 2)
 
-    contributions = {}
-    factor_values = {}
-    total_contribution = 0.0  # Sum of contributions only (not including intercept)
+    predicted_net_rating = round(sum(contributions.values()), 1)
 
-    for factor_key, (stat_key, team_value) in factor_stats.items():
-        coef = float(coefficients.get(factor_key, 0))
-
-        # Get league average from season data (already in percentage scale)
-        league_avg = float(season_league_avgs.get(factor_key, 0))
-
-        # Center on league average and compute contribution
-        # Team value is already in percentage scale (0-100)
-        centered = (team_value - league_avg) / 100.0
-        contribution = coef * centered
-        # Model coefficients already have correct signs:
-        # - Positive coefs for team factors (higher = better)
-        # - Negative coefs for opponent factors (higher opp stats = worse for you)
-
-        contributions[factor_key] = round(contribution, 2)
-        factor_values[factor_key] = round(team_value, 2)
-        total_contribution += contribution
-
-    # Build league_averages output from season averages
-    league_avgs_out = {k: round(v, 2) for k, v in season_league_avgs.items()}
-
-    # Compute actual net rating for the period
-    actual_net_rating = team_stats.get("net_rating", 0)
-
-    # Find top 4 contributors by absolute value
     sorted_factors = sorted(contributions.items(), key=lambda x: abs(x[1]), reverse=True)
     top_4 = sorted_factors[:4]
 
-    # Build top contributors with trend data
     top_contributors = []
     for factor_key, contribution_val in top_4:
-        stat_key = CONTRIBUTION_FACTOR_TO_STAT.get(factor_key, "net_rating")
-        trend_data = _compute_factor_trend(filtered_team, stat_key)
-
+        trend_data = _compute_factor_trend_from_snapshots(factor_snapshots, factor_key)
         top_contributors.append({
             "factor": factor_key,
             "factor_label": CONTRIBUTION_FACTOR_LABELS.get(factor_key, factor_key),
@@ -674,22 +778,21 @@ def compute_contribution_analysis(
             "trend_data": trend_data,
         })
 
-    # Determine date range for output
-    first_date = filtered_team["game_date"].min()
-    last_date = filtered_team["game_date"].max()
+    first_date = filtered_team_with_contrib["game_date"].min()
+    last_date = filtered_team_with_contrib["game_date"].max()
 
     return {
         "games_analyzed": games_analyzed,
-        "wins": int(wins),
-        "losses": int(losses),
+        "wins": wins,
+        "losses": losses,
         "win_pct": win_pct,
         "net_rating": round(actual_net_rating, 1),
-        "predicted_net_rating": round(total_contribution, 1),
+        "predicted_net_rating": predicted_net_rating,
         "contributions": contributions,
         "factor_values": factor_values,
         "league_averages": league_avgs_out,
         "top_contributors": top_contributors,
-        "intercept": round(float(intercept), 2),
+        "intercept": 0.0,
         "start_date": first_date.strftime("%Y-%m-%d") if pd.notna(first_date) else "",
         "end_date": last_date.strftime("%Y-%m-%d") if pd.notna(last_date) else "",
     }
@@ -732,10 +835,17 @@ def _compute_team_period_stats(team_df: pd.DataFrame) -> Dict[str, float]:
     else:
         stats["efg_pct"] = 0
 
-    # Ball Handling (100 - TOV%)
-    tov_denom = totals["fga"] + 0.32 * totals["fta"] + totals["tov"]
-    if tov_denom > 0:
-        tov_pct = totals["tov"] / tov_denom * 100
+    # Ball Handling (100 - TOV%), using actual possessions
+    poss = (
+        pd.to_numeric(team_df["actual_poss"], errors="coerce").where(
+            pd.to_numeric(team_df["actual_poss"], errors="coerce") > 0
+        ).sum()
+        if "actual_poss" in team_df.columns else 0
+    )
+    if poss <= 0:
+        poss = totals["fga"] + 0.32 * totals["fta"] - totals["oreb"] + totals["tov"]
+    if poss > 0:
+        tov_pct = totals["tov"] / poss * 100
         stats["ball_handling"] = 100 - tov_pct
     else:
         stats["ball_handling"] = 100
@@ -759,9 +869,16 @@ def _compute_team_period_stats(team_df: pd.DataFrame) -> Dict[str, float]:
     else:
         stats["opp_efg_pct"] = 0
 
-    opp_tov_denom = totals["opp_fga"] + 0.32 * totals["opp_fta"] + totals["opp_tov"]
-    if opp_tov_denom > 0:
-        opp_tov_pct = totals["opp_tov"] / opp_tov_denom * 100
+    opp_poss = (
+        pd.to_numeric(team_df["opp_actual_poss"], errors="coerce").where(
+            pd.to_numeric(team_df["opp_actual_poss"], errors="coerce") > 0
+        ).sum()
+        if "opp_actual_poss" in team_df.columns else 0
+    )
+    if opp_poss <= 0:
+        opp_poss = totals["opp_fga"] + 0.32 * totals["opp_fta"] - totals["opp_oreb"] + totals["opp_tov"]
+    if opp_poss > 0:
+        opp_tov_pct = totals["opp_tov"] / opp_poss * 100
         stats["opp_ball_handling"] = 100 - opp_tov_pct
     else:
         stats["opp_ball_handling"] = 100
@@ -777,17 +894,7 @@ def _compute_team_period_stats(team_df: pd.DataFrame) -> Dict[str, float]:
     else:
         stats["opp_ft_rate"] = 0
 
-    # Ratings (use actual possessions if available)
-    if "actual_poss" in team_df.columns:
-        poss = team_df["actual_poss"].sum()
-    else:
-        poss = totals["fga"] + 0.32 * totals["fta"] - totals["oreb"] + totals["tov"]
-
-    if "opp_actual_poss" in team_df.columns:
-        opp_poss = team_df["opp_actual_poss"].sum()
-    else:
-        opp_poss = totals["opp_fga"] + 0.32 * totals["opp_fta"] - totals["opp_oreb"] + totals["opp_tov"]
-
+    # Ratings using actual possessions
     if poss > 0:
         stats["off_rating"] = round(totals["pts"] / poss * 100, 1)
     else:
@@ -837,9 +944,25 @@ def _compute_league_period_averages(league_df: pd.DataFrame) -> Dict[str, float]
     else:
         avgs["shooting"] = 0
 
-    tov_denom = totals["fga"] + 0.32 * totals["fta"] + totals["tov"]
-    if tov_denom > 0:
-        tov_pct = totals["tov"] / tov_denom * 100
+    poss = (
+        pd.to_numeric(league_df["actual_poss"], errors="coerce").where(
+            pd.to_numeric(league_df["actual_poss"], errors="coerce") > 0
+        ).sum()
+        if "actual_poss" in league_df.columns else 0
+    )
+    opp_poss = (
+        pd.to_numeric(league_df["opp_actual_poss"], errors="coerce").where(
+            pd.to_numeric(league_df["opp_actual_poss"], errors="coerce") > 0
+        ).sum()
+        if "opp_actual_poss" in league_df.columns else 0
+    )
+    if poss <= 0:
+        poss = totals["fga"] + 0.32 * totals["fta"] - totals["oreb"] + totals["tov"]
+    if opp_poss <= 0:
+        opp_poss = totals["opp_fga"] + 0.32 * totals["opp_fta"] - totals["opp_oreb"] + totals["opp_tov"]
+
+    if poss > 0:
+        tov_pct = totals["tov"] / poss * 100
         avgs["ball_handling"] = 100 - tov_pct
     else:
         avgs["ball_handling"] = 100
@@ -861,9 +984,8 @@ def _compute_league_period_averages(league_df: pd.DataFrame) -> Dict[str, float]
     else:
         avgs["opp_shooting"] = 0
 
-    opp_tov_denom = totals["opp_fga"] + 0.32 * totals["opp_fta"] + totals["opp_tov"]
-    if opp_tov_denom > 0:
-        opp_tov_pct = totals["opp_tov"] / opp_tov_denom * 100
+    if opp_poss > 0:
+        opp_tov_pct = totals["opp_tov"] / opp_poss * 100
         avgs["opp_ball_handling"] = 100 - opp_tov_pct
     else:
         avgs["opp_ball_handling"] = 100
@@ -914,32 +1036,17 @@ def _compute_factor_trend(team_df: pd.DataFrame, stat: str) -> list:
 
 def compute_league_top_contributors(
     league_df: pd.DataFrame,
-    model: Dict,
+    contributions_data: Dict[str, Any],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     exclude_playoffs: bool = False,
+    last_n_games: Optional[int] = None,
     top_n: int = 10,
 ) -> Dict[str, Any]:
-    """Compute top positive and negative contributors across all teams.
-
-    Each contributor is a team + factor combination, showing how that team's
-    performance in that factor contributed to their net rating.
-
-    Args:
-        league_df: DataFrame with all league games
-        model: Season-level model with eight_factors coefficients
-        start_date: Optional start date filter (inclusive)
-        end_date: Optional end date filter (inclusive)
-        exclude_playoffs: If True, exclude playoff and play-in games
-        top_n: Number of top contributors to return for each category
-
-    Returns:
-        Dict with top_positive, top_negative lists, and league_averages
-    """
-    # Filter data
+    """Compute league-wide top contributors from per-game contribution JSON."""
     filtered_df = league_df.copy()
 
-    # Exclude nba_cup_final from all calculations
+    # NBA Cup final is always excluded.
     filtered_df = filtered_df[filtered_df["game_type"] != "nba_cup_final"]
 
     if exclude_playoffs:
@@ -950,62 +1057,142 @@ def compute_league_top_contributors(
     if end_date:
         filtered_df = filtered_df[filtered_df["game_date"] <= pd.to_datetime(end_date)]
 
+    # Last N games is applied per team (different teams can span different date windows)
+    if last_n_games is not None and last_n_games > 0:
+        filtered_df = (
+            filtered_df.sort_values("game_date")
+            .groupby("team", group_keys=False)
+            .tail(last_n_games)
+        )
+
     if filtered_df.empty:
         return {
             "top_positive": [],
             "top_negative": [],
             "league_averages": {},
+            "coefficients": {},
             "start_date": start_date or "",
             "end_date": end_date or "",
         }
 
-    # Compute league averages for the period
-    league_avgs = _compute_league_period_averages(filtered_df)
+    contrib_games = contributions_data.get("games", []) if isinstance(contributions_data, dict) else []
+    contrib_by_game_id = {
+        _normalize_contrib_game_id(g.get("game_id")): g
+        for g in contrib_games
+        if isinstance(g, dict)
+    }
 
-    # Get model coefficients (season-level models use eight_factors)
-    model_data = model.get("eight_factors", {})
-    coefficients = model_data.get("coefficients", {})
+    base_factors = ["shooting", "ball_handling", "orebounding", "free_throws"]
+    all_factors = [
+        "shooting",
+        "ball_handling",
+        "orebounding",
+        "free_throws",
+        "opp_shooting",
+        "opp_ball_handling",
+        "opp_orebounding",
+        "opp_free_throws",
+    ]
+    league_avg_key_map = {
+        "shooting": "efg",
+        "ball_handling": "ball_handling",
+        "orebounding": "oreb",
+        "free_throws": "ft_rate",
+    }
 
-    # Get unique teams
-    teams = filtered_df["team"].unique()
+    snapshots = []
+    usable_game_ids = set()
 
-    # Collect all team-factor contributions
+    for _, row in filtered_df.iterrows():
+        gid = _normalize_contrib_game_id(row.get("game_id"))
+        game_entry = contrib_by_game_id.get(gid)
+        if not game_entry:
+            continue
+
+        factors = game_entry.get("factors", {})
+        home_factors = factors.get("home", []) if isinstance(factors, dict) else []
+        road_factors = factors.get("road", []) if isinstance(factors, dict) else []
+        if len(home_factors) < 4 or len(road_factors) < 4:
+            continue
+
+        home_away = str(row.get("home_away", "home") or "home")
+        perspective_sign = 1.0 if home_away == "home" else -1.0
+        team_factors = home_factors if home_away == "home" else road_factors
+        opp_factors = road_factors if home_away == "home" else home_factors
+
+        model_info = game_entry.get("model", {})
+        model_league_avgs = model_info.get("league_averages", {}) if isinstance(model_info, dict) else {}
+        model_coefficients = model_info.get("coefficients", {}) if isinstance(model_info, dict) else {}
+
+        game_contributions: Dict[str, float] = {}
+        game_factor_values: Dict[str, float] = {}
+        game_league_averages: Dict[str, float] = {}
+        game_coefficients: Dict[str, float] = {}
+
+        for i, factor in enumerate(base_factors):
+            team_item = team_factors[i] if i < len(team_factors) else {}
+            opp_item = opp_factors[i] if i < len(opp_factors) else {}
+
+            game_contributions[factor] = perspective_sign * float(team_item.get("contribution", 0) or 0)
+            game_contributions[f"opp_{factor}"] = perspective_sign * float(opp_item.get("contribution", 0) or 0)
+
+            game_factor_values[factor] = float(team_item.get("value", 0) or 0)
+            game_factor_values[f"opp_{factor}"] = float(opp_item.get("value", 0) or 0)
+
+            league_avg_val = float(model_league_avgs.get(league_avg_key_map[factor], 0) or 0)
+            game_league_averages[factor] = league_avg_val
+            game_league_averages[f"opp_{factor}"] = league_avg_val
+
+            coef_val = float(model_coefficients.get(factor, 0) or 0)
+            game_coefficients[factor] = coef_val
+            game_coefficients[f"opp_{factor}"] = coef_val
+
+        snapshots.append({
+            "team": str(row.get("team", "")),
+            "game_id": gid,
+            "game_date": pd.to_datetime(row.get("game_date"), errors="coerce"),
+            "contributions": game_contributions,
+            "factor_values": game_factor_values,
+            "league_averages": game_league_averages,
+            "coefficients": game_coefficients,
+        })
+        usable_game_ids.add(gid)
+
+    if not snapshots:
+        return {
+            "top_positive": [],
+            "top_negative": [],
+            "league_averages": {},
+            "coefficients": {},
+            "start_date": "",
+            "end_date": "",
+        }
+
+    filtered_with_contrib = filtered_df[
+        filtered_df["game_id"].map(_normalize_contrib_game_id).isin(usable_game_ids)
+    ].copy()
+
+    teams = sorted({snap["team"] for snap in snapshots if snap["team"]})
     all_contributions = []
 
     for team in teams:
-        team_df = filtered_df[filtered_df["team"] == team]
-        if team_df.empty:
+        team_snaps = [snap for snap in snapshots if snap["team"] == team]
+        if not team_snaps:
             continue
 
-        # Compute team's aggregated stats
-        team_stats = _compute_team_period_stats(team_df)
+        for factor in all_factors:
+            contribution_vals = [snap["contributions"].get(factor, 0) for snap in team_snaps]
+            value_vals = [snap["factor_values"].get(factor, 0) for snap in team_snaps]
 
-        # Map factor keys to stats
-        factor_stats = {
-            "shooting": ("efg_pct", team_stats.get("efg_pct", 0)),
-            "ball_handling": ("ball_handling", team_stats.get("ball_handling", 0)),
-            "orebounding": ("oreb_pct", team_stats.get("oreb_pct", 0)),
-            "free_throws": ("ft_rate", team_stats.get("ft_rate", 0)),
-            "opp_shooting": ("opp_efg_pct", team_stats.get("opp_efg_pct", 0)),
-            "opp_ball_handling": ("opp_ball_handling", team_stats.get("opp_ball_handling", 0)),
-            "opp_orebounding": ("opp_oreb_pct", team_stats.get("opp_oreb_pct", 0)),
-            "opp_free_throws": ("opp_ft_rate", team_stats.get("opp_ft_rate", 0)),
-        }
-
-        for factor_key, (stat_key, team_value) in factor_stats.items():
-            coef = float(coefficients.get(factor_key, 0))
-            league_avg = float(league_avgs.get(factor_key, 0))
-
-            # Center on league average and compute contribution
-            centered = (team_value - league_avg) / 100.0
-            contribution = coef * centered
+            avg_contribution = sum(contribution_vals) / len(contribution_vals)
+            avg_value = sum(value_vals) / len(value_vals)
 
             all_contributions.append({
                 "team": team,
-                "factor": factor_key,
-                "factor_label": CONTRIBUTION_FACTOR_LABELS.get(factor_key, factor_key),
-                "value": round(team_value, 1),
-                "contribution": round(contribution, 2),
+                "factor": factor,
+                "factor_label": CONTRIBUTION_FACTOR_LABELS.get(factor, factor),
+                "value": round(avg_value, 1),
+                "contribution": round(avg_contribution, 2),
             })
 
     # Sort by contribution
@@ -1020,15 +1207,22 @@ def compute_league_top_contributors(
         key=lambda x: x["contribution"]
     )[:top_n]
 
-    # Determine actual date range from data
-    first_date = filtered_df["game_date"].min()
-    last_date = filtered_df["game_date"].max()
+    league_avgs_out: Dict[str, float] = {}
+    coefficients_out: Dict[str, float] = {}
+    for factor in all_factors:
+        avg_vals = [snap["league_averages"].get(factor, 0) for snap in snapshots]
+        coef_vals = [snap["coefficients"].get(factor, 0) for snap in snapshots]
+        league_avgs_out[factor] = round(sum(avg_vals) / len(avg_vals), 2)
+        coefficients_out[factor] = round(sum(coef_vals) / len(coef_vals), 4)
+
+    first_date = filtered_with_contrib["game_date"].min()
+    last_date = filtered_with_contrib["game_date"].max()
 
     return {
         "top_positive": sorted_positive,
         "top_negative": sorted_negative,
-        "league_averages": {k: round(v, 2) for k, v in league_avgs.items()},
-        "coefficients": {k: round(float(v), 4) for k, v in coefficients.items()},
+        "league_averages": league_avgs_out,
+        "coefficients": coefficients_out,
         "start_date": first_date.strftime("%Y-%m-%d") if pd.notna(first_date) else "",
         "end_date": last_date.strftime("%Y-%m-%d") if pd.notna(last_date) else "",
     }

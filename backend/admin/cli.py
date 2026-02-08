@@ -47,6 +47,13 @@ from sklearn.linear_model import LinearRegression
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 
+# Import calculation functions for interpretation generation
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from services.calculations import compute_four_factors, compute_game_ratings, compute_decomposition, compute_league_aggregates
+from services.llm import generate_interpretation_sync, LLM_MODELS
+from config import get_current_season
+
 
 NBA_DATA_REPO_URL = "https://github.com/millxing/NBA_Data"
 
@@ -1042,53 +1049,27 @@ def _gamelogs_to_teamrows(game_df: pd.DataFrame, adv_df: pd.DataFrame = None) ->
 
 
 def _estimate_possessions(df: pd.DataFrame) -> pd.DataFrame:
-    """Estimate possessions from box score stats when actual data is unavailable.
+    """Verify actual possession data exists in the DataFrame.
 
-    Uses the standard formula: POSS ≈ FGA - OREB + TOV + 0.44 * FTA
-
-    This allows training models on seasons without advanced stats data.
-    Only fills in missing POSS values; preserves actual possession data where available.
+    Actual possessions are loaded from box_score_advanced CSVs and merged
+    in _gamelogs_to_teamrows(). This function validates that POSS and
+    OPP_POSS columns exist with actual data.
     """
     out = df.copy()
 
-    # Check if we have the columns needed for estimation
-    required_cols = {"FGA", "OREB", "TOV", "FTA"}
-    if not required_cols.issubset(out.columns):
-        return out  # Can't estimate without basic box score data
-
-    # Ensure numeric
-    for col in required_cols:
-        out[col] = pd.to_numeric(out[col], errors="coerce")
-
-    # Estimate possessions: FGA - OREB + TOV + 0.44 * FTA
-    estimated_poss = out["FGA"] - out["OREB"] + out["TOV"] + 0.44 * out["FTA"]
-
-    # If POSS column doesn't exist, create it with estimates
     if "POSS" not in out.columns:
-        out["POSS"] = estimated_poss
-        print(f"[estimate-poss] Created POSS column with {estimated_poss.notna().sum()} estimated values")
+        print("[possessions] WARNING: No POSS column found - actual possessions not merged")
     else:
-        # Fill only missing values with estimates
-        missing_count = out["POSS"].isna().sum()
-        if missing_count > 0:
-            out["POSS"] = out["POSS"].fillna(estimated_poss)
-            print(f"[estimate-poss] Filled {missing_count} missing POSS values with estimates")
+        missing = out["POSS"].isna().sum()
+        if missing > 0:
+            print(f"[possessions] WARNING: {missing} rows missing actual POSS data")
 
-    # Also estimate OPP_POSS if OPP_ columns exist
-    opp_required = {"OPP_FGA", "OPP_OREB", "OPP_TOV", "OPP_FTA"}
-    if opp_required.issubset(out.columns):
-        for col in opp_required:
-            out[col] = pd.to_numeric(out[col], errors="coerce")
-
-        estimated_opp_poss = out["OPP_FGA"] - out["OPP_OREB"] + out["OPP_TOV"] + 0.44 * out["OPP_FTA"]
-
-        if "OPP_POSS" not in out.columns:
-            out["OPP_POSS"] = estimated_opp_poss
-        else:
-            missing_opp = out["OPP_POSS"].isna().sum()
-            if missing_opp > 0:
-                out["OPP_POSS"] = out["OPP_POSS"].fillna(estimated_opp_poss)
-                print(f"[estimate-poss] Filled {missing_opp} missing OPP_POSS values with estimates")
+    if "OPP_POSS" not in out.columns:
+        print("[possessions] WARNING: No OPP_POSS column found - actual possessions not merged")
+    else:
+        missing_opp = out["OPP_POSS"].isna().sum()
+        if missing_opp > 0:
+            print(f"[possessions] WARNING: {missing_opp} rows missing actual OPP_POSS data")
 
     return out
 
@@ -1113,10 +1094,9 @@ def _compute_four_factors(df: pd.DataFrame) -> pd.DataFrame:
     if {"FGM", "FG3M", "FGA"}.issubset(out.columns):
         out["EFG_PCT"] = (out["FGM"] + 0.5 * out["FG3M"]) / out["FGA"].replace(0, pd.NA)
 
-    # TOV% = TOV / (FGA + 0.44*FTA + TOV)
-    if {"TOV", "FGA", "FTA"}.issubset(out.columns):
-        denom = out["FGA"] + 0.44 * out["FTA"] + out["TOV"]
-        out["TOV_PCT"] = out["TOV"] / denom.replace(0, pd.NA)
+    # TOV% = TOV / POSS (using actual possessions)
+    if "POSS" in out.columns and "TOV" in out.columns:
+        out["TOV_PCT"] = out["TOV"] / out["POSS"].replace(0, pd.NA)
 
     # OREB% requires opponent DREB, which is not directly present.
     # We'll compute a proxy later when we attach opponent rows; for now keep team OREB.
@@ -2108,6 +2088,632 @@ def commit_and_push(message: str, repo_dir: Path, dry_run: bool = False) -> int:
         return 1
 
 
+# ----------------------- Interpretation Generation -----------------------
+
+# Quintile thresholds from 2018-19 to 2024-25 (7 seasons of game-level data)
+QUINTILE_THRESHOLDS_2018_25 = {
+    "off_rating": {"p20": 102.7, "p40": 109.4, "p60": 115.1, "p80": 122.0},
+    "def_rating": {"p20": 102.7, "p40": 109.4, "p60": 115.1, "p80": 122.0},
+    "net_rating": {"p20": -12.1, "p40": -4.5, "p60": 4.5, "p80": 12.1},
+    "efg": {"p20": 48.1, "p40": 51.9, "p60": 55.2, "p80": 59.3},
+    "ball_handling": {"p20": 84.4, "p40": 86.5, "p60": 88.3, "p80": 90.2},
+    "oreb": {"p20": 17.0, "p40": 21.2, "p60": 25.0, "p80": 29.4},
+    "ft_rate": {"p20": 13.6, "p40": 17.5, "p60": 21.2, "p80": 25.8},
+}
+
+
+def _classify_quintile(value: float, thresholds: dict, higher_is_better: bool = True) -> str:
+    """Classify a value into quintile label based on thresholds."""
+    p20, p40, p60, p80 = thresholds["p20"], thresholds["p40"], thresholds["p60"], thresholds["p80"]
+
+    if higher_is_better:
+        if value <= p20:
+            return "POOR"
+        elif value <= p40:
+            return "SUBPAR"
+        elif value <= p60:
+            return "AVERAGE"
+        elif value <= p80:
+            return "GOOD"
+        else:
+            return "EXCELLENT"
+    else:
+        # For metrics where lower is better (like defensive rating)
+        if value >= p80:
+            return "POOR"
+        elif value >= p60:
+            return "SUBPAR"
+        elif value >= p40:
+            return "AVERAGE"
+        elif value >= p20:
+            return "GOOD"
+        else:
+            return "EXCELLENT"
+
+
+def generate_interpretations(
+    season: str,
+    repo_dir: Path,
+    current_season: bool = False,
+    incremental: bool = False,
+    dry_run: bool = False,
+    limit: int = None,
+    max_new: int | None = None,
+) -> int:
+    """
+    Generate LLM interpretations for all games in a season.
+
+    Args:
+        season: Season string (e.g., "2024-25")
+        repo_dir: Path to NBA_Data repo
+        current_season: If True, use better model (Sonnet 4); else use cheaper model (GPT-4o-mini)
+        incremental: If True, only generate for games not already in output file
+        dry_run: If True, show what would be generated without calling LLM
+        limit: If set, only process this many games (for testing)
+        max_new: If set, fail when the number of new games exceeds this value
+    """
+    try:
+        repo_dir = ensure_data_repo(repo_dir)
+        interpretations_dir = repo_dir / "interpretations"
+        interpretations_dir.mkdir(parents=True, exist_ok=True)
+
+        output_file = interpretations_dir / f"gamesummaries_{season}_2018-25.json"
+
+        # Select model based on current_season flag
+        model = LLM_MODELS["current"] if current_season else LLM_MODELS["historical"]
+        print(f"[interp] Season: {season}")
+        print(f"[interp] Model: {model}")
+        print(f"[interp] Incremental: {incremental}")
+        print(f"[interp] Output: {output_file}")
+
+        # Load existing interpretations if incremental
+        existing_data = {"season": season, "prompt_version": "v3_quintiles", "interpretations": {}}
+        if incremental and output_file.exists():
+            with open(output_file, "r") as f:
+                existing_data = json.load(f)
+            print(f"[interp] Loaded {len(existing_data.get('interpretations', {}))} existing interpretations")
+
+        # Load season data
+        csv_path = repo_dir / _season_to_filename(season)
+        if not csv_path.exists():
+            print(f"[error] Season CSV not found: {csv_path}")
+            return 1
+
+        df = pd.read_csv(csv_path)
+        print(f"[interp] Loaded {len(df)} games from {csv_path.name}")
+
+        # Merge actual possessions from advanced stats
+        adv_path = repo_dir / _advanced_filename(season)
+        if adv_path.exists():
+            adv_df = pd.read_csv(adv_path)
+            adv_df["game_id"] = adv_df["game_id"].astype(str).map(
+                lambda v: v.zfill(10) if v.isdigit() else v
+            )
+            df["game_id"] = df["game_id"].astype(str).map(
+                lambda v: v.zfill(10) if v.isdigit() else v
+            )
+            df = df.merge(
+                adv_df[["game_id", "possessions_home", "possessions_road", "minutes_home", "minutes_road"]],
+                on="game_id",
+                how="left",
+            )
+
+        # Always use 2018-2025 model for quintile consistency
+        model_file = repo_dir / "models" / "2018-2025.json"
+        if not model_file.exists():
+            print(f"[error] 2018-2025.json model not found in {repo_dir / 'models'}")
+            return 1
+
+        with open(model_file, "r") as f:
+            model_data = json.load(f)
+        decomposition_model_id = "2018-2025"
+        print(f"[interp] Using decomposition model: {decomposition_model_id}")
+
+        # Compute league averages for the season
+        league_avgs = _compute_season_league_averages(df)
+        factor_ranges = _compute_factor_ranges(df)
+
+        # Get list of games to process
+        game_ids = df["game_id"].unique().tolist()
+        existing_ids = set(existing_data.get("interpretations", {}).keys())
+
+        if incremental:
+            games_to_process = [gid for gid in game_ids if str(gid) not in existing_ids]
+        else:
+            games_to_process = game_ids
+
+        total_to_process = len(games_to_process)
+        if max_new is not None and total_to_process > max_new:
+            print(
+                f"[error] Refusing to generate {total_to_process} interpretations "
+                f"(max allowed: {max_new}). Run manually without --max-new for backfills."
+            )
+            return 2
+
+        if limit:
+            games_to_process = games_to_process[:limit]
+
+        print(f"[interp] Games to process: {len(games_to_process)}")
+
+        if dry_run:
+            print("[interp] DRY RUN - would process these games:")
+            for gid in games_to_process[:10]:
+                print(f"  - {gid}")
+            if len(games_to_process) > 10:
+                print(f"  ... and {len(games_to_process) - 10} more")
+            return 0
+
+        # Process games
+        success_count = 0
+        fail_count = 0
+        interpretations = existing_data.get("interpretations", {})
+
+        for i, game_id in enumerate(games_to_process):
+            game_id_str = str(game_id)
+            print(f"[interp] [{i+1}/{len(games_to_process)}] Processing game {game_id_str}...")
+
+            try:
+                # Get game row from dataframe
+                game_row = df[df["game_id"] == game_id].iloc[0]
+
+                # Build game data in flat format with quintile classifications
+                game_data = _build_game_data_with_quintiles(game_row, model_data, league_avgs)
+
+                # Generate interpretation (eight_factors only)
+                interp_text = generate_interpretation_sync(
+                    game_data,
+                    "eight_factors",
+                    model=model
+                )
+
+                if interp_text:
+                    interpretations[game_id_str] = {
+                        "generated_at": datetime.now().isoformat(),
+                        "model": model,
+                        "eight_factors": interp_text
+                    }
+                    success_count += 1
+                else:
+                    print(f"    [warn] Failed to generate interpretation")
+                    fail_count += 1
+
+                # Save progress every 50 games
+                if (i + 1) % 50 == 0:
+                    _save_interpretations(output_file, season, interpretations, decomposition_model_id)
+                    print(f"[interp] Progress saved ({success_count} successful, {fail_count} failed)")
+
+                # Rate limiting - small delay between calls
+                time.sleep(0.5)
+
+            except Exception as e:
+                print(f"    [error] {e}")
+                fail_count += 1
+
+        # Final save
+        _save_interpretations(output_file, season, interpretations, decomposition_model_id)
+
+        print(f"[interp] Done! {success_count} successful, {fail_count} failed")
+        print(f"[interp] Output: {output_file}")
+        return 0
+
+    except Exception as e:
+        print(f"[error] generate-interpretations failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def _compute_season_league_averages(df: pd.DataFrame) -> Dict:
+    """Compute league averages for a season."""
+    # Compute four factors for each game and average them
+    efg_vals = []
+    bh_vals = []
+    oreb_vals = []
+    ft_vals = []
+
+    for _, row in df.iterrows():
+        # Home team factors
+        home_stats = {
+            "fgm": row.get("fgm_home", 0),
+            "fga": row.get("fga_home", 0),
+            "fg3m": row.get("fg3m_home", 0),
+            "ftm": row.get("ftm_home", 0),
+            "oreb": row.get("oreb_home", 0),
+            "tov": row.get("tov_home", 0),
+        }
+        road_stats = {
+            "dreb": row.get("dreb_road", 0),
+        }
+
+        if home_stats["fga"] > 0:
+            efg = (home_stats["fgm"] + 0.5 * home_stats["fg3m"]) / home_stats["fga"] * 100
+            efg_vals.append(efg)
+            ft_rate = home_stats["ftm"] / home_stats["fga"] * 100
+            ft_vals.append(ft_rate)
+
+        poss_approx = home_stats["fga"] + 0.44 * row.get("fta_home", 0) + home_stats["tov"] - home_stats["oreb"]
+        if poss_approx > 0:
+            tov_pct = home_stats["tov"] / poss_approx * 100
+            bh_vals.append(100 - tov_pct)
+
+        total_oreb_chances = home_stats["oreb"] + road_stats["dreb"]
+        if total_oreb_chances > 0:
+            oreb_pct = home_stats["oreb"] / total_oreb_chances * 100
+            oreb_vals.append(oreb_pct)
+
+        # Road team factors (same calculation)
+        road_team_stats = {
+            "fgm": row.get("fgm_road", 0),
+            "fga": row.get("fga_road", 0),
+            "fg3m": row.get("fg3m_road", 0),
+            "ftm": row.get("ftm_road", 0),
+            "oreb": row.get("oreb_road", 0),
+            "tov": row.get("tov_road", 0),
+        }
+        home_def_stats = {
+            "dreb": row.get("dreb_home", 0),
+        }
+
+        if road_team_stats["fga"] > 0:
+            efg = (road_team_stats["fgm"] + 0.5 * road_team_stats["fg3m"]) / road_team_stats["fga"] * 100
+            efg_vals.append(efg)
+            ft_rate = road_team_stats["ftm"] / road_team_stats["fga"] * 100
+            ft_vals.append(ft_rate)
+
+        poss_approx = road_team_stats["fga"] + 0.44 * row.get("fta_road", 0) + road_team_stats["tov"] - road_team_stats["oreb"]
+        if poss_approx > 0:
+            tov_pct = road_team_stats["tov"] / poss_approx * 100
+            bh_vals.append(100 - tov_pct)
+
+        total_oreb_chances = road_team_stats["oreb"] + home_def_stats["dreb"]
+        if total_oreb_chances > 0:
+            oreb_pct = road_team_stats["oreb"] / total_oreb_chances * 100
+            oreb_vals.append(oreb_pct)
+
+    return {
+        "efg": sum(efg_vals) / len(efg_vals) if efg_vals else 52.0,
+        "ball_handling": sum(bh_vals) / len(bh_vals) if bh_vals else 86.0,
+        "oreb": sum(oreb_vals) / len(oreb_vals) if oreb_vals else 25.0,
+        "ft_rate": sum(ft_vals) / len(ft_vals) if ft_vals else 20.0,
+    }
+
+
+def _compute_factor_ranges(df: pd.DataFrame) -> Dict:
+    """Compute Q1/Q3 ranges for factors."""
+    # Simplified - return typical ranges
+    return {
+        "efg": {"q1": 48, "q3": 58},
+        "ball_handling": {"q1": 83, "q3": 90},
+        "oreb": {"q1": 18, "q3": 32},
+        "ft_rate": {"q1": 14, "q3": 26},
+    }
+
+
+def _build_game_data_with_quintiles(game_row: pd.Series, model_data: Dict, league_avgs: Dict) -> Dict:
+    """Build game data in flat format with quintile classifications for the new prompt."""
+    home_team_row = {
+        "fgm": game_row.get("fgm_home", 0),
+        "fga": game_row.get("fga_home", 0),
+        "fg3m": game_row.get("fg3m_home", 0),
+        "ftm": game_row.get("ftm_home", 0),
+        "fta": game_row.get("fta_home", 0),
+        "oreb": game_row.get("oreb_home", 0),
+        "dreb": game_row.get("dreb_home", 0),
+        "tov": game_row.get("tov_home", 0),
+        "pts": game_row.get("pts_home", 0),
+    }
+
+    road_team_row = {
+        "fgm": game_row.get("fgm_road", 0),
+        "fga": game_row.get("fga_road", 0),
+        "fg3m": game_row.get("fg3m_road", 0),
+        "ftm": game_row.get("ftm_road", 0),
+        "fta": game_row.get("fta_road", 0),
+        "oreb": game_row.get("oreb_road", 0),
+        "dreb": game_row.get("dreb_road", 0),
+        "tov": game_row.get("tov_road", 0),
+        "pts": game_row.get("pts_road", 0),
+    }
+
+    actual_poss_home = game_row.get("possessions_home")
+    actual_poss_road = game_row.get("possessions_road")
+    actual_mins_home = game_row.get("minutes_home")
+    actual_mins_road = game_row.get("minutes_road")
+
+    home_factors = compute_four_factors(home_team_row, road_team_row, possessions=actual_poss_home)
+    road_factors = compute_four_factors(road_team_row, home_team_row, possessions=actual_poss_road)
+
+    home_ratings = compute_game_ratings(
+        home_team_row, road_team_row,
+        actual_possessions=actual_poss_home, opp_actual_possessions=actual_poss_road,
+        actual_minutes=actual_mins_home,
+    )
+    road_ratings = compute_game_ratings(
+        road_team_row, home_team_row,
+        actual_possessions=actual_poss_road, opp_actual_possessions=actual_poss_home,
+        actual_minutes=actual_mins_road,
+    )
+
+    # Compute contributions using eight_factors mode
+    # Use MODEL's league averages (stored in proportion form 0-1), not current season's
+    model = model_data.get("four_factors", {})
+    coefs = model.get("coefficients", {})
+    model_league_avgs = model.get("league_averages", {})
+
+    # Map factor keys to model's league average keys
+    league_avg_map = {
+        "efg": "efg",
+        "ball_handling": "ball_handling",
+        "oreb": "oreb_pct",
+        "ft_rate": "ft_rate",
+    }
+
+    contributions = {}
+    for factor_key, coef_key in [
+        ("efg", "shooting"),
+        ("ball_handling", "ball_handling"),
+        ("oreb", "orebounding"),
+        ("ft_rate", "free_throws"),
+    ]:
+        home_val = home_factors.get(factor_key, 0)
+        road_val = road_factors.get(factor_key, 0)
+        coef = coefs.get(coef_key, 0)
+
+        # Get model's league average and convert from proportion (0-1) to percentage (0-100)
+        league_key = league_avg_map[factor_key]
+        avg_proportion = model_league_avgs.get(league_key, 0)
+        avg = avg_proportion * 100.0 if avg_proportion <= 1.5 else avg_proportion
+
+        # Divide by 100 to convert from percentage to decimal scale
+        home_centered = (home_val - avg) / 100.0
+        road_centered = (road_val - avg) / 100.0
+
+        home_contrib = coef * home_centered
+        road_contrib = coef * road_centered
+
+        contributions[f"home_{coef_key}"] = round(home_contrib, 2)
+        # Negate road contribution: positive = helps home team
+        contributions[f"road_{coef_key}"] = round(-road_contrib, 2)
+
+    # Build flat output with quintile classifications
+    home_team = game_row.get("team_abbreviation_home", "")
+    road_team = game_row.get("team_abbreviation_road", "")
+    home_pts = int(game_row.get("pts_home", 0))
+    road_pts = int(game_row.get("pts_road", 0))
+
+    thresholds = QUINTILE_THRESHOLDS_2018_25
+
+    return {
+        "game_id": str(game_row.get("game_id", "")),
+        "game_date": str(game_row.get("game_date", "")),
+        "matchup": f"{road_team}@{home_team}",
+        "score": f"{road_pts}-{home_pts}",
+        "home_team": home_team,
+        "road_team": road_team,
+        "home_pts": home_pts,
+        "road_pts": road_pts,
+        "winner": home_team if home_pts > road_pts else road_team,
+        "margin": abs(home_pts - road_pts),
+        "model": "2018-2025",
+
+        # Home team ratings
+        "home_off_rating": round(home_ratings["offensive_rating"], 1),
+        "home_off_rating_class": _classify_quintile(home_ratings["offensive_rating"], thresholds["off_rating"]),
+        "home_def_rating": round(home_ratings["defensive_rating"], 1),
+        "home_def_rating_class": _classify_quintile(home_ratings["defensive_rating"], thresholds["def_rating"], higher_is_better=False),
+        "home_net_rating": round(home_ratings["net_rating"], 1),
+        "home_net_rating_class": _classify_quintile(home_ratings["net_rating"], thresholds["net_rating"]),
+
+        # Road team ratings
+        "road_off_rating": round(road_ratings["offensive_rating"], 1),
+        "road_off_rating_class": _classify_quintile(road_ratings["offensive_rating"], thresholds["off_rating"]),
+        "road_def_rating": round(road_ratings["defensive_rating"], 1),
+        "road_def_rating_class": _classify_quintile(road_ratings["defensive_rating"], thresholds["def_rating"], higher_is_better=False),
+        "road_net_rating": round(road_ratings["net_rating"], 1),
+        "road_net_rating_class": _classify_quintile(road_ratings["net_rating"], thresholds["net_rating"]),
+
+        # Home team factors
+        "home_efg": round(home_factors["efg"], 1),
+        "home_efg_class": _classify_quintile(home_factors["efg"], thresholds["efg"]),
+        "home_efg_contrib": contributions.get("home_shooting", 0),
+
+        "home_ball_handling": round(home_factors["ball_handling"], 1),
+        "home_ball_handling_class": _classify_quintile(home_factors["ball_handling"], thresholds["ball_handling"]),
+        "home_ball_handling_contrib": contributions.get("home_ball_handling", 0),
+
+        "home_oreb": round(home_factors["oreb"], 1),
+        "home_oreb_class": _classify_quintile(home_factors["oreb"], thresholds["oreb"]),
+        "home_oreb_contrib": contributions.get("home_orebounding", 0),
+
+        "home_ft_rate": round(home_factors["ft_rate"], 1),
+        "home_ft_rate_class": _classify_quintile(home_factors["ft_rate"], thresholds["ft_rate"]),
+        "home_ft_rate_contrib": contributions.get("home_free_throws", 0),
+
+        # Road team factors
+        "road_efg": round(road_factors["efg"], 1),
+        "road_efg_class": _classify_quintile(road_factors["efg"], thresholds["efg"]),
+        "road_efg_contrib": contributions.get("road_shooting", 0),
+
+        "road_ball_handling": round(road_factors["ball_handling"], 1),
+        "road_ball_handling_class": _classify_quintile(road_factors["ball_handling"], thresholds["ball_handling"]),
+        "road_ball_handling_contrib": contributions.get("road_ball_handling", 0),
+
+        "road_oreb": round(road_factors["oreb"], 1),
+        "road_oreb_class": _classify_quintile(road_factors["oreb"], thresholds["oreb"]),
+        "road_oreb_contrib": contributions.get("road_orebounding", 0),
+
+        "road_ft_rate": round(road_factors["ft_rate"], 1),
+        "road_ft_rate_class": _classify_quintile(road_factors["ft_rate"], thresholds["ft_rate"]),
+        "road_ft_rate_contrib": contributions.get("road_free_throws", 0),
+    }
+
+
+def _build_decomposition_data(game_row: pd.Series, model_data: Dict, league_avgs: Dict, factor_ranges: Dict) -> Dict:
+    """Build decomposition data structure from a game row (legacy format)."""
+    home_team_row = {
+        "fgm": game_row.get("fgm_home", 0),
+        "fga": game_row.get("fga_home", 0),
+        "fg3m": game_row.get("fg3m_home", 0),
+        "ftm": game_row.get("ftm_home", 0),
+        "fta": game_row.get("fta_home", 0),
+        "oreb": game_row.get("oreb_home", 0),
+        "dreb": game_row.get("dreb_home", 0),
+        "tov": game_row.get("tov_home", 0),
+        "pts": game_row.get("pts_home", 0),
+    }
+
+    road_team_row = {
+        "fgm": game_row.get("fgm_road", 0),
+        "fga": game_row.get("fga_road", 0),
+        "fg3m": game_row.get("fg3m_road", 0),
+        "ftm": game_row.get("ftm_road", 0),
+        "fta": game_row.get("fta_road", 0),
+        "oreb": game_row.get("oreb_road", 0),
+        "dreb": game_row.get("dreb_road", 0),
+        "tov": game_row.get("tov_road", 0),
+        "pts": game_row.get("pts_road", 0),
+    }
+
+    actual_poss_home = game_row.get("possessions_home")
+    actual_poss_road = game_row.get("possessions_road")
+    actual_mins_home = game_row.get("minutes_home")
+    actual_mins_road = game_row.get("minutes_road")
+
+    home_factors = compute_four_factors(home_team_row, road_team_row, possessions=actual_poss_home)
+    road_factors = compute_four_factors(road_team_row, home_team_row, possessions=actual_poss_road)
+
+    home_ratings = compute_game_ratings(
+        home_team_row, road_team_row,
+        actual_possessions=actual_poss_home, opp_actual_possessions=actual_poss_road,
+        actual_minutes=actual_mins_home,
+    )
+    road_ratings = compute_game_ratings(
+        road_team_row, home_team_row,
+        actual_possessions=actual_poss_road, opp_actual_possessions=actual_poss_home,
+        actual_minutes=actual_mins_road,
+    )
+
+    return {
+        "game_id": str(game_row.get("game_id", "")),
+        "game_date": str(game_row.get("game_date", "")),
+        "home_team": game_row.get("team_abbreviation_home", ""),
+        "road_team": game_row.get("team_abbreviation_road", ""),
+        "home_pts": int(game_row.get("pts_home", 0)),
+        "road_pts": int(game_row.get("pts_road", 0)),
+        "home_factors": home_factors,
+        "road_factors": road_factors,
+        "home_ratings": home_ratings,
+        "road_ratings": road_ratings,
+        "league_averages": league_avgs,
+        "factor_ranges": factor_ranges,
+    }
+
+
+def _adjust_decomp_for_factor_type(decomp_data: Dict, factor_type: str, model_data: Dict) -> Dict:
+    """Add contributions based on factor type.
+
+    Mirrors the logic in services/calculations.py:compute_decomposition().
+    Key: factor values are in percentage form (54.0 for 54%), but model coefficients
+    expect decimal form (0.54), so we divide by 100 before multiplying.
+    """
+    result = decomp_data.copy()
+
+    home_factors = decomp_data["home_factors"]
+    road_factors = decomp_data["road_factors"]
+    league_avgs = decomp_data["league_averages"]
+
+    # Game-level models only have four_factors - use those coefficients for both modes
+    # (this matches the live API behavior in calculations.py)
+    model = model_data.get("four_factors", {})
+    coefs = model.get("coefficients", {})
+    intercept = model.get("intercept", 0)
+
+    if factor_type == "eight_factors":
+        # Eight factors mode: break into home/road contributions centered on league average
+        # home_contribution = coef * (home_value - league_avg) / 100
+        # road_contribution = coef * (road_value - league_avg) / 100
+        contributions = {}
+        total_home = 0.0
+        total_road = 0.0
+
+        for factor_key, coef_key in [
+            ("efg", "shooting"),
+            ("ball_handling", "ball_handling"),
+            ("oreb", "orebounding"),
+            ("ft_rate", "free_throws"),
+        ]:
+            home_val = home_factors.get(factor_key, 0)
+            road_val = road_factors.get(factor_key, 0)
+            avg = league_avgs.get(factor_key, 0)
+            coef = coefs.get(coef_key, 0)
+
+            # Divide by 100 to convert from percentage to decimal scale
+            home_centered = (home_val - avg) / 100.0
+            road_centered = (road_val - avg) / 100.0
+
+            home_contrib = coef * home_centered
+            road_contrib = coef * road_centered
+
+            contributions[f"home_{coef_key}"] = round(home_contrib, 2)
+            # Negate road contribution for display: positive = helps home team
+            contributions[f"road_{coef_key}"] = round(-road_contrib, 2)
+
+            total_home += home_contrib
+            total_road += road_contrib
+
+        result["contributions"] = contributions
+        result["predicted_rating_diff"] = round(intercept + total_home - total_road, 2)
+
+    else:
+        # Four factors mode: use differentials
+        contributions = {}
+        total_contribution = intercept
+
+        for factor_key, coef_key in [
+            ("efg", "shooting"),
+            ("ball_handling", "ball_handling"),
+            ("oreb", "orebounding"),
+            ("ft_rate", "free_throws"),
+        ]:
+            home_val = home_factors.get(factor_key, 0)
+            road_val = road_factors.get(factor_key, 0)
+            diff = home_val - road_val
+            coef = coefs.get(coef_key, 0)
+
+            # Divide by 100 to convert from percentage to decimal scale
+            contribution = coef * (diff / 100.0)
+            contributions[coef_key] = round(contribution, 2)
+            total_contribution += contribution
+
+        result["contributions"] = contributions
+        result["predicted_rating_diff"] = round(total_contribution, 2)
+
+    # Calculate actual rating diff
+    home_ratings = decomp_data.get("home_ratings", {})
+    road_ratings = decomp_data.get("road_ratings", {})
+    result["actual_rating_diff"] = round(
+        home_ratings.get("net_rating", 0) - road_ratings.get("net_rating", 0), 2
+    )
+
+    return result
+
+
+def _save_interpretations(
+    output_file: Path, season: str, interpretations: Dict, decomposition_model_id: str = None
+) -> None:
+    """Save interpretations to JSON file."""
+    data = {
+        "season": season,
+        "prompt_version": "v3_quintiles",
+        "interpretations": interpretations,
+    }
+    # Store which decomposition model was used so API can check for match
+    if decomposition_model_id:
+        data["decomposition_model_id"] = decomposition_model_id
+    with open(output_file, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Admin CLI for NBA_Data",
@@ -2234,6 +2840,38 @@ metadata (date, seasons used, R-squared scores).
 """,
     )
 
+    p_interp = sub.add_parser(
+        "generate-interpretations",
+        help="Generate LLM interpretations for games in a season",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py generate-interpretations --season 2023-24
+  python admin/cli.py generate-interpretations --season 2024-25 --current
+  python admin/cli.py generate-interpretations --season 2024-25 --current --incremental
+  python admin/cli.py generate-interpretations --season 2024-25 --dry-run
+
+Generates LLM interpretations for all games in a season and saves them to
+NBA_Data/interpretations/{season}.json.
+
+Use --current for the current season to use a better model (Sonnet 4).
+Use --incremental to only generate for games not already in the output file.
+Use --limit N to test with a small number of games.
+Use --max-new N to fail when more than N new games would be generated.
+""",
+    )
+    p_interp.add_argument("--season", required=True, help="Season like 2024-25")
+    p_interp.add_argument("--current", action="store_true",
+                          help="Use better model (Sonnet 4) for current season")
+    p_interp.add_argument("--incremental", action="store_true",
+                          help="Only generate for games not already in output file")
+    p_interp.add_argument("--dry-run", action="store_true",
+                          help="Show what would be generated without calling LLM")
+    p_interp.add_argument("--limit", type=int, default=None,
+                          help="Limit number of games to process (for testing)")
+    p_interp.add_argument("--max-new", type=int, default=None,
+                          help="Fail when more than N new games would be generated")
+
     sub.add_parser(
         "git-status",
         help="Show git status (short) in NBA_Data repo",
@@ -2285,6 +2923,17 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.command == "list-models":
         return list_models(repo_dir)
+
+    if args.command == "generate-interpretations":
+        return generate_interpretations(
+            args.season,
+            repo_dir,
+            current_season=args.current,
+            incremental=args.incremental,
+            dry_run=args.dry_run,
+            limit=args.limit,
+            max_new=args.max_new,
+        )
 
     if args.command == "git-status":
         return git_status(repo_dir)

@@ -22,7 +22,21 @@
       "Bash(gh run view:*)",
       "Bash(launchctl list:*)",
       "Bash(echo:*)",
-      "Bash(/bin/bash:*)"
+      "Bash(/bin/bash:*)",
+      "Read(//Users/robschoen/Dropbox/CC/GLA/**)",
+      "Bash(/opt/miniconda3/envs/gla_admin/bin/pip list:*)",
+      "Bash(/opt/miniconda3/envs/gla_admin/bin/pip install:*)",
+      "Bash(/opt/miniconda3/envs/gla_admin/bin/python:*)",
+      "Bash(source:*)",
+      "Bash(conda activate:*)",
+      "Bash(crontab:*)",
+      "Bash(/opt/miniconda3/bin/conda env list:*)",
+      "Bash(/opt/miniconda3/envs/nba2026/bin/python:*)",
+      "Bash(/opt/miniconda3/envs/ds-env/bin/python:*)",
+      "Bash(/opt/miniconda3/envs/ace_env/bin/python:*)",
+      "Bash(/opt/miniconda3/bin/conda create:*)",
+      "Bash(/Users/robschoen/Dropbox/CC/GLA/backend/admin/scripts/update_and_push.sh)",
+      "Bash(# Check if there are multiple backend processes lsof -i :8000)"
     ]
   }
 }

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from typing import Optional, Dict, Any
 import subprocess
 from config import get_available_seasons, AVAILABLE_MODELS, ADMIN_SECRET_KEY
 from services.cache import clear_cache
@@ -8,15 +8,10 @@ from services.data_loader import (
     get_normalized_data_with_possessions,
     get_games_list,
     get_teams_list,
-    get_game_data,
-    load_model,
+    load_contributions,
     discover_season_models,
 )
 from services.calculations import (
-    compute_four_factors,
-    compute_game_ratings,
-    compute_factor_differentials,
-    compute_decomposition,
     compute_league_aggregates,
     compute_trend_series,
     compute_league_average,
@@ -24,6 +19,7 @@ from services.calculations import (
     compute_league_top_contributors,
 )
 from services.llm import generate_interpretation, is_llm_configured
+from services.data_loader import get_game_interpretation
 from schemas.models import (
     SeasonResponse,
     GamesResponse,
@@ -81,6 +77,95 @@ def _get_git_commit() -> str:
 
 # Cache at startup
 GIT_COMMIT = _get_git_commit()
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Best-effort float conversion for optional request payload values."""
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _build_llm_decomposition_data(request: InterpretationRequest) -> Dict[str, Any]:
+    """
+    Normalize interpretation request payload into the flat schema expected by llm.py.
+
+    The prompt builder reads flat keys like `home_efg_contrib`; without this mapping,
+    nested API payloads default to zeros and produce generic fallback output.
+    """
+    home_factors = request.home_factors or {}
+    road_factors = request.road_factors or {}
+    home_ratings = request.home_ratings or {}
+    road_ratings = request.road_ratings or {}
+    contributions = request.contributions or {}
+
+    if request.factor_type == "eight_factors":
+        home_efg_contrib = _safe_float(contributions.get("home_shooting"))
+        home_ball_handling_contrib = _safe_float(contributions.get("home_ball_handling"))
+        home_oreb_contrib = _safe_float(contributions.get("home_orebounding"))
+        home_ft_rate_contrib = _safe_float(contributions.get("home_free_throws"))
+
+        road_efg_contrib = _safe_float(contributions.get("road_shooting"))
+        road_ball_handling_contrib = _safe_float(contributions.get("road_ball_handling"))
+        road_oreb_contrib = _safe_float(contributions.get("road_orebounding"))
+        road_ft_rate_contrib = _safe_float(contributions.get("road_free_throws"))
+    else:
+        # Four-factors mode only has aggregate contributions per factor.
+        # Keep a best-effort mapping so external API users still get non-zero context.
+        home_efg_contrib = _safe_float(contributions.get("shooting"))
+        home_ball_handling_contrib = _safe_float(contributions.get("ball_handling"))
+        home_oreb_contrib = _safe_float(contributions.get("orebounding"))
+        home_ft_rate_contrib = _safe_float(contributions.get("free_throws"))
+
+        road_efg_contrib = 0.0
+        road_ball_handling_contrib = 0.0
+        road_oreb_contrib = 0.0
+        road_ft_rate_contrib = 0.0
+
+    return {
+        "game_id": request.game_id,
+        "game_date": request.game_date,
+        "matchup": f"{request.road_team}@{request.home_team}",
+        "score": f"{request.road_pts}-{request.home_pts}",
+        "home_team": request.home_team,
+        "road_team": request.road_team,
+        "home_pts": request.home_pts,
+        "road_pts": request.road_pts,
+        "model": request.model_id or "2018-2025",
+        "predicted_rating_diff": request.predicted_rating_diff,
+        "actual_rating_diff": request.actual_rating_diff,
+        "home_off_rating": _safe_float(home_ratings.get("offensive_rating")),
+        "home_def_rating": _safe_float(home_ratings.get("defensive_rating")),
+        "home_net_rating": _safe_float(home_ratings.get("net_rating")),
+        "road_off_rating": _safe_float(road_ratings.get("offensive_rating")),
+        "road_def_rating": _safe_float(road_ratings.get("defensive_rating")),
+        "road_net_rating": _safe_float(road_ratings.get("net_rating")),
+        "home_efg": _safe_float(home_factors.get("efg")),
+        "home_ball_handling": _safe_float(home_factors.get("ball_handling")),
+        "home_oreb": _safe_float(home_factors.get("oreb")),
+        "home_ft_rate": _safe_float(home_factors.get("ft_rate")),
+        "road_efg": _safe_float(road_factors.get("efg")),
+        "road_ball_handling": _safe_float(road_factors.get("ball_handling")),
+        "road_oreb": _safe_float(road_factors.get("oreb")),
+        "road_ft_rate": _safe_float(road_factors.get("ft_rate")),
+        "home_efg_contrib": home_efg_contrib,
+        "home_ball_handling_contrib": home_ball_handling_contrib,
+        "home_oreb_contrib": home_oreb_contrib,
+        "home_ft_rate_contrib": home_ft_rate_contrib,
+        "road_efg_contrib": road_efg_contrib,
+        "road_ball_handling_contrib": road_ball_handling_contrib,
+        "road_oreb_contrib": road_oreb_contrib,
+        "road_ft_rate_contrib": road_ft_rate_contrib,
+        # Keep originals for any downstream logic that still reads nested keys.
+        "contributions": contributions,
+        "home_factors": home_factors,
+        "road_factors": road_factors,
+        "league_averages": request.league_averages,
+        "factor_ranges": request.factor_ranges,
+    }
 
 
 @router.get("/version")
@@ -146,202 +231,168 @@ async def get_models():
 async def get_decomposition(
     season: str = Query(..., description="Season in format YYYY-YY"),
     game_id: str = Query(..., description="Game ID"),
-    model_id: str = Query(..., description="Model ID"),
-    factor_type: str = Query("four_factors", description="Factor type: four_factors or eight_factors"),
+    model_id: Optional[str] = Query(None, description="Deprecated, ignored"),
+    factor_type: str = Query("eight_factors", description="Factor type: eight_factors (default)"),
 ):
-    game_data = await get_game_data(season, game_id)
-    if game_data is None:
-        raise HTTPException(status_code=404, detail="Game not found")
+    # Load pre-calculated contributions for the season
+    contrib_data = await load_contributions(season)
+    if contrib_data is None:
+        raise HTTPException(status_code=404, detail="Contributions not found for season")
 
-    model_config = next((m for m in AVAILABLE_MODELS if m["id"] == model_id), None)
-    if model_config is None:
-        raise HTTPException(status_code=404, detail="Model not found")
+    # Find the game in the contributions JSON
+    # Normalize game_id: contributions use 10-digit zero-padded IDs (e.g. "0022400407")
+    # while the games list may return shorter IDs (e.g. "42400407")
+    game_id_padded = str(game_id).zfill(10)
+    game_entry = None
+    for g in contrib_data.get("games", []):
+        if str(g["game_id"]).zfill(10) == game_id_padded:
+            game_entry = g
+            break
 
-    model = await load_model(model_config["file"])
-    if model is None:
-        raise HTTPException(status_code=500, detail="Failed to load model")
+    if game_entry is None:
+        raise HTTPException(status_code=404, detail="Game not found in contributions")
 
-    # Load season data to compute league average ratings
-    season_df = await get_normalized_data_with_possessions(season)
-    league_avg_off_rating = None
-    league_avg_def_rating = None
-    league_avg_pace = None
-    if season_df is not None and len(season_df) > 0:
-        # Use compute_league_aggregates to get team stats with computed ratings
-        team_stats = compute_league_aggregates(season_df, None, None, exclude_playoffs=False)
-        if len(team_stats) > 0:
-            league_avg_off_rating = round(team_stats["off_rating"].mean(), 1)
-            league_avg_def_rating = round(team_stats["def_rating"].mean(), 1)
-            if "pace" in team_stats.columns:
-                league_avg_pace = round(team_stats["pace"].mean(), 1)
+    game_info = game_entry["game_info"]
+    model_info = game_entry["model"]
+    ls = game_entry.get("linescore", {})
 
-    home_row = game_data["home"]
-    road_row = game_data["road"]
+    # Map factor arrays to dicts
+    # Factor order in JSON: Shooting, Ball Handling, Off Rebounding, Free Throw Rate
+    FACTOR_KEYS = ["shooting", "ball_handling", "orebounding", "free_throws"]
+    FACTOR_INTERNAL = ["efg", "ball_handling", "oreb", "ft_rate"]
 
-    home_team_row = {
-        "fgm": home_row.get("fgm", 0),
-        "fga": home_row.get("fga", 0),
-        "fg3m": home_row.get("fg3m", 0),
-        "fg3a": home_row.get("fg3a", 0),
-        "ftm": home_row.get("ftm", 0),
-        "fta": home_row.get("fta", 0),
-        "oreb": home_row.get("oreb", 0),
-        "dreb": home_row.get("dreb", 0),
-        "tov": home_row.get("tov", 0),
-        "pts": home_row.get("pts", 0),
-    }
+    home_factors_list = game_entry["factors"]["home"]
+    road_factors_list = game_entry["factors"]["road"]
 
-    road_team_row = {
-        "fgm": road_row.get("fgm", 0),
-        "fga": road_row.get("fga", 0),
-        "fg3m": road_row.get("fg3m", 0),
-        "fg3a": road_row.get("fg3a", 0),
-        "ftm": road_row.get("ftm", 0),
-        "fta": road_row.get("fta", 0),
-        "oreb": road_row.get("oreb", 0),
-        "dreb": road_row.get("dreb", 0),
-        "tov": road_row.get("tov", 0),
-        "pts": road_row.get("pts", 0),
-    }
+    home_factors = {FACTOR_INTERNAL[i]: home_factors_list[i]["value"] for i in range(4)}
+    road_factors = {FACTOR_INTERNAL[i]: road_factors_list[i]["value"] for i in range(4)}
 
-    home_factors = compute_four_factors(home_team_row, road_team_row)
-    road_factors = compute_four_factors(road_team_row, home_team_row)
+    # Build contributions dict based on factor_type
+    if factor_type == "eight_factors":
+        contributions = {}
+        for i, key in enumerate(FACTOR_KEYS):
+            contributions[f"home_{key}"] = round(home_factors_list[i]["contribution"], 2)
+            contributions[f"road_{key}"] = round(road_factors_list[i]["contribution"], 2)
+    else:
+        # Four factors: sum home + road contributions per factor
+        contributions = {}
+        for i, key in enumerate(FACTOR_KEYS):
+            contributions[key] = round(
+                home_factors_list[i]["contribution"] + road_factors_list[i]["contribution"], 2
+            )
 
-    # Extract actual possessions and minutes from game_data
-    actual_poss_home = game_data.get("actual_possessions_home")
-    actual_poss_road = game_data.get("actual_possessions_road")
-    actual_mins_home = game_data.get("actual_minutes_home")
-    actual_mins_road = game_data.get("actual_minutes_road")
+    # Map ratings arrays to dicts
+    # Rating order in JSON: Offensive Rating, Defensive Rating, Net Rating, Pace
+    RATING_KEYS = ["offensive_rating", "defensive_rating", "net_rating", "pace"]
+    home_ratings_list = game_entry["ratings"]["home"]
+    road_ratings_list = game_entry["ratings"]["road"]
 
-    home_ratings = compute_game_ratings(
-        home_team_row, road_team_row,
-        actual_possessions=actual_poss_home,
-        opp_actual_possessions=actual_poss_road,
-        actual_minutes=actual_mins_home,
-    )
-    road_ratings = compute_game_ratings(
-        road_team_row, home_team_row,
-        actual_possessions=actual_poss_road,
-        opp_actual_possessions=actual_poss_home,
-        actual_minutes=actual_mins_road,
-    )
+    home_ratings = {RATING_KEYS[i]: home_ratings_list[i]["value"] for i in range(4)}
+    road_ratings = {RATING_KEYS[i]: road_ratings_list[i]["value"] for i in range(4)}
 
-    differentials = compute_factor_differentials(home_factors, road_factors)
+    # League averages from model metadata
+    league_avgs = dict(model_info.get("league_averages", {}))
+    # Derive def_rating = off_rating (league average ORtg equals DRtg)
+    if "off_rating" in league_avgs and "def_rating" not in league_avgs:
+        league_avgs["def_rating"] = league_avgs["off_rating"]
 
-    try:
-        decomposition = compute_decomposition(
-            differentials=differentials,
-            model=model,
-            factor_type=factor_type,
-            home_factors=home_factors,
-            away_factors=road_factors,
-            league_averages=None,
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    home_pts = int(home_row.get("pts", 0) or 0)
-    road_pts = int(road_row.get("pts", 0) or 0)
-    actual_margin = home_pts - road_pts
-
-    # Process linescore data
-    linescore_data = game_data.get("linescore")
+    # Linescore (JSON uses uppercase keys Q1..Q4, OT, Total; Pydantic expects lowercase)
     linescore_response = None
     is_overtime = False
     overtime_count = 0
 
-    if linescore_data:
+    if ls:
+        home_ls = ls.get("home", {})
+        road_ls = ls.get("road", {})
         linescore_response = LinescoreData(
-            home=QuarterScores(**linescore_data["home"]),
-            road=QuarterScores(**linescore_data["road"]),
+            home=QuarterScores(
+                q1=home_ls.get("Q1", 0), q2=home_ls.get("Q2", 0),
+                q3=home_ls.get("Q3", 0), q4=home_ls.get("Q4", 0),
+                ot=home_ls.get("OT", 0),
+            ),
+            road=QuarterScores(
+                q1=road_ls.get("Q1", 0), q2=road_ls.get("Q2", 0),
+                q3=road_ls.get("Q3", 0), q4=road_ls.get("Q4", 0),
+                ot=road_ls.get("OT", 0),
+            ),
         )
-        home_ot = linescore_data["home"]["ot"]
-        road_ot = linescore_data["road"]["ot"]
-        is_overtime = home_ot > 0 or road_ot > 0
+        is_overtime = home_ls.get("OT", 0) > 0 or road_ls.get("OT", 0) > 0
 
-        # Calculate OT periods from minutes if available
-        if actual_mins_home and actual_mins_home > 0:
-            game_minutes = actual_mins_home / 5
-            if game_minutes > 48:
-                overtime_count = int((game_minutes - 48) / 5)
+    # Compute scalars
+    home_pts = ls.get("home", {}).get("Total", 0) if ls else 0
+    road_pts = ls.get("road", {}).get("Total", 0) if ls else 0
+    actual_margin = home_pts - road_pts
+    actual_rating_diff = round(home_ratings.get("net_rating", 0), 2)
 
-    # Actual rating differential is simply the home team's net rating
-    # (home_off - home_def), which already captures the full game outcome.
-    # The road team's net rating is the mirror image, so subtracting it would double-count.
-    actual_rating_diff = home_ratings.get("net_rating", 0)
+    intercept = model_info.get("intercept", 0)
+    predicted_rating_diff = round(
+        intercept + sum(contributions.values()), 2
+    )
+
+    # Normalize game_type from display format to snake_case
+    game_type_raw = game_info.get("game_type", "")
+    game_type_map = {
+        "Regular Season": "regular_season",
+        "Playoffs": "playoffs",
+        "NBA Cup (Group)": "nba_cup_group",
+        "NBA Cup (Knockout)": "nba_cup_knockout",
+    }
+    game_type = game_type_map.get(game_type_raw, game_type_raw.lower().replace(" ", "_") if game_type_raw else None)
 
     response = DecompositionResponse(
         game_id=game_id,
-        game_date=game_data["game_date"],
-        home_team=game_data["home_team"],
-        road_team=game_data["road_team"],
+        game_date=game_info.get("game_date", ""),
+        home_team=game_info.get("home", ""),
+        road_team=game_info.get("road", ""),
         home_pts=home_pts,
         road_pts=road_pts,
         actual_margin=actual_margin,
-        actual_rating_diff=round(actual_rating_diff, 2),
-        predicted_rating_diff=decomposition["predicted_rating_diff"],
+        actual_rating_diff=actual_rating_diff,
+        predicted_rating_diff=predicted_rating_diff,
         factor_type=factor_type,
         home_factors=home_factors,
         road_factors=road_factors,
-        contributions=decomposition["contributions"],
-        intercept=decomposition["intercept"],
+        contributions=contributions,
+        intercept=intercept,
         home_ratings=home_ratings,
         road_ratings=road_ratings,
+        league_averages=league_avgs,
         linescore=linescore_response,
         is_overtime=is_overtime,
         overtime_count=overtime_count,
-        game_type=game_data["home"].get("game_type"),
+        game_type=game_type,
     )
-
-    if factor_type == "eight_factors":
-        response.factor_values = decomposition.get("factor_values")
-
-    # Include league averages for both factor types, adding ratings averages
-    league_avgs = decomposition.get("league_averages", {}) or {}
-    # Normalize oreb_pct to oreb for consistency with home_factors/road_factors
-    if "oreb_pct" in league_avgs and "oreb" not in league_avgs:
-        league_avgs["oreb"] = league_avgs.pop("oreb_pct")
-    if league_avg_off_rating is not None:
-        league_avgs["off_rating"] = league_avg_off_rating
-    if league_avg_def_rating is not None:
-        league_avgs["def_rating"] = league_avg_def_rating
-    if league_avg_pace is not None:
-        league_avgs["pace"] = league_avg_pace
-    response.league_averages = league_avgs
-
-    # Include factor ranges for AI summary context
-    factor_ranges = decomposition.get("factor_ranges", {}) or {}
-    # Normalize oreb_pct to oreb for consistency
-    if "oreb_pct" in factor_ranges and "oreb" not in factor_ranges:
-        factor_ranges["oreb"] = factor_ranges.pop("oreb_pct")
-    if factor_ranges:
-        response.factor_ranges = factor_ranges
 
     return response
 
 
 @router.post("/interpretation", response_model=InterpretationResponse)
 async def get_interpretation(request: InterpretationRequest):
-    """Generate AI interpretation of factor contributions for a game."""
+    """Get AI interpretation of factor contributions for a game.
+
+    First checks for pre-generated interpretation, then falls back to real-time generation.
+    """
+    # Try to get pre-generated interpretation first
+    # Pass model_id so we only use pre-generated if it matches the decomposition model
+    if hasattr(request, 'season') and request.season and request.game_id:
+        pre_generated = await get_game_interpretation(
+            season=request.season,
+            game_id=request.game_id,
+            factor_type=request.factor_type,
+            model_id=request.model_id,
+        )
+        if pre_generated:
+            return InterpretationResponse(
+                interpretation=pre_generated["text"],
+                model=pre_generated["model"],
+            )
+
+    # Fall back to real-time generation
     if not is_llm_configured():
         raise HTTPException(status_code=503, detail="Interpretation service not configured")
 
-    # Build data dict for LLM service
-    decomposition_data = {
-        "game_id": request.game_id,
-        "game_date": request.game_date,
-        "home_team": request.home_team,
-        "road_team": request.road_team,
-        "home_pts": request.home_pts,
-        "road_pts": request.road_pts,
-        "contributions": request.contributions,
-        "predicted_rating_diff": request.predicted_rating_diff,
-        "actual_rating_diff": request.actual_rating_diff,
-        "home_factors": request.home_factors,
-        "road_factors": request.road_factors,
-        "league_averages": request.league_averages,
-        "factor_ranges": request.factor_ranges,
-    }
+    # Build normalized, flat payload expected by llm.py prompt builder
+    decomposition_data = _build_llm_decomposition_data(request)
 
     interpretation = await generate_interpretation(
         decomposition_data=decomposition_data,
@@ -352,7 +403,8 @@ async def get_interpretation(request: InterpretationRequest):
     if interpretation is None:
         raise HTTPException(status_code=503, detail="Failed to generate interpretation")
 
-    return InterpretationResponse(interpretation=interpretation)
+    # Real-time uses fallback model (gpt-4o-mini or claude-3-5-haiku)
+    return InterpretationResponse(interpretation=interpretation, model="gpt-4o-mini")
 
 
 @router.get("/league-summary", response_model=LeagueSummaryResponse)
@@ -361,6 +413,7 @@ async def get_league_summary(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     exclude_playoffs: bool = Query(True, description="Exclude playoff, play-in, and NBA Cup final games"),
+    last_n_games: Optional[int] = Query(None, description="Use each team's last N games"),
 ):
     df = await get_normalized_data_with_possessions(season)
     if df is None:
@@ -370,7 +423,13 @@ async def get_league_summary(
     first_game_date = df["game_date"].min().strftime("%Y-%m-%d") if len(df) > 0 else None
     last_game_date = df["game_date"].max().strftime("%Y-%m-%d") if len(df) > 0 else None
 
-    team_stats_df = compute_league_aggregates(df, start_date, end_date, exclude_playoffs)
+    team_stats_df = compute_league_aggregates(
+        df=df,
+        start_date=start_date,
+        end_date=end_date,
+        exclude_playoffs=exclude_playoffs,
+        last_n_games=last_n_games,
+    )
 
     teams = []
     for _, row in team_stats_df.iterrows():
@@ -400,13 +459,20 @@ async def get_league_summary(
             opp_oreb_pct=float(row["opp_oreb_pct"]),
             opp_ft_rate=float(row["opp_ft_rate"]),
             pace=float(row["pace"]),
+            sos=float(row["sos"]),
+            off_sos=float(row["off_sos"]),
+            def_sos=float(row["def_sos"]),
+            adj_net_rating=float(row["adj_net_rating"]),
+            adj_off_rating=float(row["adj_off_rating"]),
+            adj_def_rating=float(row["adj_def_rating"]),
         ))
 
     numeric_cols = [
         "win_pct", "ppg", "opp_ppg", "fg_pct", "fg3_pct", "ft_pct",
         "efg_pct", "oreb_pct", "dreb_pct", "tov_pct", "ball_handling",
         "ft_rate", "off_rating", "def_rating", "net_rating",
-        "opp_efg_pct", "opp_tov_pct", "opp_ft_rate", "pace"
+        "opp_efg_pct", "opp_tov_pct", "opp_ft_rate", "pace",
+        "sos", "off_sos", "def_sos", "adj_net_rating", "adj_off_rating", "adj_def_rating",
     ]
     league_averages = {}
     for col in numeric_cols:
@@ -484,14 +550,16 @@ async def get_season_models():
 async def get_contribution_analysis(
     season: str = Query(..., description="Season in format YYYY-YY"),
     team: str = Query(..., description="Team abbreviation"),
-    model_id: str = Query(..., description="Season model ID"),
+    model_id: Optional[str] = Query(None, description="Deprecated, ignored"),
     date_range_type: str = Query("season", description="Type: season, last_n, or custom"),
     last_n_games: Optional[int] = Query(None, description="Number of games for last_n type"),
     start_date: Optional[str] = Query(None, description="Start date for custom type (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date for custom type (YYYY-MM-DD)"),
     exclude_playoffs: bool = Query(False, description="Exclude playoff and play-in games"),
 ):
-    """Analyze a team's net rating decomposition over a period using eight factors."""
+    """Analyze a team's net rating decomposition over a period using contribution JSON."""
+    del model_id  # Explicitly ignored for backwards compatibility.
+
     # Load season data
     df = await get_normalized_data_with_possessions(season)
     if df is None:
@@ -501,19 +569,10 @@ async def get_contribution_analysis(
     if team not in df["team"].unique():
         raise HTTPException(status_code=404, detail="Team not found in this season")
 
-    # Load the season model
-    available_models = await discover_season_models()
-    model_config = next((m for m in available_models if m["id"] == model_id), None)
-    if model_config is None:
-        raise HTTPException(status_code=404, detail="Season model not found")
-
-    model = await load_model(model_config["file"])
-    if model is None:
-        raise HTTPException(status_code=500, detail="Failed to load model")
-
-    # Verify it's a season-level model
-    if model.get("model_type") != "season_level":
-        raise HTTPException(status_code=400, detail="Model is not a season-level model")
+    # Load pre-calculated per-game contributions
+    contrib_data = await load_contributions(season)
+    if contrib_data is None:
+        raise HTTPException(status_code=404, detail="Contributions not found for season")
 
     # Filter to team's games
     team_df = df[df["team"] == team].copy()
@@ -528,11 +587,11 @@ async def get_contribution_analysis(
     # Apply date range filter
     filter_start_date = None
     filter_end_date = None
+    filter_last_n_games = None
     date_range_label = "Season-to-Date"
 
     if date_range_type == "last_n" and last_n_games:
-        # Get last N games
-        team_df = team_df.tail(last_n_games)
+        filter_last_n_games = last_n_games
         date_range_label = f"Last {last_n_games} Games"
     elif date_range_type == "custom" and start_date and end_date:
         filter_start_date = start_date
@@ -547,10 +606,11 @@ async def get_contribution_analysis(
         result = compute_contribution_analysis(
             team_df=team_df,
             league_df=df,
-            model=model,
+            contributions_data=contrib_data,
             start_date=filter_start_date,
             end_date=filter_end_date,
             exclude_playoffs=exclude_playoffs,
+            last_n_games=filter_last_n_games,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -593,38 +653,33 @@ async def get_contribution_analysis(
 @router.get("/league-top-contributors", response_model=LeagueTopContributorsResponse)
 async def get_league_top_contributors(
     season: str = Query(..., description="Season in format YYYY-YY"),
-    model_id: str = Query(..., description="Season model ID"),
+    model_id: Optional[str] = Query(None, description="Deprecated, ignored"),
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     exclude_playoffs: bool = Query(False, description="Exclude playoff and play-in games"),
+    last_n_games: Optional[int] = Query(None, description="Use each team's last N games"),
 ):
     """Get top positive and negative contributors to net rating across all teams."""
+    response_model_id = model_id or "json_contributions"
+
     # Load season data
     df = await get_normalized_data_with_possessions(season)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
-    # Load the season model
-    available_models = await discover_season_models()
-    model_config = next((m for m in available_models if m["id"] == model_id), None)
-    if model_config is None:
-        raise HTTPException(status_code=404, detail="Season model not found")
-
-    model = await load_model(model_config["file"])
-    if model is None:
-        raise HTTPException(status_code=500, detail="Failed to load model")
-
-    # Verify it's a season-level model
-    if model.get("model_type") != "season_level":
-        raise HTTPException(status_code=400, detail="Model is not a season-level model")
+    # Load pre-calculated per-game contributions
+    contrib_data = await load_contributions(season)
+    if contrib_data is None:
+        raise HTTPException(status_code=404, detail="Contributions not found for season")
 
     try:
         result = compute_league_top_contributors(
             league_df=df,
-            model=model,
+            contributions_data=contrib_data,
             start_date=start_date,
             end_date=end_date,
             exclude_playoffs=exclude_playoffs,
+            last_n_games=last_n_games,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -656,7 +711,7 @@ async def get_league_top_contributors(
         season=season,
         start_date=result["start_date"],
         end_date=result["end_date"],
-        model_id=model_id,
+        model_id=response_model_id,
         top_positive=top_positive,
         top_negative=top_negative,
         league_averages=result["league_averages"],

@@ -1,12 +1,15 @@
 import { useState, useEffect, useMemo } from 'react'
-import { getSeasons, getLeagueSummary, getSeasonModels, getLeagueTopContributors } from '../api'
+import { getSeasons, getLeagueSummary, getLeagueTopContributors } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { ScatterChart, Scatter, XAxis, YAxis, ReferenceLine, ResponsiveContainer, LabelList, Tooltip } from 'recharts'
 import './LeagueSummary.css'
 
-// Column definitions with new structure
+const VIEW_FOUR_FACTORS = 'four_factors'
+const VIEW_SOS_ADJUSTMENTS = 'sos_adjustments'
+
 // BH = Ball Handling = 100 - TOV% (higher is better)
 // isOpp indicates opponent stats (for gradient reversal)
-const COLUMNS = [
+const FOUR_FACTOR_COLUMNS = [
   { key: 'team', label: 'Team', labelLine2: '', sortable: true },
   { key: 'games', label: 'GP', labelLine2: '', sortable: true },
   { key: 'wins', label: 'W', labelLine2: '', sortable: true, higherBetter: true },
@@ -25,6 +28,28 @@ const COLUMNS = [
   { key: 'pace', label: 'Pace', labelLine2: '', sortable: true, higherBetter: null },
 ]
 
+const SOS_COLUMNS = [
+  { key: 'team', label: 'Team', labelLine2: '', sortable: true },
+  { key: 'games', label: 'GP', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'wins', label: 'W', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'losses', label: 'L', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'win_pct', label: 'PCT', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'sos', label: 'SOS', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_sos', label: 'Off SOS', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_sos', label: 'Def SOS', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'adj_net_rating', label: 'Adj NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'adj_off_rating', label: 'Adj ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'adj_def_rating', label: 'Adj DRtg', labelLine2: '', sortable: true, higherBetter: false },
+]
+
+const SECTION_START_COLUMNS = {
+  [VIEW_FOUR_FACTORS]: new Set(['off_rating', 'efg_pct', 'opp_efg_pct', 'pace']),
+  [VIEW_SOS_ADJUSTMENTS]: new Set(['net_rating', 'sos', 'adj_net_rating']),
+}
+
 const GLOSSARY_ITEMS = [
   { term: 'GP', definition: 'Games Played' },
   { term: 'W', definition: 'Wins' },
@@ -38,18 +63,133 @@ const GLOSSARY_ITEMS = [
   { term: 'FT Rate', definition: 'Free Throw Rate - Free throws made per field goal attempt (FTM / FGA × 100)' },
   { term: 'Opp', definition: 'Opponent statistics - For defensive stats, lower opponent values are better for your team' },
   { term: 'Pace', definition: 'Average possessions per game. Higher pace indicates a faster-paced playing style.' },
+  { term: 'PCT', definition: 'Winning Percentage (shown as .xxx)' },
+  { term: 'SOS', definition: 'Strength of Schedule - Average net rating of opponents played.' },
+  { term: 'Off SOS', definition: 'Average opponent offensive rating minus league-average offensive rating.' },
+  { term: 'Def SOS', definition: 'Average opponent defensive rating minus league-average defensive rating.' },
+  { term: 'Adj NRtg', definition: 'Adjusted Net Rating = NRtg + SOS.' },
+  { term: 'Adj ORtg', definition: 'Adjusted Offensive Rating = ORtg - Def SOS.' },
+  { term: 'Adj DRtg', definition: 'Adjusted Defensive Rating = DRtg - Off SOS.' },
   { term: 'Contribution', definition: 'How much a factor contributed to a team\'s net rating relative to league average. Calculated as: (Team Value - League Avg) × Model Coefficient. Positive contributions help the team; negative contributions hurt.' },
 ]
 
 const DATE_RANGE_OPTIONS = [
-  { value: 'season', label: 'Season-to-Date' },
-  { value: 'season_no_playoffs', label: 'Season-to-Date, No Playoffs' },
-  { value: 'month', label: 'Month-to-Date' },
-  { value: 'last30', label: 'Last 30 Days' },
-  { value: 'last60', label: 'Last 60 Days' },
-  { value: 'last90', label: 'Last 90 Days' },
+  { value: 'season', label: 'Season' },
+  { value: 'season_regular', label: 'Season (Regular Season only)' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'last_2_months', label: 'Last 2 months' },
+  { value: 'last_3_months', label: 'Last 3 months' },
+  { value: 'last_10_games', label: 'Last 10 games' },
+  { value: 'last_15_games', label: 'Last 15 games' },
+  { value: 'last_20_games', label: 'Last 20 games' },
   { value: 'custom', label: 'Custom Date Range' },
 ]
+
+const EFFICIENCY_CHART_MARGIN = { top: 20, right: 56, bottom: 54, left: 56 }
+const TEAM_NAME_BY_ABBR = {
+  ATL: 'Atlanta Hawks',
+  BOS: 'Boston Celtics',
+  BKN: 'Brooklyn Nets',
+  BRK: 'Brooklyn Nets',
+  CHH: 'Charlotte Hornets',
+  CHA: 'Charlotte Hornets',
+  CHO: 'Charlotte Hornets',
+  CHI: 'Chicago Bulls',
+  CLE: 'Cleveland Cavaliers',
+  DAL: 'Dallas Mavericks',
+  DEN: 'Denver Nuggets',
+  DET: 'Detroit Pistons',
+  GSW: 'Golden State Warriors',
+  HOU: 'Houston Rockets',
+  IND: 'Indiana Pacers',
+  LAC: 'LA Clippers',
+  LAL: 'Los Angeles Lakers',
+  MEM: 'Memphis Grizzlies',
+  MIA: 'Miami Heat',
+  MIL: 'Milwaukee Bucks',
+  MIN: 'Minnesota Timberwolves',
+  NJN: 'New Jersey Nets',
+  NOH: 'New Orleans Hornets',
+  NOK: 'New Orleans/Oklahoma City Hornets',
+  NOP: 'New Orleans Pelicans',
+  NYK: 'New York Knicks',
+  OKC: 'Oklahoma City Thunder',
+  ORL: 'Orlando Magic',
+  PHI: 'Philadelphia 76ers',
+  PHX: 'Phoenix Suns',
+  POR: 'Portland Trail Blazers',
+  SAC: 'Sacramento Kings',
+  SAS: 'San Antonio Spurs',
+  SEA: 'Seattle SuperSonics',
+  TOR: 'Toronto Raptors',
+  UTA: 'Utah Jazz',
+  VAN: 'Vancouver Grizzlies',
+  WAS: 'Washington Wizards',
+  WSB: 'Washington Bullets',
+}
+
+function renderXAxisTitle(props) {
+  const { viewBox } = props || {}
+  if (!viewBox) return null
+  const x = viewBox.x
+  const y = viewBox.y + viewBox.height + 28
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor="middle"
+      dominantBaseline="middle"
+      fill="var(--color-text-secondary)"
+      fontSize="15"
+    >
+      Offensive Efficiency
+    </text>
+  )
+}
+
+function renderYAxisTitle(props) {
+  const { viewBox } = props || {}
+  if (!viewBox) return null
+  const x = viewBox.x - 28
+  const y = viewBox.y
+  return (
+    <text
+      x={x}
+      y={y}
+      textAnchor="middle"
+      dominantBaseline="middle"
+      fill="var(--color-text-secondary)"
+      fontSize="15"
+      transform={`rotate(-90 ${x} ${y})`}
+    >
+      Defensive Efficiency
+    </text>
+  )
+}
+
+function EfficiencyTooltip({ active, payload }) {
+  if (!active || !payload || payload.length === 0) return null
+  const point = payload[0]?.payload
+  if (!point) return null
+
+  return (
+    <div className="efficiency-tooltip">
+      <div className="efficiency-tooltip-team">{point.team_name}</div>
+      <div className="efficiency-tooltip-row">
+        <span>Offensive Rating</span>
+        <span>{point.off_rating.toFixed(1)}</span>
+      </div>
+      <div className="efficiency-tooltip-row">
+        <span>Defensive Rating</span>
+        <span>{point.def_rating.toFixed(1)}</span>
+      </div>
+      <div className="efficiency-tooltip-row">
+        <span>Net Rating</span>
+        <span>{point.net_rating.toFixed(1)}</span>
+      </div>
+    </div>
+  )
+}
 
 function LeagueSummary() {
   const [seasons, setSeasons] = useState([])
@@ -63,33 +203,21 @@ function LeagueSummary() {
   const [error, setError] = useState(null)
   const [sortColumn, setSortColumn] = useState('net_rating')
   const [sortDirection, setSortDirection] = useState('desc')
+  const [tableView, setTableView] = usePersistedState('leaguesummary_view', VIEW_FOUR_FACTORS)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
-  const [models, setModels] = useState([])
-  const [selectedModel, setSelectedModel] = usePersistedState('leaguesummary_model', 'season_2018-2025')
   const [topContributors, setTopContributors] = useState(null)
   const [contributorsLoading, setContributorsLoading] = useState(false)
 
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [seasonsRes, modelsRes] = await Promise.all([
-          getSeasons(),
-          getSeasonModels(),
-        ])
+        const seasonsRes = await getSeasons()
         setSeasons(seasonsRes.seasons)
-        setModels(modelsRes.models)
         // Keep persisted season if valid, otherwise default to first
         setSelectedSeason(prev => {
           if (prev && seasonsRes.seasons.includes(prev)) return prev
           return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
         })
-        // Default to first model if season_2018-2025 not available
-        if (modelsRes.models.length > 0) {
-          const defaultModel = modelsRes.models.find(m => m.id === 'season_2018-2025')
-          if (!defaultModel) {
-            setSelectedModel(modelsRes.models[0].id)
-          }
-        }
       } catch (err) {
         setError(err.message)
       }
@@ -105,69 +233,88 @@ function LeagueSummary() {
     setSeasonBounds({ first: '', last: '' })
   }, [selectedSeason])
 
-  // Calculate actual start/end dates based on preset
-  const { startDate, endDate } = useMemo(() => {
+  // Keep persisted date preset valid when option list changes
+  useEffect(() => {
+    if (!DATE_RANGE_OPTIONS.some(opt => opt.value === dateRangePreset)) {
+      setDateRangePreset('season')
+    }
+  }, [dateRangePreset, setDateRangePreset])
+
+  const formatUtcDate = (dateObj) => {
+    const y = dateObj.getUTCFullYear()
+    const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0')
+    const d = String(dateObj.getUTCDate()).padStart(2, '0')
+    return `${y}-${m}-${d}`
+  }
+
+  // Calculate API range params from preset
+  const { startDate, endDate, lastNGames, excludePlayoffs } = useMemo(() => {
     if (!seasonBounds.first || !seasonBounds.last) {
-      return { startDate: '', endDate: '' }
+      return { startDate: '', endDate: '', lastNGames: null, excludePlayoffs: false }
     }
 
-    const firstDate = new Date(seasonBounds.first)
-    const lastDate = new Date(seasonBounds.last)
-    const seasonDays = Math.floor((lastDate - firstDate) / (1000 * 60 * 60 * 24))
+    const seasonStart = seasonBounds.first
+    const seasonEnd = seasonBounds.last
+
+    const getMonthStart = (anchorDateStr, monthsBack) => {
+      const [year, month] = anchorDateStr.split('-').map(Number)
+      const monthStart = new Date(Date.UTC(year, month - 1 - monthsBack, 1))
+      return formatUtcDate(monthStart)
+    }
 
     switch (dateRangePreset) {
       case 'season':
-        return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+        return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
 
-      case 'season_no_playoffs':
-        return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+      case 'season_regular':
+        return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: true }
 
-      case 'month': {
-        // First day of the month containing the last game
-        const monthStart = new Date(lastDate.getFullYear(), lastDate.getMonth(), 1)
-        const monthStartStr = monthStart.toISOString().split('T')[0]
-        // Use season start if month start is before season start
-        return {
-          startDate: monthStartStr < seasonBounds.first ? seasonBounds.first : monthStartStr,
-          endDate: seasonBounds.last
+      case 'this_month': {
+        const monthStart = getMonthStart(seasonEnd, 0)
+        if (monthStart < seasonStart) {
+          return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
         }
+        return { startDate: monthStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
       }
 
-      case 'last30': {
-        if (seasonDays < 30) {
-          return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+      case 'last_2_months': {
+        const start = getMonthStart(seasonEnd, 1)
+        if (start < seasonStart) {
+          return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
         }
-        const start = new Date(lastDate)
-        start.setDate(start.getDate() - 29)
-        return { startDate: start.toISOString().split('T')[0], endDate: seasonBounds.last }
+        return { startDate: start, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
       }
 
-      case 'last60': {
-        if (seasonDays < 60) {
-          return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+      case 'last_3_months': {
+        const start = getMonthStart(seasonEnd, 2)
+        if (start < seasonStart) {
+          return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
         }
-        const start = new Date(lastDate)
-        start.setDate(start.getDate() - 59)
-        return { startDate: start.toISOString().split('T')[0], endDate: seasonBounds.last }
+        return { startDate: start, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
       }
 
-      case 'last90': {
-        if (seasonDays < 90) {
-          return { startDate: seasonBounds.first, endDate: seasonBounds.last }
-        }
-        const start = new Date(lastDate)
-        start.setDate(start.getDate() - 89)
-        return { startDate: start.toISOString().split('T')[0], endDate: seasonBounds.last }
-      }
+      case 'last_10_games':
+        return { startDate: null, endDate: null, lastNGames: 10, excludePlayoffs: false }
 
-      case 'custom':
-        return {
-          startDate: customStartDate || seasonBounds.first,
-          endDate: customEndDate || seasonBounds.last
+      case 'last_15_games':
+        return { startDate: null, endDate: null, lastNGames: 15, excludePlayoffs: false }
+
+      case 'last_20_games':
+        return { startDate: null, endDate: null, lastNGames: 20, excludePlayoffs: false }
+
+      case 'custom': {
+        const safeStart = customStartDate || seasonStart
+        const safeEnd = customEndDate || seasonEnd
+        const clampedStart = safeStart < seasonStart ? seasonStart : safeStart
+        const clampedEnd = safeEnd > seasonEnd ? seasonEnd : safeEnd
+        if (clampedStart > clampedEnd) {
+          return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
         }
+        return { startDate: clampedStart, endDate: clampedEnd, lastNGames: null, excludePlayoffs: false }
+      }
 
       default:
-        return { startDate: seasonBounds.first, endDate: seasonBounds.last }
+        return { startDate: seasonStart, endDate: seasonEnd, lastNGames: null, excludePlayoffs: false }
     }
   }, [dateRangePreset, seasonBounds, customStartDate, customEndDate])
 
@@ -199,14 +346,20 @@ function LeagueSummary() {
 
   // Load data with calculated date range
   useEffect(() => {
-    if (!selectedSeason || !startDate || !endDate) return
+    if (!selectedSeason) return
+    if (!lastNGames && (!startDate || !endDate)) return
     let isCurrent = true
     async function loadData() {
       setLoading(true)
       setError(null)
       try {
-        const excludePlayoffs = dateRangePreset === 'season_no_playoffs'
-        const res = await getLeagueSummary(selectedSeason, startDate, endDate, excludePlayoffs)
+        const res = await getLeagueSummary(
+          selectedSeason,
+          startDate,
+          endDate,
+          excludePlayoffs,
+          lastNGames
+        )
         if (isCurrent) {
           setData(res)
           setError(null)
@@ -219,26 +372,25 @@ function LeagueSummary() {
     }
     loadData()
     return () => { isCurrent = false }
-  }, [selectedSeason, startDate, endDate, dateRangePreset])
+  }, [selectedSeason, startDate, endDate, lastNGames, excludePlayoffs])
 
-  // Load top contributors when model or date range changes
+  // Load top contributors when date range changes
   useEffect(() => {
-    if (!selectedSeason || !startDate || !endDate || !selectedModel) return
+    if (!selectedSeason) return
+    if (!lastNGames && (!startDate || !endDate)) return
     let isCurrent = true
     async function loadTopContributors() {
       setContributorsLoading(true)
       try {
-        const excludePlayoffs = dateRangePreset === 'season_no_playoffs'
         const res = await getLeagueTopContributors(
           selectedSeason,
-          selectedModel,
           startDate,
           endDate,
-          excludePlayoffs
+          excludePlayoffs,
+          lastNGames
         )
         if (isCurrent) {
           setTopContributors(res)
-          console.log('Model:', res.model_id, 'Coefficients:', res.coefficients)
         }
       } catch (err) {
         // Silently fail for contributors - don't show error to user
@@ -251,10 +403,28 @@ function LeagueSummary() {
     }
     loadTopContributors()
     return () => { isCurrent = false }
-  }, [selectedSeason, startDate, endDate, dateRangePreset, selectedModel])
+  }, [selectedSeason, startDate, endDate, lastNGames, excludePlayoffs])
+
+  const activeColumns = useMemo(
+    () => (tableView === VIEW_SOS_ADJUSTMENTS ? SOS_COLUMNS : FOUR_FACTOR_COLUMNS),
+    [tableView]
+  )
+
+  useEffect(() => {
+    const defaultSortByView =
+      tableView === VIEW_SOS_ADJUSTMENTS
+        ? { column: 'adj_net_rating', direction: 'desc' }
+        : { column: 'net_rating', direction: 'desc' }
+
+    if (!activeColumns.some(col => col.key === sortColumn)) {
+      setSortColumn(defaultSortByView.column)
+      setSortDirection(defaultSortByView.direction)
+    }
+  }, [tableView, activeColumns, sortColumn])
 
   const sortedTeams = useMemo(() => {
     if (!data?.teams) return []
+    if (!activeColumns.some(col => col.key === sortColumn)) return [...data.teams]
     const sorted = [...data.teams].sort((a, b) => {
       const aVal = a[sortColumn]
       const bVal = b[sortColumn]
@@ -264,13 +434,13 @@ function LeagueSummary() {
       return sortDirection === 'asc' ? aVal - bVal : bVal - aVal
     })
     return sorted
-  }, [data, sortColumn, sortDirection])
+  }, [data, sortColumn, sortDirection, activeColumns])
 
   // Compute min/max for sorted column only
   const sortedColumnStats = useMemo(() => {
     if (!data?.teams || data.teams.length === 0) return null
-    const col = COLUMNS.find(c => c.key === sortColumn)
-    if (!col || col.key === 'team') return null
+    const col = activeColumns.find(c => c.key === sortColumn)
+    if (!col || col.key === 'team' || col.higherBetter === null) return null
     const values = data.teams.map(t => t[sortColumn]).filter(v => typeof v === 'number')
     if (values.length === 0) return null
     return {
@@ -279,7 +449,7 @@ function LeagueSummary() {
       higherBetter: col.higherBetter,
       isOpp: col.isOpp,
     }
-  }, [data, sortColumn])
+  }, [data, sortColumn, activeColumns])
 
   const getCellColor = (column, value) => {
     // Only color the sorted column
@@ -312,15 +482,27 @@ function LeagueSummary() {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
     } else {
       setSortColumn(column)
-      const col = COLUMNS.find((c) => c.key === column)
+      const col = activeColumns.find((c) => c.key === column)
       setSortDirection(col?.higherBetter === false ? 'asc' : 'desc')
     }
+  }
+
+  const isSectionStart = (columnKey) => {
+    return SECTION_START_COLUMNS[tableView]?.has(columnKey) || false
+  }
+
+  const isHeaderCenteredValueColumn = (columnKey) => {
+    return ['games', 'wins', 'losses', 'win_pct'].includes(columnKey)
   }
 
   const formatValue = (value, column) => {
     if (value === null || value === undefined) return '-'
     if (column === 'team') return value
     if (typeof value === 'number') {
+      if (column === 'win_pct') {
+        const pct = value / 100
+        return pct >= 1 ? '1.000' : pct.toFixed(3).replace(/^0/, '')
+      }
       // For GP, W, L: show integer if whole number, otherwise 1 decimal
       if (['games', 'wins', 'losses'].includes(column)) {
         return Number.isInteger(value) ? value : value.toFixed(1)
@@ -334,7 +516,7 @@ function LeagueSummary() {
   const leagueAverages = useMemo(() => {
     if (!data?.teams || data.teams.length === 0) return null
     const avg = {}
-    COLUMNS.forEach(col => {
+    activeColumns.forEach(col => {
       if (col.key === 'team') {
         avg[col.key] = 'Average'
       } else {
@@ -345,18 +527,18 @@ function LeagueSummary() {
       }
     })
     return avg
-  }, [data])
+  }, [data, activeColumns])
 
   // Export to XLSX
   const handleExport = () => {
     if (!sortedTeams.length) return
 
     // Build CSV content (XLSX-compatible)
-    const headers = ['Rank', ...COLUMNS.map(col => col.labelLine2 ? `${col.labelLine2} ${col.label}` : col.label)]
+    const headers = ['Rank', ...activeColumns.map(col => col.labelLine2 ? `${col.labelLine2} ${col.label}` : col.label)]
     const rows = sortedTeams.map((team, index) => {
       return [
         index + 1,
-        ...COLUMNS.map(col => formatValue(team[col.key], col.key))
+        ...activeColumns.map(col => formatValue(team[col.key], col.key))
       ]
     })
 
@@ -364,7 +546,7 @@ function LeagueSummary() {
     if (leagueAverages) {
       rows.push([
         '',
-        ...COLUMNS.map(col => col.key === 'team' ? 'Average' : formatValue(leagueAverages[col.key], col.key))
+        ...activeColumns.map(col => col.key === 'team' ? 'Average' : formatValue(leagueAverages[col.key], col.key))
       ])
     }
 
@@ -383,12 +565,97 @@ function LeagueSummary() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `league_summary_${selectedSeason}_${startDate}_${endDate}.csv`
+    const viewSuffix = tableView === VIEW_SOS_ADJUSTMENTS ? 'sos_adjusted' : 'four_factors'
+    const rangeSuffix = lastNGames ? `last_${lastNGames}_games` : `${startDate}_${endDate}`
+    a.download = `league_summary_${viewSuffix}_${selectedSeason}_${rangeSuffix}.csv`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   }
+
+  const efficiencyChartData = useMemo(() => {
+    if (!sortedTeams.length) return []
+    return sortedTeams.map((team) => ({
+      team: team.team,
+      team_name: TEAM_NAME_BY_ABBR[team.team] || team.team,
+      off_rating: team.off_rating,
+      def_rating: team.def_rating,
+      net_rating: team.net_rating,
+    }))
+  }, [sortedTeams])
+
+  const efficiencyDomains = useMemo(() => {
+    if (!efficiencyChartData.length) {
+      return {
+        x: [100, 125],
+        y: [120, 100],
+      }
+    }
+
+    const offValues = efficiencyChartData.map((d) => d.off_rating)
+    const defValues = efficiencyChartData.map((d) => d.def_rating)
+    const offAvgFallback = offValues.reduce((sum, v) => sum + v, 0) / offValues.length
+    const defAvgFallback = defValues.reduce((sum, v) => sum + v, 0) / defValues.length
+
+    const avgOff = typeof data?.league_averages?.off_rating === 'number'
+      ? data.league_averages.off_rating
+      : offAvgFallback
+    const avgDef = typeof data?.league_averages?.def_rating === 'number'
+      ? data.league_averages.def_rating
+      : defAvgFallback
+
+    const xMinRaw = Math.min(...offValues)
+    const xMaxRaw = Math.max(...offValues)
+    const yMinRaw = Math.min(...defValues)
+    const yMaxRaw = Math.max(...defValues)
+
+    const xRadius = Math.max(Math.abs(avgOff - xMinRaw), Math.abs(xMaxRaw - avgOff))
+    const yRadius = Math.max(Math.abs(avgDef - yMinRaw), Math.abs(yMaxRaw - avgDef))
+    const xPad = Math.max(0.8, xRadius * 0.12)
+    const yPad = Math.max(0.8, yRadius * 0.12)
+
+    return {
+      x: [avgOff - xRadius - xPad, avgOff + xRadius + xPad],
+      y: [avgDef - yRadius - yPad, avgDef + yRadius + yPad],
+    }
+  }, [efficiencyChartData, data])
+
+  const efficiencyLeagueAverages = useMemo(() => {
+    const fallbackOff = efficiencyChartData.length
+      ? efficiencyChartData.reduce((sum, d) => sum + d.off_rating, 0) / efficiencyChartData.length
+      : 112.5
+    const fallbackDef = efficiencyChartData.length
+      ? efficiencyChartData.reduce((sum, d) => sum + d.def_rating, 0) / efficiencyChartData.length
+      : 112.5
+
+    return {
+      off: typeof data?.league_averages?.off_rating === 'number' ? data.league_averages.off_rating : fallbackOff,
+      def: typeof data?.league_averages?.def_rating === 'number' ? data.league_averages.def_rating : fallbackDef,
+    }
+  }, [data, efficiencyChartData])
+
+  const efficiencySubtitle = useMemo(() => {
+    const nowLabel = new Date().toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    })
+
+    let rangeLabel = 'Season-to-Date'
+    if (lastNGames) {
+      rangeLabel = `Last ${lastNGames} games`
+    } else if (startDate && seasonBounds.first && startDate !== seasonBounds.first) {
+      const startLabel = new Date(`${startDate}T00:00:00`).toLocaleDateString('en-US', {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+      })
+      rangeLabel = `Since ${startLabel}`
+    }
+
+    return `${nowLabel} | ${rangeLabel}`
+  }, [lastNGames, startDate, seasonBounds.first])
 
   return (
     <div className="league-summary container">
@@ -427,17 +694,23 @@ function LeagueSummary() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Contribution Model</label>
-            <select
-              className="form-select"
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-            >
-              <option value="">Select model...</option>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>{model.name}</option>
-              ))}
-            </select>
+            <label className="form-label">Table View</label>
+            <div className="view-toggle-group">
+              <button
+                type="button"
+                className={`view-toggle-btn ${tableView === VIEW_FOUR_FACTORS ? 'active' : ''}`}
+                onClick={() => setTableView(VIEW_FOUR_FACTORS)}
+              >
+                Show Four Factors
+              </button>
+              <button
+                type="button"
+                className={`view-toggle-btn ${tableView === VIEW_SOS_ADJUSTMENTS ? 'active' : ''}`}
+                onClick={() => setTableView(VIEW_SOS_ADJUSTMENTS)}
+              >
+                Show Strength of Schedule Adjustments
+              </button>
+            </div>
           </div>
 
           {dateRangePreset === 'custom' && (
@@ -448,8 +721,8 @@ function LeagueSummary() {
                   type="date"
                   className="form-input"
                   value={customStartDate}
-                  min={seasonBounds.first}
-                  max={seasonBounds.last}
+                  min={seasonBounds.first || undefined}
+                  max={seasonBounds.last || undefined}
                   onChange={(e) => setCustomStartDate(e.target.value)}
                 />
               </div>
@@ -460,13 +733,14 @@ function LeagueSummary() {
                   type="date"
                   className="form-input"
                   value={customEndDate}
-                  min={seasonBounds.first}
-                  max={seasonBounds.last}
+                  min={seasonBounds.first || undefined}
+                  max={seasonBounds.last || undefined}
                   onChange={(e) => setCustomEndDate(e.target.value)}
                 />
               </div>
             </>
           )}
+
         </div>
       </div>
 
@@ -490,10 +764,10 @@ function LeagueSummary() {
                       <span className="header-line1">Rank</span>
                     </div>
                   </th>
-                  {COLUMNS.map((col) => (
+                  {activeColumns.map((col) => (
                     <th
                       key={col.key}
-                      className={`stat-header ${col.sortable ? 'sortable' : ''} ${sortColumn === col.key ? 'sorted' : ''}`}
+                      className={`stat-header ${col.sortable ? 'sortable' : ''} ${sortColumn === col.key ? 'sorted' : ''} ${isSectionStart(col.key) ? 'section-divider' : ''}`}
                       onClick={() => col.sortable && handleSort(col.key)}
                     >
                       <div className="header-content">
@@ -515,13 +789,19 @@ function LeagueSummary() {
                 {sortedTeams.map((team, index) => (
                   <tr key={team.team}>
                     <td className="rank-col">{index + 1}</td>
-                    {COLUMNS.map((col) => (
+                    {activeColumns.map((col) => (
                       <td
                         key={col.key}
                         style={col.key !== 'team' ? { backgroundColor: getCellColor(col.key, team[col.key]) } : {}}
-                        className={col.key === 'team' ? 'team-cell' : 'stat-cell'}
+                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''}`}
                       >
-                        {formatValue(team[col.key], col.key)}
+                        {col.key === 'team' ? (
+                          formatValue(team[col.key], col.key)
+                        ) : (
+                          <span className={`ls-stat-value ${isHeaderCenteredValueColumn(col.key) ? 'ls-stat-value--center' : ''}`}>
+                            {formatValue(team[col.key], col.key)}
+                          </span>
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -530,12 +810,18 @@ function LeagueSummary() {
                 {leagueAverages && (
                   <tr className="league-avg-row">
                     <td className="rank-col"></td>
-                    {COLUMNS.map((col) => (
+                    {activeColumns.map((col) => (
                       <td
                         key={col.key}
-                        className={col.key === 'team' ? 'team-cell' : 'stat-cell'}
+                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''}`}
                       >
-                        {formatValue(leagueAverages[col.key], col.key)}
+                        {col.key === 'team' ? (
+                          formatValue(leagueAverages[col.key], col.key)
+                        ) : (
+                          <span className={`ls-stat-value ${isHeaderCenteredValueColumn(col.key) ? 'ls-stat-value--center' : ''}`}>
+                            {formatValue(leagueAverages[col.key], col.key)}
+                          </span>
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -549,6 +835,60 @@ function LeagueSummary() {
               Export to Excel
             </button>
           </div>
+
+          {!!efficiencyChartData.length && (
+            <div className="efficiency-landscape card">
+              <h2 className="efficiency-title">The Efficiency Landscape (@KirkGoldsberry)</h2>
+              <div className="efficiency-subtitle">{efficiencySubtitle}</div>
+              <div className="efficiency-chart-shell">
+                <div className="efficiency-chart-container">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ScatterChart margin={EFFICIENCY_CHART_MARGIN}>
+                      <XAxis
+                        type="number"
+                        dataKey="off_rating"
+                        domain={efficiencyDomains.x}
+                        ticks={[]}
+                        tick={false}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <YAxis
+                        type="number"
+                        dataKey="def_rating"
+                        domain={efficiencyDomains.y}
+                        reversed
+                        ticks={[]}
+                        tick={false}
+                        tickLine={false}
+                        axisLine={false}
+                      />
+                      <ReferenceLine
+                        x={efficiencyLeagueAverages.off}
+                        stroke="var(--color-text-muted)"
+                        strokeWidth={1}
+                        label={renderXAxisTitle}
+                      />
+                      <ReferenceLine
+                        y={efficiencyLeagueAverages.def}
+                        stroke="var(--color-text-muted)"
+                        strokeWidth={1}
+                        label={renderYAxisTitle}
+                      />
+                      <Tooltip
+                        cursor={false}
+                        content={<EfficiencyTooltip />}
+                        wrapperStyle={{ outline: 'none' }}
+                      />
+                      <Scatter data={efficiencyChartData} fill="var(--color-primary)">
+                        <LabelList dataKey="team" position="top" offset={8} fontSize={11} fill="var(--color-text)" />
+                      </Scatter>
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </div>
+          )}
 
           {topContributors && !contributorsLoading && (
             <div className="top-contributors-section">

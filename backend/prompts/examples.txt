@@ -1,0 +1,29 @@
+eight factor			        Example output
+Denver offensive rebounding	    Denver dominated on the offensive glass, getting 36% of available offensive rebounds.
+Atlanta offensive rebounding	Atlanta got plenty of second chance opportunities due to very strong offensive rebounding (26% rate). 
+Brooklyn offensive rebounding	Orlando controlled the defensive boards, allowing Brooklyn a minuscule 12% offensive rebounding rate. 
+Toronto offensive rebounding	Milwaukee gave up too many offensive rebounds to Toronto, who had a 28% offensive rebounding rate. 
+New York shooting		        New York shot the ball extremely well, with a 65% effective field goal percentage.
+Charlotte shooting		        Chicago played poor defense, allowing Charlotte to shoot a 58% effective field goal percentage. 
+Indiana shooting		        Indiana shot poorly from the field, with only a 51% effective field goal percentage.
+Washington shooting		        Boston held Washington to a below average shooting night of only 52% effective field goal percentage.
+Portland ball handling		    Portland committed too many turnovers, with a ball handling score of only 83%.
+Golden State ball handling	    Oklahoma City took advantage of sloppy ball handling by Golden State, who only had 84% ball handling.
+Dallas ball handling		    Dallas did an excellent job at not turning over the ball with a 90% ball handling. 
+Memphis ball handling		    Memphis maximized their.possessions by keeping turnovers low with 88% ball handling. 
+Philadelphia free throw rate	Philadelphia did a good job getting to the free-throw line, with a FT rate of 22%.
+New Orleans free throw rate	    Denver limited New Orlean's opportunities to the charity stripe, holding them to only a 18% FT rate.
+Miami free throw rate		    Miami repeatedly got to the line, posting a 27% FT rate for the game. 
+Detroit free throw rate		    Detroit did not get many free throw attempts, with a FT Rate of only 14%
+
+four factor			            example output
+shooting			            Although both teams shot well, Indiana had a better effective field goal percentage than Houston, 60% to 57%.
+shooting			            Phoenix's superior shooting was decisive in beating Utah, shooting 10% higher in effective field goal percentage.
+ball handling			        Sacramento won the turnover battle against Cleveland, with 87% ball handling compared to Cleveland's 84%.
+ball handling			        Both teams were very sloppy with the ball in a turnover-filled matchup. San Antonio and Minnesota each had poor ball handling.
+offensive rebounding		    Detroit won the battle of the boards with a 28% offensive rebounding rate compared to Atlanta's 24%.
+offensive rebounding		    While both teams did well on the offensive boards, the edge went to Utah who had a 5% higher offensive rebounding rate. 
+free throw rate			        New York's ability to get to the line more than Chicago was an important factor in the game.  
+free throw rate			        Brooklyn had the edge in free throws with a 10% higher free throw rate than Milwaukee.  
+
+ 

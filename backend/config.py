@@ -55,3 +55,13 @@ AVAILABLE_MODELS = [
 KNOWN_SEASON_MODELS = [
     {"id": "season_2018-2025", "name": "2018-2025 Model", "file": "models/season_2018-2025.json"},
 ]
+
+# LLM configuration for interpretation generation
+LLM_MODELS = {
+    "historical": "gpt-4o-mini",           # Cheap model for historical seasons
+    "current": "claude-sonnet-4-20250514", # Better model for current season
+    "fallback": "gpt-4o-mini",             # Fallback for real-time generation
+}
+
+# URL for pre-generated interpretations
+INTERPRETATIONS_BASE_URL = f"{DATA_BASE_URL}/interpretations"

@@ -71,13 +71,16 @@ function Trends() {
   const [selectedStat, setSelectedStat] = usePersistedState('trends_stat', 'net_rating')
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
 
   useEffect(() => {
+    let isCurrent = true
     async function loadSeasons() {
       try {
         const res = await getSeasons()
+        if (!isCurrent) return
         setSeasons(res.seasons)
         // Keep persisted season if valid, otherwise default to first
         setSelectedSeason(prev => {
@@ -85,17 +88,22 @@ function Trends() {
           return res.seasons.length > 0 ? res.seasons[0] : ''
         })
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       }
     }
     loadSeasons()
+    return () => { isCurrent = false }
   }, [])
 
   useEffect(() => {
+    let isCurrent = true
     async function loadTeams() {
       if (!selectedSeason) return
+      setInitializing(true)
+      if (isCurrent) setData(null)
       try {
         const res = await getTeams(selectedSeason)
+        if (!isCurrent) return
         setTeams(res.teams)
         // Keep persisted team if valid, otherwise default to BOS or first team
         setSelectedTeam(prev => {
@@ -104,29 +112,33 @@ function Trends() {
           if (res.teams.length > 0) return res.teams[0]
           return ''
         })
-        setData(null)
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
+      } finally {
+        if (isCurrent) setInitializing(false)
       }
     }
     loadTeams()
+    return () => { isCurrent = false }
   }, [selectedSeason])
 
   useEffect(() => {
+    let isCurrent = true
     async function loadTrends() {
       if (!selectedSeason || !selectedTeam || !selectedStat) return
       setLoading(true)
-      setError(null)
+      if (isCurrent) setError(null)
       try {
         const res = await getTrends(selectedSeason, selectedTeam, selectedStat)
-        setData(res)
+        if (isCurrent) setData(res)
       } catch (err) {
-        setError(err.message)
+        if (isCurrent) setError(err.message)
       } finally {
-        setLoading(false)
+        if (isCurrent) setLoading(false)
       }
     }
     loadTrends()
+    return () => { isCurrent = false }
   }, [selectedSeason, selectedTeam, selectedStat])
 
   // Prepare chart data with x-axis labels
@@ -254,14 +266,14 @@ function Trends() {
 
       {error && <div className="error">{error}</div>}
 
-      {loading && (
+      {(loading || initializing) && (
         <div className="loading">
           <div className="loading-spinner"></div>
           Loading trend data...
         </div>
       )}
 
-      {data && !loading && (
+      {data && !loading && !initializing && (
         <div className="results">
           <div className="chart-card card">
             <h2 className="card-title">{getTeamName(data.team)} {STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label}</h2>

@@ -3,7 +3,7 @@ import httpx
 import json
 import re
 from typing import Optional, List, Dict
-from config import DATA_BASE_URL, MODEL_BASE_URL, GITHUB_USER, DATA_REPO, GITHUB_BRANCH, GITHUB_TOKEN, KNOWN_SEASON_MODELS, get_available_seasons
+from config import DATA_BASE_URL, MODEL_BASE_URL, INTERPRETATIONS_BASE_URL, GITHUB_USER, DATA_REPO, GITHUB_BRANCH, GITHUB_TOKEN, KNOWN_SEASON_MODELS, get_available_seasons
 from services.cache import get_cache_key, get_cached, set_cached
 
 STAT_COLUMNS = [
@@ -48,6 +48,12 @@ async def load_season_data(season: str) -> Optional[pd.DataFrame]:
 
 async def load_model(model_file: str) -> Optional[dict]:
     url = f"{MODEL_BASE_URL}/{model_file}"
+    return await fetch_json(url)
+
+
+async def load_contributions(season: str) -> Optional[dict]:
+    """Load pre-calculated contribution JSON for a season from GitHub."""
+    url = f"{DATA_BASE_URL}/contributions/contributions_{season}.json"
     return await fetch_json(url)
 
 
@@ -140,6 +146,22 @@ def _normalize_game_type(game_type: str) -> str:
     return gt
 
 
+def _normalize_game_id(game_id) -> str:
+    """Normalize game_id to a 10-digit string for reliable cross-file joins."""
+    if pd.isna(game_id):
+        return ""
+
+    gid = str(game_id).strip()
+    # CSV numeric parsing can coerce IDs to float-looking strings (e.g., "22400061.0")
+    if gid.endswith(".0"):
+        gid = gid[:-2]
+
+    digits = "".join(ch for ch in gid if ch.isdigit())
+    if not digits:
+        return gid
+    return digits.zfill(10)
+
+
 def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
     cache_key = get_cache_key("normalize_game_logs", season)
     cached = get_cached(cache_key)
@@ -149,7 +171,7 @@ def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
     rows = []
 
     for _, row in df.iterrows():
-        game_id = row.get("game_id")
+        game_id = _normalize_game_id(row.get("game_id"))
         game_date = row.get("game_date")
         game_type = _normalize_game_type(row.get("game_type", "regular_season"))
 
@@ -234,8 +256,8 @@ async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataF
     adv_df = adv_df.copy()
 
     # Ensure consistent game_id types
-    df["game_id"] = df["game_id"].astype(str)
-    adv_df["game_id"] = adv_df["game_id"].astype(str)
+    df["game_id"] = df["game_id"].apply(_normalize_game_id)
+    adv_df["game_id"] = adv_df["game_id"].apply(_normalize_game_id)
 
     # Create a lookup dict for possessions by game_id
     poss_lookup = {}
@@ -258,7 +280,7 @@ async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataF
     opp_actual_poss = []
 
     for _, row in df.iterrows():
-        gid = str(row["game_id"])
+        gid = _normalize_game_id(row["game_id"])
         home_away = row["home_away"]
         poss_data = poss_lookup.get(gid, {})
 
@@ -289,7 +311,7 @@ async def get_games_list(season: str) -> list:
     for _, row in games_df.iterrows():
         date_str = row["game_date"].strftime("%Y-%m-%d") if pd.notna(row["game_date"]) else ""
         games.append({
-            "game_id": str(row["game_id"]),
+            "game_id": str(row["game_id"]).zfill(10),
             "date": date_str,
             "home_team": str(row["team"]),
             "road_team": str(row["opponent"]),
@@ -315,8 +337,8 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
 
     # ensure consistent types
     df = df.copy()
-    df["game_id"] = df["game_id"].astype(str)
-    game_id = str(game_id)
+    df["game_id"] = df["game_id"].apply(_normalize_game_id)
+    game_id = _normalize_game_id(game_id)
 
     game_df = df[df["game_id"] == game_id]
     if len(game_df) != 2:
@@ -334,7 +356,7 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
     adv_df = await load_advanced_stats(season)
     if adv_df is not None:
         adv_df = adv_df.copy()
-        adv_df["game_id"] = adv_df["game_id"].astype(str)
+        adv_df["game_id"] = adv_df["game_id"].apply(_normalize_game_id)
         adv_game = adv_df[adv_df["game_id"] == game_id]
         if len(adv_game) == 1:
             adv_row = adv_game.iloc[0]
@@ -365,7 +387,7 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
     ls_df = await load_linescores(season)
     if ls_df is not None:
         ls_df = ls_df.copy()
-        ls_df["game_id"] = ls_df["game_id"].astype(str)
+        ls_df["game_id"] = ls_df["game_id"].apply(_normalize_game_id)
         ls_game = ls_df[ls_df["game_id"] == game_id]
         if len(ls_game) == 1:
             ls_row = ls_game.iloc[0]
@@ -398,4 +420,69 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
         "actual_minutes_home": actual_minutes_home,
         "actual_minutes_road": actual_minutes_road,
         "linescore": linescore,
+    }
+
+
+async def get_interpretations(season: str) -> Optional[Dict]:
+    """Fetch pre-generated interpretations for a season from GitHub.
+
+    Returns dict with structure:
+    {
+        "season": "2024-25",
+        "prompt_version": "v2_bullets",
+        "interpretations": {
+            "0022400123": {
+                "generated_at": "2025-01-15T...",
+                "model": "claude-sonnet-4-...",
+                "eight_factors": "- Bullet 1...\n- Bullet 2...",
+                "four_factors": "- ..."
+            },
+            ...
+        }
+    }
+    """
+    url = f"{INTERPRETATIONS_BASE_URL}/gamesummaries_{season}_2018-25.json"
+    return await fetch_json(url)
+
+
+async def get_game_interpretation(
+    season: str, game_id: str, factor_type: str, model_id: str = None
+) -> Optional[Dict]:
+    """Get pre-generated interpretation for a specific game.
+
+    Args:
+        season: Season string (e.g., "2024-25")
+        game_id: Game ID string
+        factor_type: "four_factors" or "eight_factors"
+        model_id: Decomposition model ID (e.g., "2018-2025"). If provided,
+                  only returns pre-generated interpretation if it was generated
+                  using the same model. This ensures interpretation matches
+                  the contributions shown on the page.
+
+    Returns:
+        Dict with 'text' and 'model' keys if found, None otherwise
+    """
+    interp_data = await get_interpretations(season)
+    if interp_data is None:
+        return None
+
+    # Check if the requested model matches what was used for pre-generation
+    if model_id:
+        stored_model_id = interp_data.get("decomposition_model_id")
+        if stored_model_id and stored_model_id != model_id:
+            # Model mismatch - don't use pre-generated interpretation
+            return None
+
+    interpretations = interp_data.get("interpretations", {})
+    game_interp = interpretations.get(str(game_id)) or interpretations.get(_normalize_game_id(game_id))
+    if game_interp is None:
+        return None
+
+    text = game_interp.get(factor_type)
+    if text is None:
+        return None
+
+    return {
+        "text": text,
+        "model": game_interp.get("model", "unknown"),
     }

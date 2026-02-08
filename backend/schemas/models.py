@@ -99,6 +99,12 @@ class TeamStats(BaseModel):
     opp_oreb_pct: float
     opp_ft_rate: float
     pace: float
+    sos: float
+    off_sos: float
+    def_sos: float
+    adj_net_rating: float
+    adj_off_rating: float
+    adj_def_rating: float
 
 class LeagueSummaryResponse(BaseModel):
     teams: List[TeamStats]
@@ -201,6 +207,7 @@ class InterpretationRequest(BaseModel):
     """Request body for chart interpretation."""
     game_id: str
     game_date: str
+    season: Optional[str] = None  # Season for pre-generated interpretation lookup
     home_team: str
     road_team: str
     home_pts: int
@@ -209,9 +216,11 @@ class InterpretationRequest(BaseModel):
     predicted_rating_diff: float
     actual_rating_diff: float
     factor_type: str
-    model_id: str
+    model_id: Optional[str] = None
     home_factors: Optional[Dict[str, float]] = None
     road_factors: Optional[Dict[str, float]] = None
+    home_ratings: Optional[Dict[str, float]] = None
+    road_ratings: Optional[Dict[str, float]] = None
     league_averages: Optional[Dict[str, float]] = None
     factor_ranges: Optional[Dict[str, Dict[str, float]]] = None
 
@@ -219,3 +228,4 @@ class InterpretationRequest(BaseModel):
 class InterpretationResponse(BaseModel):
     """Response for chart interpretation."""
     interpretation: str
+    model: Optional[str] = None
