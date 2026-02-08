@@ -1214,9 +1214,8 @@ def _compute_factor_differentials(df: pd.DataFrame) -> pd.DataFrame:
     if {"OPP_FGM", "OPP_FG3M", "OPP_FGA"}.issubset(out.columns):
         out["OPP_EFG_PCT"] = (out["OPP_FGM"] + 0.5 * out["OPP_FG3M"]) / out["OPP_FGA"].replace(0, pd.NA)
 
-    if {"OPP_TOV", "OPP_FGA", "OPP_FTA"}.issubset(out.columns):
-        denom = out["OPP_FGA"] + 0.44 * out["OPP_FTA"] + out["OPP_TOV"]
-        out["OPP_TOV_PCT"] = out["OPP_TOV"] / denom.replace(0, pd.NA)
+    if {"OPP_TOV", "OPP_POSS"}.issubset(out.columns):
+        out["OPP_TOV_PCT"] = out["OPP_TOV"] / out["OPP_POSS"].replace(0, pd.NA)
 
     if {"OPP_FTM", "OPP_FGA"}.issubset(out.columns):
         out["OPP_FT_RATE"] = out["OPP_FTM"] / out["OPP_FGA"].replace(0, pd.NA)
@@ -2350,9 +2349,9 @@ def _compute_season_league_averages(df: pd.DataFrame) -> Dict:
             ft_rate = home_stats["ftm"] / home_stats["fga"] * 100
             ft_vals.append(ft_rate)
 
-        poss_approx = home_stats["fga"] + 0.44 * row.get("fta_home", 0) + home_stats["tov"] - home_stats["oreb"]
-        if poss_approx > 0:
-            tov_pct = home_stats["tov"] / poss_approx * 100
+        home_poss = pd.to_numeric(row.get("possessions_home"), errors="coerce")
+        if pd.notna(home_poss) and float(home_poss) > 0:
+            tov_pct = home_stats["tov"] / float(home_poss) * 100
             bh_vals.append(100 - tov_pct)
 
         total_oreb_chances = home_stats["oreb"] + road_stats["dreb"]
@@ -2379,9 +2378,9 @@ def _compute_season_league_averages(df: pd.DataFrame) -> Dict:
             ft_rate = road_team_stats["ftm"] / road_team_stats["fga"] * 100
             ft_vals.append(ft_rate)
 
-        poss_approx = road_team_stats["fga"] + 0.44 * row.get("fta_road", 0) + road_team_stats["tov"] - road_team_stats["oreb"]
-        if poss_approx > 0:
-            tov_pct = road_team_stats["tov"] / poss_approx * 100
+        road_poss = pd.to_numeric(row.get("possessions_road"), errors="coerce")
+        if pd.notna(road_poss) and float(road_poss) > 0:
+            tov_pct = road_team_stats["tov"] / float(road_poss) * 100
             bh_vals.append(100 - tov_pct)
 
         total_oreb_chances = road_team_stats["oreb"] + home_def_stats["dreb"]

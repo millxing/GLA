@@ -3,8 +3,8 @@
 Generate per-season contribution JSON files for LLM game analysis.
 
 For each season, produces an out-of-sample eight-factor decomposition of every game.
-The model is trained on the prior season + current-season games before each game date,
-ensuring contributions are out-of-sample. The 2000-01 season is in-sample (no prior data).
+The model is trained on up to 7 prior seasons (as many as available) + current-season
+games before each game date, ensuring contributions are out-of-sample.
 
 Output: NBA_Data/contributions/contributions_{season}.json
 
@@ -93,15 +93,20 @@ FACTOR_PERCENTILE_COLS = [
     ("ft_rate", "FT_RATE"),
 ]
 
+PRIOR_SEASONS_FOR_TRAINING = 7
 
-def get_prior_season(season: str) -> Optional[str]:
-    """Return the season before the given one, or None for 2000-01."""
+
+def get_prior_seasons(season: str, max_prior: int = PRIOR_SEASONS_FOR_TRAINING) -> List[str]:
+    """Return up to `max_prior` seasons before `season`, oldest -> newest."""
     start_year = int(season.split("-")[0])
-    if start_year <= SEASON_START_YEAR:
-        return None
-    prev_start = start_year - 1
-    prev_end = prev_start + 1
-    return f"{prev_start}-{str(prev_end)[-2:]}"
+    prior: List[str] = []
+    for offset in range(max_prior, 0, -1):
+        prior_start = start_year - offset
+        if prior_start < SEASON_START_YEAR:
+            continue
+        prior_end = prior_start + 1
+        prior.append(f"{prior_start}-{str(prior_end)[-2:]}")
+    return prior
 
 
 def load_season_data(season: str, repo_dir: Path) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
@@ -389,18 +394,23 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
 
     Returns list of game records sorted by game date.
     """
-    prior_season = get_prior_season(season)
-    is_first_season = prior_season is None
+    prior_seasons = get_prior_seasons(season)
+    is_first_season = int(season.split("-")[0]) == SEASON_START_YEAR
 
     print(f"\n{'='*60}")
-    print(f"Processing {season}" + (" (in-sample, no prior data)" if is_first_season else f" (prior: {prior_season})"))
+    if is_first_season:
+        print(f"Processing {season} (in-sample exception: full season training)")
+    elif prior_seasons:
+        print(f"Processing {season} (prior seasons: {', '.join(prior_seasons)})")
+    else:
+        print(f"Processing {season} (no prior seasons available)")
     print(f"{'='*60}")
 
     # ---- Load data ----
     game_dfs = []
     adv_dfs = []
 
-    if prior_season:
+    for prior_season in prior_seasons:
         prior_game, prior_adv, _ = load_season_data(prior_season, repo_dir)
         if prior_game is not None:
             prior_game = prior_game.copy()
@@ -481,7 +491,7 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
     )
 
     # Separate prior and current season rows
-    prior_rows = team_df[team_df["_season_tag"] != season] if prior_season else pd.DataFrame()
+    prior_rows = team_df[team_df["_season_tag"] != season] if prior_seasons else pd.DataFrame()
     current_rows = team_df[team_df["_season_tag"] == season]
 
     print(f"  Prior season rows: {len(prior_rows)}")
@@ -496,19 +506,14 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
 
     # ---- Process each game date ----
     all_records: List[Dict[str, Any]] = []
-    last_model = None
-    last_league_avgs = None
-    last_factor_percentiles = None
-
     for i, game_date in enumerate(game_dates):
         date_str = pd.Timestamp(game_date).strftime("%Y-%m-%d")
 
-        # Build training set
+        # 2000-01 exception: use full current season in-sample.
         if is_first_season:
-            # 2000-01: in-sample, use all games
             training_df = current_rows.copy()
         else:
-            # Out-of-sample: prior season + current season before this date
+            # Out-of-sample: up to 7 prior seasons + current season before this game date.
             current_before = current_rows[current_rows["GAME_DATE"] < game_date]
             training_df = pd.concat([prior_rows, current_before], ignore_index=True)
 
@@ -519,51 +524,41 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
                 print(f"  [{i+1}/{len(game_dates)}] {date_str}: skipping (only {len(training_clean)} training rows)")
             continue
 
-        # Train model (or reuse for 2000-01 in-sample)
-        if is_first_season and last_model is not None:
-            model = last_model
-            league_avgs = last_league_avgs
-            factor_percentiles = last_factor_percentiles
-        else:
-            try:
-                raw_model = _train_linear_model(training_clean, FEATURE_COLS, target_col="NET_RATING")
-            except Exception as e:
-                if (i + 1) % 20 == 0:
-                    print(f"  [{i+1}/{len(game_dates)}] {date_str}: model training failed: {e}")
-                continue
+        try:
+            raw_model = _train_linear_model(training_clean, FEATURE_COLS, target_col="NET_RATING")
+        except Exception as e:
+            if (i + 1) % 20 == 0:
+                print(f"  [{i+1}/{len(game_dates)}] {date_str}: model training failed: {e}")
+            continue
 
-            training_dates = pd.to_datetime(training_clean.get("GAME_DATE"), errors="coerce")
-            training_start = training_dates.min()
-            training_end = training_dates.max()
-            training_start_date = (
-                pd.Timestamp(training_start).strftime("%Y-%m-%d")
-                if pd.notna(training_start)
-                else None
-            )
-            training_end_date = (
-                pd.Timestamp(training_end).strftime("%Y-%m-%d")
-                if pd.notna(training_end)
-                else None
-            )
+        training_dates = pd.to_datetime(training_clean.get("GAME_DATE"), errors="coerce")
+        training_start = training_dates.min()
+        training_end = training_dates.max()
+        training_start_date = (
+            pd.Timestamp(training_start).strftime("%Y-%m-%d")
+            if pd.notna(training_start)
+            else None
+        )
+        training_end_date = (
+            pd.Timestamp(training_end).strftime("%Y-%m-%d")
+            if pd.notna(training_end)
+            else None
+        )
 
-            # Map coefficient names
-            model = {
-                "coefficients": {
-                    COEF_NAME_MAP.get(k, k): v
-                    for k, v in raw_model["coefficients"].items()
-                },
-                "intercept": raw_model["intercept"],
-                "r_squared": raw_model["r_squared"],
-                "training_games": raw_model["training_games"],
-                "training_start_date": training_start_date,
-                "training_end_date": training_end_date,
-            }
-            league_avgs = compute_league_averages(training_clean)
-            factor_percentiles = compute_factor_percentiles(training_clean)
-
-            last_model = model
-            last_league_avgs = league_avgs
-            last_factor_percentiles = factor_percentiles
+        # Map coefficient names
+        model = {
+            "coefficients": {
+                COEF_NAME_MAP.get(k, k): v
+                for k, v in raw_model["coefficients"].items()
+            },
+            "intercept": raw_model["intercept"],
+            "r_squared": raw_model["r_squared"],
+            "training_games": raw_model["training_games"],
+            "training_start_date": training_start_date,
+            "training_end_date": training_end_date,
+        }
+        league_avgs = compute_league_averages(training_clean)
+        factor_percentiles = compute_factor_percentiles(training_clean)
 
         # Get games on this date
         date_games = current_rows[current_rows["GAME_DATE"] == game_date]
