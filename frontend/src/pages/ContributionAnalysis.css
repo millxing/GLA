@@ -73,6 +73,9 @@
 }
 
 .team-record {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 18px;
   font-size: 1.25rem;
   color: var(--color-text-secondary);
   margin-top: var(--spacing-xs);

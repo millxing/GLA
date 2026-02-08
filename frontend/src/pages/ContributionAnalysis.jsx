@@ -502,7 +502,10 @@ function ContributionAnalysis() {
             </div>
             <div className="summary-team">
               <div className="team-name">{getTeamName(data.team)}</div>
-              <div className="team-record">{data.wins}-{data.losses} .{(data.win_pct * 1000).toFixed(0).padStart(3, '0')}</div>
+              <div className="team-record">
+                <span className="record-wl">{data.wins}-{data.losses}</span>
+                <span className="record-win-pct">.{(data.win_pct * 1000).toFixed(0).padStart(3, '0')}</span>
+              </div>
             </div>
             <div className="summary-ratings">
               <div className="rating-row">

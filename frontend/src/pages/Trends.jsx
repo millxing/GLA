@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   ComposedChart,
   Bar,
+  Cell,
   Line,
   XAxis,
   YAxis,
@@ -62,6 +63,10 @@ const GLOSSARY_ITEMS = [
   { term: 'Opp', definition: 'Opponent statistics - What your opponents shoot/do against you.' },
   { term: 'Pace', definition: 'Average possessions per game for both teams. Higher pace indicates a faster-paced game.' },
 ]
+
+const WIN_BAR_COLOR = '#bbf7d0'
+const LOSS_BAR_COLOR = '#fecaca'
+const BAR_OUTLINE_COLOR = '#6b7280'
 
 function Trends() {
   const [seasons, setSeasons] = useState([])
@@ -334,10 +339,16 @@ function Trends() {
                     dataKey="value"
                     name="Value"
                     barSize={15}
-                    fill="#d1d5db"
-                    stroke="#6b7280"
+                    stroke={BAR_OUTLINE_COLOR}
                     strokeWidth={1}
-                  />
+                  >
+                    {chartData.map((entry, index) => (
+                      <Cell
+                        key={`game-bar-${entry.game_id ?? index}`}
+                        fill={entry.wl === 'W' ? WIN_BAR_COLOR : LOSS_BAR_COLOR}
+                      />
+                    ))}
+                  </Bar>
                   <Line
                     type="monotone"
                     dataKey="ma_5"
