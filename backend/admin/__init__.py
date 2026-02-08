@@ -1,1 +1,1 @@
-"""Admin CLI for NBA data management and model training."""
+"""Admin CLI for NBA data management and contribution generation workflows."""

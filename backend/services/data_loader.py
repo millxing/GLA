@@ -1,9 +1,8 @@
 import pandas as pd
 import httpx
 import json
-import re
 from typing import Optional, List, Dict
-from config import DATA_BASE_URL, MODEL_BASE_URL, INTERPRETATIONS_BASE_URL, GITHUB_USER, DATA_REPO, GITHUB_BRANCH, GITHUB_TOKEN, KNOWN_SEASON_MODELS, get_available_seasons
+from config import DATA_BASE_URL, INTERPRETATIONS_BASE_URL, get_available_seasons
 from services.cache import get_cache_key, get_cached, set_cached
 
 STAT_COLUMNS = [
@@ -46,77 +45,11 @@ async def load_season_data(season: str) -> Optional[pd.DataFrame]:
     url = f"{DATA_BASE_URL}/team_game_logs_{season}.csv"
     return await fetch_csv(url)
 
-async def load_model(model_file: str) -> Optional[dict]:
-    url = f"{MODEL_BASE_URL}/{model_file}"
-    return await fetch_json(url)
-
 
 async def load_contributions(season: str) -> Optional[dict]:
     """Load pre-calculated contribution JSON for a season from GitHub."""
     url = f"{DATA_BASE_URL}/contributions/contributions_{season}.json"
     return await fetch_json(url)
-
-
-async def discover_season_models() -> List[Dict[str, str]]:
-    """Discover available season models from the GitHub repo.
-
-    Returns a list of model configs: [{"id": "season_2000-2025", "name": "2000-2025 Model", "file": "models/season_2000-2025.json"}, ...]
-    Falls back to KNOWN_SEASON_MODELS if GitHub API discovery fails.
-    """
-    cache_key = get_cache_key("discover_season_models", "all")
-    cached = get_cached(cache_key)
-    if cached is not None:
-        return cached
-
-    # Use GitHub API to list files in the models directory
-    api_url = f"https://api.github.com/repos/{GITHUB_USER}/{DATA_REPO}/contents/models?ref={GITHUB_BRANCH}"
-
-    # Build headers with auth token if available (increases rate limit from 60 to 5000/hour)
-    headers = {"Accept": "application/vnd.github.v3+json"}
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"token {GITHUB_TOKEN}"
-
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(api_url, headers=headers)
-            response.raise_for_status()
-            files = response.json()
-    except Exception as e:
-        # Log the error for debugging
-        print(f"[discover_season_models] GitHub API failed: {type(e).__name__}: {e}")
-        print(f"[discover_season_models] Using fallback list of {len(KNOWN_SEASON_MODELS)} known models")
-        # Fall back to known models list
-        return KNOWN_SEASON_MODELS
-
-    # Filter for season model files (season_*.json)
-    season_model_pattern = re.compile(r'^season_(.+)\.json$')
-    models = []
-
-    for file_info in files:
-        if file_info.get("type") != "file":
-            continue
-
-        name = file_info.get("name", "")
-        match = season_model_pattern.match(name)
-        if match:
-            # Extract the year range from the filename (e.g., "2000-2025" from "season_2000-2025.json")
-            year_range = match.group(1)
-            models.append({
-                "id": f"season_{year_range}",
-                "name": f"{year_range} Model",
-                "file": f"models/{name}",
-            })
-
-    # Sort by id (which sorts by year range)
-    models.sort(key=lambda m: m["id"])
-
-    # If no models found via API, use fallback
-    if not models:
-        print(f"[discover_season_models] No season models found in GitHub repo, using fallback list")
-        return KNOWN_SEASON_MODELS
-
-    set_cached(cache_key, models)
-    return models
 
 
 async def load_advanced_stats(season: str) -> Optional[pd.DataFrame]:

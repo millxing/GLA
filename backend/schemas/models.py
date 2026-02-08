@@ -19,13 +19,6 @@ class GamesResponse(BaseModel):
 class TeamsResponse(BaseModel):
     teams: List[str]
 
-class ModelItem(BaseModel):
-    id: str
-    name: str
-
-class ModelsResponse(BaseModel):
-    models: List[ModelItem]
-
 class FactorComparison(BaseModel):
     factor: str
     home_value: float
@@ -129,17 +122,6 @@ class TrendsResponse(BaseModel):
     data: List[TrendPoint]
     season_average: float
     league_average: float
-
-
-# Contribution Analysis schemas
-class SeasonModelItem(BaseModel):
-    id: str
-    name: str
-
-
-class SeasonModelsResponse(BaseModel):
-    models: List[SeasonModelItem]
-
 
 class ContributionTrendPoint(BaseModel):
     """Simplified trend point for contribution analysis mini-charts."""

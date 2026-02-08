@@ -6,7 +6,7 @@ This script creates a structured JSON file containing game data with:
 - Team ratings (ORtg, DRtg, Net Rating)
 - 8 factors (eFG%, BH%, OREB%, FT Rate for both teams)
 - Quintile classifications based on 2018-25 training period
-- Contributions from the 2018-2025 game model
+- Contributions from season contribution JSON files
 """
 
 import asyncio
@@ -20,9 +20,9 @@ import numpy as np
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import AVAILABLE_MODELS, get_current_season, get_available_seasons
+from config import get_current_season
 from services.data_loader import (
-    load_model,
+    load_contributions,
     get_normalized_data_with_possessions,
     get_game_data,
     get_games_list,
@@ -30,8 +30,6 @@ from services.data_loader import (
 from services.calculations import (
     compute_four_factors,
     compute_game_ratings,
-    compute_decomposition,
-    compute_factor_differentials,
 )
 
 
@@ -200,7 +198,7 @@ def classify_value(value: float, thresholds: Dict[str, float], higher_is_better:
 async def process_game(
     season: str,
     game_id: str,
-    model: Dict,
+    contribution_entry: Dict[str, Any],
     thresholds: Dict[str, Dict[str, float]],
 ) -> Optional[Dict[str, Any]]:
     """
@@ -260,17 +258,25 @@ async def process_game(
         opp_actual_possessions=actual_poss_home,
     )
 
-    # Compute decomposition using eight_factors mode
-    differentials = compute_factor_differentials(home_factors, road_factors)
-    decomposition = compute_decomposition(
-        differentials=differentials,
-        model=model,
-        factor_type="eight_factors",
-        home_factors=home_factors,
-        away_factors=road_factors,
-    )
+    # Pull contributions from pre-generated contribution JSON entry
+    if not contribution_entry:
+        return None
 
-    contributions = decomposition.get("contributions", {})
+    factor_keys = ["shooting", "ball_handling", "orebounding", "free_throws"]
+    home_factor_rows = contribution_entry.get("factors", {}).get("home", [])
+    road_factor_rows = contribution_entry.get("factors", {}).get("road", [])
+
+    contributions: Dict[str, float] = {}
+    for i, factor_key in enumerate(factor_keys):
+        home_contrib = home_factor_rows[i].get("contribution", 0) if i < len(home_factor_rows) else 0
+        road_contrib = road_factor_rows[i].get("contribution", 0) if i < len(road_factor_rows) else 0
+        contributions[f"home_{factor_key}"] = round(float(home_contrib), 2)
+        contributions[f"road_{factor_key}"] = round(float(road_contrib), 2)
+
+    model_meta = contribution_entry.get("model", {})
+    model_label = model_meta.get("model_id") or model_meta.get("window_label") or "contributions_json"
+    intercept = round(float(model_meta.get("intercept", 0) or 0), 2)
+    predicted_margin = round(intercept + sum(contributions.values()), 2)
 
     # Build the output structure
     home_team = game_data["home_team"]
@@ -294,7 +300,7 @@ async def process_game(
         "road_pts": road_pts,
         "winner": home_team if home_pts > road_pts else road_team,
         "margin": abs(home_pts - road_pts),
-        "model": "2018-2025",
+        "model": model_label,
 
         # Home team ratings
         "home_off_rating": round(home_ratings["offensive_rating"], 1),
@@ -347,8 +353,8 @@ async def process_game(
         "road_ft_rate_contrib": contributions.get("road_free_throws", 0),
 
         # Model intercept
-        "intercept": decomposition.get("intercept", 0),
-        "predicted_margin": decomposition.get("predicted_rating_diff", 0),
+        "intercept": intercept,
+        "predicted_margin": predicted_margin,
     }
 
     return result
@@ -367,17 +373,17 @@ async def main():
     season = args.season or get_current_season()
     print(f"Processing season: {season}")
 
-    # Load the 2018-2025 game model
-    model_config = next((m for m in AVAILABLE_MODELS if m["id"] == "2018-2025"), None)
-    if model_config is None:
-        print("Error: 2018-2025 model not found")
+    # Load season contribution JSON (source of per-game contributions and intercepts)
+    print(f"Loading contribution JSON for {season}...")
+    contribution_data = await load_contributions(season)
+    if contribution_data is None:
+        print("Error: Failed to load contribution JSON")
         return
 
-    print(f"Loading model: {model_config['id']}")
-    model = await load_model(model_config["file"])
-    if model is None:
-        print("Error: Failed to load model")
-        return
+    contribution_index = {
+        str(game.get("game_id", "")).zfill(10): game
+        for game in contribution_data.get("games", [])
+    }
 
     # Compute quintile thresholds from training seasons (2018-19 to 2024-25)
     training_seasons = [
@@ -403,7 +409,8 @@ async def main():
         game_id = game["game_id"]
         print(f"  [{i+1}/{len(recent_games)}] Processing {game['label']}...")
 
-        game_result = await process_game(season, game_id, model, thresholds)
+        contribution_entry = contribution_index.get(str(game_id).zfill(10))
+        game_result = await process_game(season, game_id, contribution_entry, thresholds)
         if game_result:
             results.append(game_result)
 
@@ -411,7 +418,7 @@ async def main():
     output = {
         "generated_at": datetime.now().isoformat(),
         "season": season,
-        "model_id": "2018-2025",
+        "model_id": "contributions_json",
         "training_seasons": training_seasons,
         "quintile_thresholds": thresholds,
         "games": results,

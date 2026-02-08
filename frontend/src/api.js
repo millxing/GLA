@@ -30,10 +30,6 @@ export async function getTeams(season) {
   return fetchApi(`/api/teams?season=${encodeURIComponent(season)}`)
 }
 
-export async function getModels() {
-  return fetchApi('/api/models')
-}
-
 export async function getDecomposition(season, gameId, factorType) {
   const params = new URLSearchParams({
     season,
@@ -61,10 +57,6 @@ export async function getLeagueSummary(
 export async function getTrends(season, team, stat) {
   const params = new URLSearchParams({ season, team, stat })
   return fetchApi(`/api/trends?${params}`)
-}
-
-export async function getSeasonModels() {
-  return fetchApi('/api/season-models')
 }
 
 export async function getContributionAnalysis(

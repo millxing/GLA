@@ -25,86 +25,17 @@ from services.calculations import compute_four_factors, compute_game_ratings
 from services.llm import _build_interpretation_prompt
 
 
-def _compute_season_league_averages(df: pd.DataFrame) -> dict:
-    """Compute league averages for a season."""
-    efg_vals = []
-    bh_vals = []
-    oreb_vals = []
-    ft_vals = []
-
-    for _, row in df.iterrows():
-        home_stats = {
-            "fgm": row.get("fgm_home", 0),
-            "fga": row.get("fga_home", 0),
-            "fg3m": row.get("fg3m_home", 0),
-            "ftm": row.get("ftm_home", 0),
-            "oreb": row.get("oreb_home", 0),
-            "tov": row.get("tov_home", 0),
-        }
-        road_stats = {"dreb": row.get("dreb_road", 0)}
-
-        if home_stats["fga"] > 0:
-            efg = (home_stats["fgm"] + 0.5 * home_stats["fg3m"]) / home_stats["fga"] * 100
-            efg_vals.append(efg)
-            ft_rate = home_stats["ftm"] / home_stats["fga"] * 100
-            ft_vals.append(ft_rate)
-
-        home_poss = pd.to_numeric(row.get("possessions_home"), errors="coerce")
-        if pd.notna(home_poss) and float(home_poss) > 0:
-            tov_pct = home_stats["tov"] / float(home_poss) * 100
-            bh_vals.append(100 - tov_pct)
-
-        total_oreb_chances = home_stats["oreb"] + road_stats["dreb"]
-        if total_oreb_chances > 0:
-            oreb_pct = home_stats["oreb"] / total_oreb_chances * 100
-            oreb_vals.append(oreb_pct)
-
-        # Road team
-        road_team_stats = {
-            "fgm": row.get("fgm_road", 0),
-            "fga": row.get("fga_road", 0),
-            "fg3m": row.get("fg3m_road", 0),
-            "ftm": row.get("ftm_road", 0),
-            "oreb": row.get("oreb_road", 0),
-            "tov": row.get("tov_road", 0),
-        }
-        home_dreb = {"dreb": row.get("dreb_home", 0)}
-
-        if road_team_stats["fga"] > 0:
-            efg = (road_team_stats["fgm"] + 0.5 * road_team_stats["fg3m"]) / road_team_stats["fga"] * 100
-            efg_vals.append(efg)
-            ft_rate = road_team_stats["ftm"] / road_team_stats["fga"] * 100
-            ft_vals.append(ft_rate)
-
-        road_poss = pd.to_numeric(row.get("possessions_road"), errors="coerce")
-        if pd.notna(road_poss) and float(road_poss) > 0:
-            tov_pct = road_team_stats["tov"] / float(road_poss) * 100
-            bh_vals.append(100 - tov_pct)
-
-        total_oreb_chances = road_team_stats["oreb"] + home_dreb["dreb"]
-        if total_oreb_chances > 0:
-            oreb_pct = road_team_stats["oreb"] / total_oreb_chances * 100
-            oreb_vals.append(oreb_pct)
-
-    return {
-        "efg": sum(efg_vals) / len(efg_vals) if efg_vals else 52.0,
-        "ball_handling": sum(bh_vals) / len(bh_vals) if bh_vals else 86.0,
-        "oreb": sum(oreb_vals) / len(oreb_vals) if oreb_vals else 25.0,
-        "ft_rate": sum(ft_vals) / len(ft_vals) if ft_vals else 20.0,
-    }
+def _normalize_game_id(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return digits.zfill(10) if digits else text
 
 
-def _compute_factor_ranges(df: pd.DataFrame) -> dict:
-    """Compute Q1/Q3 ranges for factors."""
-    return {
-        "efg": {"q1": 48, "q3": 58},
-        "ball_handling": {"q1": 83, "q3": 90},
-        "oreb": {"q1": 18, "q3": 32},
-        "ft_rate": {"q1": 14, "q3": 26},
-    }
-
-
-def _build_decomposition_data(game_row: pd.Series, model_data: dict, league_avgs: dict, factor_ranges: dict) -> dict:
+def _build_decomposition_data(game_row: pd.Series, contribution_entry: dict) -> dict:
     """Build decomposition data structure from a game row."""
     home_team_row = {
         "fgm": game_row.get("fgm_home", 0),
@@ -149,6 +80,19 @@ def _build_decomposition_data(game_row: pd.Series, model_data: dict, league_avgs
         actual_minutes=actual_mins_road,
     )
 
+    factor_keys = ["shooting", "ball_handling", "orebounding", "free_throws"]
+    home_factor_rows = contribution_entry.get("factors", {}).get("home", [])
+    road_factor_rows = contribution_entry.get("factors", {}).get("road", [])
+    contributions = {}
+    for i, factor_key in enumerate(factor_keys):
+        home_contrib = home_factor_rows[i].get("contribution", 0) if i < len(home_factor_rows) else 0
+        road_contrib = road_factor_rows[i].get("contribution", 0) if i < len(road_factor_rows) else 0
+        contributions[f"home_{factor_key}"] = round(float(home_contrib), 2)
+        contributions[f"road_{factor_key}"] = round(float(road_contrib), 2)
+
+    intercept = float(contribution_entry.get("model", {}).get("intercept", 0) or 0)
+    actual_rating_diff = round(home_ratings.get("net_rating", 0) - road_ratings.get("net_rating", 0), 2)
+
     return {
         "game_id": str(game_row.get("game_id", "")),
         "game_date": str(game_row.get("game_date", "")),
@@ -160,93 +104,33 @@ def _build_decomposition_data(game_row: pd.Series, model_data: dict, league_avgs
         "road_factors": road_factors,
         "home_ratings": home_ratings,
         "road_ratings": road_ratings,
-        "league_averages": league_avgs,
-        "factor_ranges": factor_ranges,
+        "contributions": contributions,
+        "intercept": intercept,
+        "actual_rating_diff": actual_rating_diff,
+        "model": contribution_entry.get("model", {}).get("model_id", "json_contributions"),
     }
 
 
-def _adjust_decomp_for_factor_type(decomp_data: dict, factor_type: str, model_data: dict) -> dict:
-    """Add contributions based on factor type.
-
-    Mirrors the logic in services/calculations.py:compute_decomposition().
-    Key: factor values are in percentage form (54.0), but model coefficients
-    expect decimal form (0.54), so we divide by 100 before multiplying.
-    """
+def _adjust_decomp_for_factor_type(decomp_data: dict, factor_type: str) -> dict:
+    """Add contributions based on factor type using pre-generated game contributions."""
     result = decomp_data.copy()
-
-    home_factors = decomp_data["home_factors"]
-    road_factors = decomp_data["road_factors"]
-    league_avgs = decomp_data["league_averages"]
-
-    # Game-level models only have four_factors - use those coefficients for both modes
-    model = model_data.get("four_factors", {})
-    coefs = model.get("coefficients", {})
-    intercept = model.get("intercept", 0)
+    contributions = decomp_data.get("contributions", {})
+    intercept = float(decomp_data.get("intercept", 0) or 0)
 
     if factor_type == "eight_factors":
-        # Eight factors mode: break into home/road contributions centered on league average
-        contributions = {}
-        total_home = 0.0
-        total_road = 0.0
-
-        for factor_key, coef_key in [
-            ("efg", "shooting"),
-            ("ball_handling", "ball_handling"),
-            ("oreb", "orebounding"),
-            ("ft_rate", "free_throws"),
-        ]:
-            home_val = home_factors.get(factor_key, 0)
-            road_val = road_factors.get(factor_key, 0)
-            avg = league_avgs.get(factor_key, 0)
-            coef = coefs.get(coef_key, 0)
-
-            # Divide by 100 to convert from percentage to decimal scale
-            home_centered = (home_val - avg) / 100.0
-            road_centered = (road_val - avg) / 100.0
-
-            home_contrib = coef * home_centered
-            road_contrib = coef * road_centered
-
-            contributions[f"home_{coef_key}"] = round(home_contrib, 2)
-            # Negate road contribution for display: positive = helps home team
-            contributions[f"road_{coef_key}"] = round(-road_contrib, 2)
-
-            total_home += home_contrib
-            total_road += road_contrib
-
         result["contributions"] = contributions
-        result["predicted_rating_diff"] = round(intercept + total_home - total_road, 2)
-
+        result["predicted_rating_diff"] = round(intercept + sum(contributions.values()), 2)
     else:
-        # Four factors mode: use differentials
-        contributions = {}
-        total_contribution = intercept
-
-        for factor_key, coef_key in [
-            ("efg", "shooting"),
-            ("ball_handling", "ball_handling"),
-            ("oreb", "orebounding"),
-            ("ft_rate", "free_throws"),
-        ]:
-            home_val = home_factors.get(factor_key, 0)
-            road_val = road_factors.get(factor_key, 0)
-            diff = home_val - road_val
-            coef = coefs.get(coef_key, 0)
-
-            # Divide by 100 to convert from percentage to decimal scale
-            contribution = coef * (diff / 100.0)
-            contributions[coef_key] = round(contribution, 2)
-            total_contribution += contribution
-
-        result["contributions"] = contributions
-        result["predicted_rating_diff"] = round(total_contribution, 2)
-
-    # Calculate actual rating diff
-    home_ratings = decomp_data.get("home_ratings", {})
-    road_ratings = decomp_data.get("road_ratings", {})
-    result["actual_rating_diff"] = round(
-        home_ratings.get("net_rating", 0) - road_ratings.get("net_rating", 0), 2
-    )
+        four_contributions = {
+            "shooting": round(contributions.get("home_shooting", 0) + contributions.get("road_shooting", 0), 2),
+            "ball_handling": round(
+                contributions.get("home_ball_handling", 0) + contributions.get("road_ball_handling", 0), 2
+            ),
+            "orebounding": round(contributions.get("home_orebounding", 0) + contributions.get("road_orebounding", 0), 2),
+            "free_throws": round(contributions.get("home_free_throws", 0) + contributions.get("road_free_throws", 0), 2),
+        }
+        result["contributions"] = four_contributions
+        result["predicted_rating_diff"] = round(intercept + sum(four_contributions.values()), 2)
 
     return result
 
@@ -296,22 +180,19 @@ def main():
     games = df.head(args.count)
     print(f"Processing {len(games)} most recent games")
 
-    # Load model
-    model_file = repo_dir / "models" / "2018-2025.json"
-    if not model_file.exists():
-        model_file = repo_dir / "models" / "2023-2025.json"
-    if not model_file.exists():
-        print(f"Error: No model file found")
+    # Load per-game contribution JSON for this season
+    contributions_path = repo_dir / "contributions" / f"contributions_{args.season}.json"
+    if not contributions_path.exists():
+        print(f"Error: Contribution file not found: {contributions_path}")
         return 1
 
-    with open(model_file, "r") as f:
-        model_data = json.load(f)
-    print(f"Using model: {model_file.name}")
-
-    # Compute league averages
-    full_df = pd.read_csv(csv_path)
-    league_avgs = _compute_season_league_averages(full_df)
-    factor_ranges = _compute_factor_ranges(full_df)
+    with open(contributions_path, "r") as f:
+        contribution_payload = json.load(f)
+    contributions_by_game = {
+        _normalize_game_id(g.get("game_id")): g
+        for g in contribution_payload.get("games", [])
+        if _normalize_game_id(g.get("game_id"))
+    }
 
     # Generate prompts
     training_set = {
@@ -332,11 +213,17 @@ def main():
         home_pts = int(game_row["pts_home"])
         road_pts = int(game_row["pts_road"])
 
+        game_id_norm = _normalize_game_id(game_row.get("game_id"))
+        contribution_entry = contributions_by_game.get(game_id_norm)
+        if contribution_entry is None:
+            print(f"Warning: Missing contribution entry for game {game_id_norm}, skipping")
+            continue
+
         # Build decomposition
-        decomp_data = _build_decomposition_data(game_row, model_data, league_avgs, factor_ranges)
+        decomp_data = _build_decomposition_data(game_row, contribution_entry)
 
         for factor_type in factor_types:
-            decomp_for_type = _adjust_decomp_for_factor_type(decomp_data, factor_type, model_data)
+            decomp_for_type = _adjust_decomp_for_factor_type(decomp_data, factor_type)
             prompt = _build_interpretation_prompt(decomp_for_type, factor_type)
 
             training_set["prompts"].append({

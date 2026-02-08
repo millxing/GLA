@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, Dict, Any
 import subprocess
-from config import get_available_seasons, AVAILABLE_MODELS, ADMIN_SECRET_KEY
+from config import get_available_seasons, ADMIN_SECRET_KEY
 from services.cache import clear_cache
 from services.data_loader import (
     get_normalized_season_data,
@@ -9,7 +9,6 @@ from services.data_loader import (
     get_games_list,
     get_teams_list,
     load_contributions,
-    discover_season_models,
 )
 from services.calculations import (
     compute_league_aggregates,
@@ -25,8 +24,6 @@ from schemas.models import (
     GamesResponse,
     GameItem,
     TeamsResponse,
-    ModelsResponse,
-    ModelItem,
     DecompositionResponse,
     LeagueSummaryResponse,
     TeamStats,
@@ -34,8 +31,6 @@ from schemas.models import (
     TrendPoint,
     LinescoreData,
     QuarterScores,
-    SeasonModelItem,
-    SeasonModelsResponse,
     ContributionAnalysisResponse,
     TopContributor,
     ContributionTrendPoint,
@@ -221,11 +216,6 @@ async def get_games(season: str = Query(..., description="Season in format YYYY-
 async def get_teams(season: str = Query(..., description="Season in format YYYY-YY")):
     teams = await get_teams_list(season)
     return TeamsResponse(teams=teams)
-
-@router.get("/models", response_model=ModelsResponse)
-async def get_models():
-    model_items = [ModelItem(id=m["id"], name=m["name"]) for m in AVAILABLE_MODELS]
-    return ModelsResponse(models=model_items)
 
 @router.get("/decomposition", response_model=DecompositionResponse)
 async def get_decomposition(
@@ -536,15 +526,6 @@ async def get_trends(
         season_average=season_average,
         league_average=league_average,
     )
-
-
-@router.get("/season-models", response_model=SeasonModelsResponse)
-async def get_season_models():
-    """Get available season-level models for contribution analysis."""
-    models = await discover_season_models()
-    model_items = [SeasonModelItem(id=m["id"], name=m["name"]) for m in models]
-    return SeasonModelsResponse(models=model_items)
-
 
 @router.get("/contribution-analysis", response_model=ContributionAnalysisResponse)
 async def get_contribution_analysis(

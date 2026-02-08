@@ -4,7 +4,6 @@ from datetime import datetime
 GITHUB_USER = "millxing"
 GITHUB_BRANCH = "main"
 DATA_REPO = "NBA_Data"
-MODEL_REPO = "NBA_Data"
 
 # GitHub token for API requests (increases rate limit from 60 to 5000 requests/hour)
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -13,7 +12,6 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
-MODEL_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{MODEL_REPO}/{GITHUB_BRANCH}"
 
 CACHE_TTL_SECONDS = 1800  # 30 minutes
 CACHE_MAX_SIZE = 50
@@ -40,21 +38,6 @@ def get_available_seasons() -> list:
         season_str = f"{start_year}-{str(end_year)[-2:]}"
         seasons.append(season_str)
     return seasons
-
-AVAILABLE_MODELS = [
-    {"id": "2023-2025", "name": "2023-2025 Model", "file": "models/2023-2025.json"},
-    {"id": "2021-2025", "name": "2021-2025 Model", "file": "models/2021-2025.json"},
-    {"id": "2020-2025", "name": "2020-2025 Model", "file": "models/2020-2025.json"},
-    {"id": "2019-2025", "name": "2019-2025 Model", "file": "models/2019-2025.json"},
-    {"id": "2018-2025", "name": "2018-2025 Model", "file": "models/2018-2025.json"},
-    {"id": "2017-2025", "name": "2017-2025 Model", "file": "models/2017-2025.json"},
-]
-
-# Fallback list of known season-level models (used if GitHub API discovery fails)
-# These are discovered dynamically when possible, see services/data_loader.py:discover_season_models()
-KNOWN_SEASON_MODELS = [
-    {"id": "season_2018-2025", "name": "2018-2025 Model", "file": "models/season_2018-2025.json"},
-]
 
 # LLM configuration for interpretation generation
 LLM_MODELS = {
