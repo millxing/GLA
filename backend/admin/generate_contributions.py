@@ -25,6 +25,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score
+from sklearn.model_selection import train_test_split
 
 # Import helpers from cli.py (same directory)
 from cli import (
@@ -35,12 +38,6 @@ from cli import (
     _advanced_filename,
     _load_existing_season_csv,
     _normalize_game_level_df,
-    _gamelogs_to_teamrows,
-    _compute_four_factors,
-    _attach_opponent_rows,
-    _estimate_possessions,
-    _compute_factor_differentials,
-    _train_linear_model,
 )
 
 # Import season helpers
@@ -94,6 +91,244 @@ FACTOR_PERCENTILE_COLS = [
 ]
 
 PRIOR_SEASONS_FOR_TRAINING = 7
+
+
+def _gamelogs_to_teamrows(game_df: pd.DataFrame, adv_df: pd.DataFrame = None) -> pd.DataFrame:
+    """Expand game-level rows into team-level rows for modeling.
+
+    If adv_df is provided, merge possession data from box_score_advanced.
+    """
+    df = _normalize_game_level_df(game_df)
+
+    # Merge advanced stats (possessions) if available.
+    if adv_df is not None and not adv_df.empty:
+        adv_df = adv_df.copy()
+        adv_df["game_id"] = adv_df["game_id"].astype(str).map(
+            lambda v: v.zfill(10) if v.isdigit() else v
+        )
+        df = df.merge(
+            adv_df[["game_id", "possessions_home", "possessions_road"]],
+            on="game_id",
+            how="left",
+        )
+
+    home_data = {
+        "GAME_ID": df["game_id"].astype(str),
+        "TEAM_ID": df["team_id_home"],
+        "TEAM_ABBREVIATION": df["team_abbreviation_home"],
+        "TEAM_NAME": df["team_name_home"],
+        "GAME_DATE": pd.to_datetime(df["game_date"], errors="coerce"),
+        "MATCHUP": df["team_abbreviation_home"].astype(str) + " vs. " + df["team_abbreviation_road"].astype(str),
+        "PLUS_MINUS": df["plus_minus_home"],
+        "PTS": df["pts_home"],
+        "FGM": df["fgm_home"],
+        "FGA": df["fga_home"],
+        "FG3M": df["fg3m_home"],
+        "FG3A": df["fg3a_home"],
+        "FTM": df["ftm_home"],
+        "FTA": df["fta_home"],
+        "OREB": df["oreb_home"],
+        "DREB": df["dreb_home"],
+        "REB": df["reb_home"],
+        "AST": df["ast_home"],
+        "TOV": df["tov_home"],
+        "STL": df["stl_home"],
+        "BLK": df["blk_home"],
+        "PF": df["pf_home"],
+    }
+    if "possessions_home" in df.columns:
+        home_data["POSS"] = df["possessions_home"]
+        home_data["OPP_POSS"] = df["possessions_road"]
+    home = pd.DataFrame(home_data)
+
+    road_data = {
+        "GAME_ID": df["game_id"].astype(str),
+        "TEAM_ID": df["team_id_road"],
+        "TEAM_ABBREVIATION": df["team_abbreviation_road"],
+        "TEAM_NAME": df["team_name_road"],
+        "GAME_DATE": pd.to_datetime(df["game_date"], errors="coerce"),
+        "MATCHUP": df["team_abbreviation_road"].astype(str) + " @ " + df["team_abbreviation_home"].astype(str),
+        "PLUS_MINUS": df["plus_minus_road"],
+        "PTS": df["pts_road"],
+        "FGM": df["fgm_road"],
+        "FGA": df["fga_road"],
+        "FG3M": df["fg3m_road"],
+        "FG3A": df["fg3a_road"],
+        "FTM": df["ftm_road"],
+        "FTA": df["fta_road"],
+        "OREB": df["oreb_road"],
+        "DREB": df["dreb_road"],
+        "REB": df["reb_road"],
+        "AST": df["ast_road"],
+        "TOV": df["tov_road"],
+        "STL": df["stl_road"],
+        "BLK": df["blk_road"],
+        "PF": df["pf_road"],
+    }
+    if "possessions_road" in df.columns:
+        road_data["POSS"] = df["possessions_road"]
+        road_data["OPP_POSS"] = df["possessions_home"]
+    road = pd.DataFrame(road_data)
+
+    out = pd.concat([home, road], ignore_index=True)
+
+    for c in [
+        "PTS", "FGM", "FGA", "FG3M", "FG3A", "FTM", "FTA",
+        "OREB", "DREB", "REB", "AST", "TOV", "STL", "BLK", "PF", "PLUS_MINUS",
+    ]:
+        out[c] = pd.to_numeric(out[c], errors="coerce")
+
+    return out
+
+
+def _estimate_possessions(df: pd.DataFrame) -> pd.DataFrame:
+    """Validate possession columns loaded from box score advanced data."""
+    out = df.copy()
+
+    if "POSS" not in out.columns:
+        print("[possessions] WARNING: No POSS column found - actual possessions not merged")
+    else:
+        missing = out["POSS"].isna().sum()
+        if missing > 0:
+            print(f"[possessions] WARNING: {missing} rows missing actual POSS data")
+
+    if "OPP_POSS" not in out.columns:
+        print("[possessions] WARNING: No OPP_POSS column found - actual possessions not merged")
+    else:
+        missing_opp = out["OPP_POSS"].isna().sum()
+        if missing_opp > 0:
+            print(f"[possessions] WARNING: {missing_opp} rows missing actual OPP_POSS data")
+
+    return out
+
+
+def _compute_four_factors(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute Four Factors using team box score stats."""
+    out = df.copy()
+
+    for col in ["FGM", "FGA", "FG3M", "FG3A", "FTM", "FTA", "OREB", "TOV"]:
+        if col in out.columns:
+            out[col] = pd.to_numeric(out[col], errors="coerce")
+
+    if {"FGM", "FG3M", "FGA"}.issubset(out.columns):
+        out["EFG_PCT"] = (out["FGM"] + 0.5 * out["FG3M"]) / out["FGA"].replace(0, pd.NA)
+
+    if "POSS" in out.columns and "TOV" in out.columns:
+        out["TOV_PCT"] = out["TOV"] / out["POSS"].replace(0, pd.NA)
+
+    if {"FTM", "FGA"}.issubset(out.columns):
+        out["FT_RATE"] = out["FTM"] / out["FGA"].replace(0, pd.NA)
+
+    return out
+
+
+def _attach_opponent_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Attach opponent rows by GAME_ID, retaining one opponent row per team row."""
+    if "GAME_ID" not in df.columns or "TEAM_ID" not in df.columns:
+        return df
+
+    cols_to_copy = [
+        "TEAM_ID",
+        "PTS",
+        "FGM",
+        "FGA",
+        "FG3M",
+        "FG3A",
+        "FTM",
+        "FTA",
+        "OREB",
+        "DREB",
+        "REB",
+        "AST",
+        "TOV",
+        "STL",
+        "BLK",
+        "PF",
+        "PLUS_MINUS",
+    ]
+    cols_to_copy = [c for c in cols_to_copy if c in df.columns]
+
+    opp = df[["GAME_ID", *cols_to_copy]].copy()
+    opp = opp.rename(columns={c: f"OPP_{c}" for c in cols_to_copy if c != "TEAM_ID"})
+    opp = opp.rename(columns={"TEAM_ID": "OPP_TEAM_ID"})
+
+    merged = df.merge(opp, on="GAME_ID", how="left")
+
+    if "OPP_TEAM_ID" in merged.columns:
+        merged = merged[merged["OPP_TEAM_ID"] != merged["TEAM_ID"]]
+
+    merged = merged.drop_duplicates(subset=["GAME_ID", "TEAM_ID"])
+    return merged
+
+
+def _compute_factor_differentials(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute team-vs-opponent differential columns for model training."""
+    out = df.copy()
+
+    if "OPP_DREB" in out.columns and "OREB" in out.columns:
+        denom = out["OREB"] + out["OPP_DREB"]
+        out["OREB_PCT"] = out["OREB"] / denom.replace(0, pd.NA)
+
+    if {"OPP_FGM", "OPP_FG3M", "OPP_FGA"}.issubset(out.columns):
+        out["OPP_EFG_PCT"] = (out["OPP_FGM"] + 0.5 * out["OPP_FG3M"]) / out["OPP_FGA"].replace(0, pd.NA)
+
+    if {"OPP_TOV", "OPP_POSS"}.issubset(out.columns):
+        out["OPP_TOV_PCT"] = out["OPP_TOV"] / out["OPP_POSS"].replace(0, pd.NA)
+
+    if {"OPP_FTM", "OPP_FGA"}.issubset(out.columns):
+        out["OPP_FT_RATE"] = out["OPP_FTM"] / out["OPP_FGA"].replace(0, pd.NA)
+
+    if {"EFG_PCT", "OPP_EFG_PCT"}.issubset(out.columns):
+        out["EFG_DIFF"] = out["EFG_PCT"] - out["OPP_EFG_PCT"]
+
+    if {"TOV_PCT", "OPP_TOV_PCT"}.issubset(out.columns):
+        out["TOV_DIFF"] = out["OPP_TOV_PCT"] - out["TOV_PCT"]
+
+    if {"FT_RATE", "OPP_FT_RATE"}.issubset(out.columns):
+        out["FT_DIFF"] = out["FT_RATE"] - out["OPP_FT_RATE"]
+
+    if {"OREB_PCT", "OPP_DREB"}.issubset(out.columns) and "OPP_OREB" in out.columns:
+        denom = out["OPP_OREB"] + out.get("DREB", pd.Series(pd.NA, index=out.index))
+        opp_oreb_pct = out["OPP_OREB"] / denom.replace(0, pd.NA)
+        out["OREB_DIFF"] = out["OREB_PCT"] - opp_oreb_pct
+
+    if {"PTS", "POSS", "OPP_PTS", "OPP_POSS"}.issubset(out.columns):
+        out["OFF_RATING"] = (out["PTS"] / out["POSS"].replace(0, pd.NA)) * 100
+        out["DEF_RATING"] = (out["OPP_PTS"] / out["OPP_POSS"].replace(0, pd.NA)) * 100
+        out["NET_RATING"] = out["OFF_RATING"] - out["DEF_RATING"]
+
+    return out
+
+
+def _train_linear_model(df: pd.DataFrame, feature_cols: list[str], target_col: str = "PLUS_MINUS") -> dict:
+    """Train a linear regression model and return serializable metrics/artifacts."""
+    work = df.dropna(subset=feature_cols + [target_col]).copy()
+
+    if work.empty:
+        raise ValueError("No training rows after dropping NaNs. Check your feature/target columns.")
+
+    X = work[feature_cols].values
+    y = work[target_col].values
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    r2 = r2_score(y_test, y_pred)
+
+    coef_map = {col: float(coef) for col, coef in zip(feature_cols, model.coef_)}
+
+    return {
+        "model_family": "linear_regression",
+        "target": target_col,
+        "features": feature_cols,
+        "intercept": float(model.intercept_),
+        "coefficients": coef_map,
+        "r_squared": float(r2),
+        "training_games": int(len(work)),
+    }
 
 
 def get_prior_seasons(season: str, max_prior: int = PRIOR_SEASONS_FOR_TRAINING) -> List[str]:
