@@ -1,0 +1,7 @@
+model_id,model_description,periods,period_corr,period_mae,period_rmse,period_bias
+rolling_1000_games,Current season before date + enough prior games for 1000 total games,1,,0.31112441947905234,0.31112441947905234,-0.31112441947905234
+benchmark_prior_1,Current season before date + 1 prior season,1,,0.33123293267992304,0.33123293267992304,-0.33123293267992304
+rolling_2000_games,Current season before date + enough prior games for 2000 total games,1,,0.36986325869394343,0.36986325869394343,-0.36986325869394343
+prior_2,Current season before date + 2 prior seasons,1,,0.37890891057788,0.37890891057788,-0.37890891057788
+prior_3,Current season before date + 3 prior seasons,1,,0.39109453692771745,0.39109453692771745,-0.39109453692771745
+prior_4,Current season before date + 4 prior seasons,1,,0.4045668628727801,0.4045668628727801,-0.4045668628727801
