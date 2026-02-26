@@ -8,11 +8,22 @@
 
 body {
   font-family: var(--font-family);
+  font-weight: 625;
   background-color: var(--color-background-alt);
   color: var(--color-text);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+input,
+textarea,
+select,
+button,
+option,
+optgroup {
+  font-family: var(--font-family);
+  font-weight: 625;
 }
 
 a {
@@ -64,6 +75,7 @@ a:hover {
 .form-select,
 .form-input {
   width: 100%;
+  font-family: var(--font-family);
   padding: var(--spacing-sm) var(--spacing-md);
   font-size: 1rem;
   border: 1px solid var(--color-border);

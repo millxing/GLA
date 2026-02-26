@@ -1,0 +1,35 @@
+2026-02-26 06:00:03 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-02-26 06:00:03 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-26 06:00:03 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-26 06:01:07 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-26 06:01:07 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 06:23:13 | FAILED | Update raw PBP (regular + playoffs) for 2025-26 failed (exit=1)
+2026-02-26 06:48:08 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-02-26 06:48:08 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-26 06:48:08 | FAILED | Parquet engine missing (install pyarrow or fastparquet in gla_admin)
+2026-02-26 06:48:08 | WARN | Switching PBP update target to api_pbpv3 CSV to avoid parquet write failures
+2026-02-26 06:48:08 | INFO | PBP source target for this run: api_pbpv3
+2026-02-26 06:48:08 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-26 06:48:44 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-02-26 06:48:44 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-26 06:48:44 | FAILED | Parquet engine missing (install pyarrow or fastparquet in gla_admin)
+2026-02-26 06:48:44 | WARN | Switching PBP update target to api_pbpv3 CSV to avoid parquet write failures
+2026-02-26 06:48:44 | INFO | PBP source target for this run: api_pbpv3
+2026-02-26 06:48:44 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-26 06:48:45 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-26 06:48:45 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 06:48:52 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 06:48:52 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-02-26 06:48:58 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-02-26 06:48:59 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-26 06:48:59 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-26))
+2026-02-26 06:49:07 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-26))
+2026-02-26 06:49:07 | START | Regenerate contributions for 2025-26
+2026-02-26 06:49:12 | SUCCESS | Regenerate contributions for 2025-26
+2026-02-26 06:49:12 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-26))
+2026-02-26 06:49:13 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-26))
+2026-02-26 06:49:13 | START | Generate LLM interpretations for 2025-26
+2026-02-26 06:49:14 | FAILED | Generate LLM interpretations for 2025-26 failed (exit=2)
+2026-02-26 06:49:14 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-02-26))
+2026-02-26 06:49:14 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-02-26))
+2026-02-26 06:49:14 | FAILED | Daily update finished with interpretation failure (exit=2)

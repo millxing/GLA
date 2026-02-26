@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { getSeasons, getGames, getDecomposition, getInterpretation } from '../api'
+import { getSeasons, getGames, getDecomposition, getInterpretation, getGameTimeline } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
+import GameTimeline from '../components/GameTimeline'
 import './FourFactor.css'
 
 // BBRef uses different abbreviations for some teams
@@ -40,6 +41,7 @@ function FourFactor() {
   const [selectedSeason, setSelectedSeason] = usePersistedState('fourfactor_season', '')
   const [selectedGame, setSelectedGame] = useState('')
   const [factorType, setFactorType] = usePersistedState('fourfactor_factortype', 'eight_factors')
+  const [analysisView, setAnalysisView] = usePersistedState('fourfactor_analysisview', 'factor')
   const [decomposition, setDecomposition] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(false)
@@ -47,6 +49,9 @@ function FourFactor() {
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
   const [interpretation, setInterpretation] = useState(null)
   const [interpretationLoading, setInterpretationLoading] = useState(false)
+  const [timelineData, setTimelineData] = useState(null)
+  const [timelineLoading, setTimelineLoading] = useState(false)
+  const [timelineError, setTimelineError] = useState(null)
 
   useEffect(() => {
     let isCurrent = true
@@ -150,6 +155,46 @@ function FourFactor() {
     return () => { isCurrent = false }
   }, [decomposition, factorType])
 
+  useEffect(() => {
+    setTimelineData(null)
+    setTimelineError(null)
+    setTimelineLoading(false)
+  }, [selectedSeason, selectedGame])
+
+  useEffect(() => {
+    if (!selectedGame) return
+    setAnalysisView('factor')
+  }, [selectedGame, setAnalysisView])
+
+  useEffect(() => {
+    let isCurrent = true
+
+    async function loadTimeline() {
+      if (analysisView !== 'timeline' || !selectedSeason || !selectedGame || !decomposition) return
+
+      setTimelineLoading(true)
+      setTimelineError(null)
+      try {
+        const data = await getGameTimeline(selectedSeason, selectedGame, {
+          gameType: decomposition.game_type,
+          homeTeam: decomposition.home_team,
+          roadTeam: decomposition.road_team,
+        })
+        if (isCurrent) setTimelineData(data)
+      } catch (err) {
+        if (isCurrent) {
+          setTimelineData(null)
+          setTimelineError(err.message)
+        }
+      } finally {
+        if (isCurrent) setTimelineLoading(false)
+      }
+    }
+
+    loadTimeline()
+    return () => { isCurrent = false }
+  }, [analysisView, decomposition, selectedSeason, selectedGame])
+
   const getContributionChartData = () => {
     if (!decomposition) return []
     const contributions = decomposition.contributions
@@ -218,7 +263,11 @@ function FourFactor() {
       return valueMap[factor] || null
     }
 
-    // Build factor bars sorted by value descending (most positive at top)
+    const roadWon = decomposition.road_pts > decomposition.home_pts
+
+    // Keep winning-side contributions at the top:
+    // - home win: most positive first (green)
+    // - road win: most negative first (red)
     const factorBars = Object.entries(contributions)
       .map(([factor, value]) => {
         const label = factorLabels[factor] || { line1: factor, line2: null }
@@ -232,7 +281,7 @@ function FourFactor() {
           fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
         }
       })
-      .sort((a, b) => b.value - a.value)
+      .sort((a, b) => roadWon ? a.value - b.value : b.value - a.value)
 
     // Add error bar at the end (always at bottom, not sorted)
     // Error = actual rating diff - predicted rating diff
@@ -472,6 +521,28 @@ function FourFactor() {
               </div>
             </div>
           </div>
+
+          <div className="analysis-view-toggle-card card">
+            <div className="analysis-view-toggle" role="group" aria-label="Game analysis view">
+              <button
+                type="button"
+                className={analysisView === 'factor' ? 'active' : ''}
+                onClick={() => setAnalysisView('factor')}
+              >
+                Factor Analysis
+              </button>
+              <button
+                type="button"
+                className={analysisView === 'timeline' ? 'active' : ''}
+                onClick={() => setAnalysisView('timeline')}
+              >
+                Game Timeline
+              </button>
+            </div>
+          </div>
+
+          {analysisView === 'factor' ? (
+            <>
 
           <div className="analysis-grid">
             <div className="factors-table card">
@@ -767,6 +838,23 @@ function FourFactor() {
               </div>
             )}
           </div>
+            </>
+          ) : (
+            <div className="timeline-content">
+              {timelineLoading && (
+                <div className="loading">
+                  <div className="loading-spinner"></div>
+                  Loading game timeline...
+                </div>
+              )}
+              {timelineError && !timelineLoading && (
+                <div className="error">{timelineError}</div>
+              )}
+              {timelineData && !timelineLoading && !timelineError && (
+                <GameTimeline timeline={timelineData} />
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

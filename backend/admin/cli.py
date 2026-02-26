@@ -26,11 +26,18 @@ Usage examples (from backend directory):
 from __future__ import annotations
 
 import argparse
+import csv
+import hashlib
+import httpx
 import json
+import random
 import re
+import shutil
 import subprocess
+import tarfile
+import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, TypeVar
@@ -47,12 +54,57 @@ from services.calculations import compute_four_factors, compute_game_ratings
 from services.llm import generate_interpretation_sync, LLM_MODELS
 from config import get_current_season
 
+PARQUET_BRIDGE_PYTHON = sys.executable or "python3"
+
 
 NBA_DATA_REPO_URL = "https://github.com/millxing/NBA_Data"
 
 # Default: use the user's canonical NBA_Data folder.
 # This keeps GLA_Admin fully separate from any NBA/ NBA_alpha folders.
 DEFAULT_REPO_DIR = Path("/Users/robschoen/Dropbox/CC/NBA_Data").resolve()
+DEFAULT_SHUF_DATASETS_DIR = Path(__file__).resolve().parents[2] / "shuf_datasets"
+PBP_ROOT_DIRNAME = "PBPdata"
+PBP_MANIFEST_FILENAME = "manifest.csv"
+PBP_MANIFEST_COLUMNS = [
+    "source",
+    "season",
+    "season_type",
+    "file_path",
+    "row_count",
+    "game_count",
+    "sha256",
+    "updated_at",
+]
+PBP_FETCH_TIMEOUT_SECONDS = 12.0
+PBP_FETCH_RETRIES = 2
+PBP_FETCH_MAX_WORKERS = 6
+PBP_FETCH_BACKOFF_BASE_SECONDS = 0.5
+PBPV3_CANONICAL_COLUMNS = [
+    "actionNumber",
+    "clock",
+    "period",
+    "teamId",
+    "teamTricode",
+    "personId",
+    "playerName",
+    "playerNameI",
+    "xLegacy",
+    "yLegacy",
+    "shotDistance",
+    "shotResult",
+    "isFieldGoal",
+    "scoreHome",
+    "scoreAway",
+    "pointsTotal",
+    "location",
+    "description",
+    "actionType",
+    "subType",
+    "videoAvailable",
+    "shotValue",
+    "actionId",
+    "gameId",
+]
 
 
 # ---- Canonical NBA_Data game-log schema + dtypes (matches *_correct.csv) ----
@@ -959,6 +1011,1108 @@ def _fetch_boxscore_data(
     return ls_total_added, adv_total_added
 
 
+# ------------------------- Raw PBP helpers -------------------------
+
+def _season_start_year_from_str(season: str) -> int:
+    m = re.match(r"^(\d{4})-(\d{2})$", str(season).strip())
+    if not m:
+        raise ValueError(f"Invalid season format: {season}. Expected YYYY-YY (e.g., 2025-26)")
+    return int(m.group(1))
+
+
+def _season_label_from_start_year(start_year: int) -> str:
+    return f"{start_year}-{str(start_year + 1)[-2:]}"
+
+
+def _pbp_data_subdir(repo_dir: Path, source: str, season_type: str, create: bool = True) -> Path:
+    path = repo_dir / PBP_ROOT_DIRNAME / source / season_type
+    if create:
+        path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _historical_pbp_basename(source: str, start_year: int, season_type: str) -> str:
+    if season_type == "playoffs":
+        return f"{source}_po_{start_year}"
+    return f"{source}_{start_year}"
+
+
+def _find_historical_pbp_file(source_dir: Path, source: str, start_year: int, season_type: str) -> Optional[Path]:
+    base = _historical_pbp_basename(source, start_year, season_type)
+    csv_path = source_dir / f"{base}.csv"
+    archive_path = source_dir / f"{base}.tar.xz"
+
+    # Prefer plain CSV when present to avoid extra extraction work.
+    if csv_path.exists():
+        return csv_path
+    if archive_path.exists():
+        return archive_path
+    return None
+
+
+def _copy_or_extract_historical_csv(src_path: Path, dest_csv_path: Path) -> None:
+    if src_path.suffix.lower() == ".csv":
+        shutil.copy2(src_path, dest_csv_path)
+        return
+
+    if src_path.name.lower().endswith(".tar.xz"):
+        with tarfile.open(src_path, mode="r:xz") as tf:
+            members = [m for m in tf.getmembers() if m.isfile() and m.name.lower().endswith(".csv")]
+            if not members:
+                raise RuntimeError(f"No CSV found inside archive: {src_path}")
+            member = members[0]
+            extracted = tf.extractfile(member)
+            if extracted is None:
+                raise RuntimeError(f"Failed to read archive member {member.name} from {src_path}")
+            with dest_csv_path.open("wb") as out_f:
+                shutil.copyfileobj(extracted, out_f)
+        return
+
+    raise ValueError(f"Unsupported source file format: {src_path}")
+
+
+def _pbp_output_filename(source: str, start_year: int, season_type: str) -> str:
+    ext = ".parquet" if source == "nbastatsv3" else ".csv"
+    if season_type == "playoffs":
+        return f"{source}_po_{start_year}{ext}"
+    return f"{source}_{start_year}{ext}"
+
+
+def _backup_existing_pbp_file(pbp_path: Path, dry_run: bool = False) -> Optional[Path]:
+    if not pbp_path.exists():
+        return None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = pbp_path.with_name(f"{pbp_path.stem}_pre_nba_api_update_{timestamp}{pbp_path.suffix}")
+    if dry_run:
+        print(f"[pbp] DRY RUN - would backup {pbp_path.name} -> {backup_path.name}")
+        return backup_path
+    shutil.move(str(pbp_path), str(backup_path))
+    print(f"[pbp] Backup created: {backup_path}")
+    return backup_path
+
+
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _guess_game_id_column(columns: list[str]) -> Optional[str]:
+    for candidate in ("gameId", "GAME_ID", "game_id"):
+        if candidate in columns:
+            return candidate
+    return None
+
+
+def _read_pbp_table(pbp_path: Path) -> pd.DataFrame:
+    if pbp_path.suffix.lower() == ".parquet":
+        try:
+            return pd.read_parquet(pbp_path)
+        except Exception:
+            with tempfile.NamedTemporaryFile(prefix="pbp_parquet_bridge_", suffix=".csv", delete=False) as tmp_f:
+                tmp_csv = Path(tmp_f.name)
+            try:
+                script = (
+                    "import pandas as pd, sys; "
+                    "d = pd.read_parquet(sys.argv[1]); "
+                    "d.to_csv(sys.argv[2], index=False)"
+                )
+                proc = subprocess.run(
+                    [PARQUET_BRIDGE_PYTHON, "-c", script, str(pbp_path), str(tmp_csv)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"Could not read parquet file {pbp_path}. "
+                        "Install pyarrow/fastparquet in this environment, "
+                        f"or ensure {PARQUET_BRIDGE_PYTHON} has pyarrow. Error: {proc.stderr.strip() or proc.stdout.strip()}"
+                    )
+                return pd.read_csv(tmp_csv, low_memory=False)
+            finally:
+                try:
+                    tmp_csv.unlink(missing_ok=True)
+                except Exception:
+                    pass
+    return pd.read_csv(pbp_path, low_memory=False)
+
+
+def _write_pbp_table(df: pd.DataFrame, pbp_path: Path) -> None:
+    if pbp_path.suffix.lower() == ".parquet":
+        try:
+            df.to_parquet(pbp_path, index=False, compression=None)
+        except Exception:
+            with tempfile.NamedTemporaryFile(prefix="pbp_parquet_bridge_", suffix=".csv", delete=False) as tmp_f:
+                tmp_csv = Path(tmp_f.name)
+            try:
+                df.to_csv(tmp_csv, index=False)
+                script = (
+                    "import pandas as pd, sys; "
+                    "d = pd.read_csv(sys.argv[1], low_memory=False); "
+                    "d.to_parquet(sys.argv[2], engine='pyarrow', compression=None, index=False)"
+                )
+                proc = subprocess.run(
+                    [PARQUET_BRIDGE_PYTHON, "-c", script, str(tmp_csv), str(pbp_path)],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(
+                        f"Could not write parquet file {pbp_path}. "
+                        "Install pyarrow/fastparquet in this environment, "
+                        f"or ensure {PARQUET_BRIDGE_PYTHON} has pyarrow. Error: {proc.stderr.strip() or proc.stdout.strip()}"
+                    )
+            finally:
+                try:
+                    tmp_csv.unlink(missing_ok=True)
+                except Exception:
+                    pass
+        return
+    df.to_csv(pbp_path, index=False)
+
+
+def _pbp_row_and_game_counts(pbp_path: Path) -> tuple[int, int]:
+    if pbp_path.suffix.lower() == ".parquet":
+        df = _read_pbp_table(pbp_path)
+        if df.empty:
+            return 0, 0
+        game_id_col = _guess_game_id_column(list(df.columns))
+        if not game_id_col:
+            return int(len(df)), 0
+        normalized = df[game_id_col].map(_normalize_game_id)
+        game_count = int(sum(1 for gid in set(normalized.tolist()) if gid))
+        return int(len(df)), game_count
+
+    csv_path = pbp_path
+    row_count = 0
+    game_ids: set[str] = set()
+
+    with csv_path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        game_id_col = _guess_game_id_column(list(fieldnames))
+
+        for row in reader:
+            row_count += 1
+            if game_id_col:
+                gid = _normalize_game_id(row.get(game_id_col))
+                if gid:
+                    game_ids.add(gid)
+
+    return row_count, len(game_ids)
+
+
+def _load_pbp_manifest_rows(manifest_path: Path) -> list[dict[str, str]]:
+    if not manifest_path.exists():
+        return []
+
+    rows: list[dict[str, str]] = []
+    with manifest_path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append({k: row.get(k, "") for k in PBP_MANIFEST_COLUMNS})
+    return rows
+
+
+def _write_pbp_manifest_rows(manifest_path: Path, rows: list[dict[str, str]]) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    with manifest_path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=PBP_MANIFEST_COLUMNS)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({k: row.get(k, "") for k in PBP_MANIFEST_COLUMNS})
+
+
+def _upsert_pbp_manifest_row(manifest_path: Path, record: dict[str, str]) -> None:
+    rows = _load_pbp_manifest_rows(manifest_path)
+    key = (
+        record.get("source", ""),
+        record.get("season", ""),
+        record.get("season_type", ""),
+        record.get("file_path", ""),
+    )
+
+    updated = False
+    for i, row in enumerate(rows):
+        row_key = (
+            row.get("source", ""),
+            row.get("season", ""),
+            row.get("season_type", ""),
+            row.get("file_path", ""),
+        )
+        if row_key == key:
+            rows[i] = {k: record.get(k, "") for k in PBP_MANIFEST_COLUMNS}
+            updated = True
+            break
+
+    if not updated:
+        rows.append({k: record.get(k, "") for k in PBP_MANIFEST_COLUMNS})
+
+    rows.sort(key=lambda r: (r.get("source", ""), r.get("season", ""), r.get("season_type", ""), r.get("file_path", "")))
+    _write_pbp_manifest_rows(manifest_path, rows)
+
+
+def _update_pbp_manifest_for_csv(
+    repo_dir: Path,
+    source: str,
+    season: str,
+    season_type: str,
+    csv_path: Path,
+) -> None:
+    row_count, game_count = _pbp_row_and_game_counts(csv_path)
+    try:
+        rel_path = csv_path.relative_to(repo_dir).as_posix()
+    except Exception:
+        rel_path = str(csv_path)
+
+    manifest_path = repo_dir / PBP_ROOT_DIRNAME / PBP_MANIFEST_FILENAME
+    _upsert_pbp_manifest_row(
+        manifest_path,
+        {
+            "source": source,
+            "season": season,
+            "season_type": season_type,
+            "file_path": rel_path,
+            "row_count": str(row_count),
+            "game_count": str(game_count),
+            "sha256": _sha256_file(csv_path),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        },
+    )
+
+
+def _existing_game_ids_from_pbp_csv(csv_path: Path) -> set[str]:
+    if not csv_path.exists():
+        return set()
+
+    if csv_path.suffix.lower() == ".parquet":
+        try:
+            d = _read_pbp_table(csv_path)
+        except Exception:
+            return set()
+        if d.empty:
+            return set()
+        game_col = _guess_game_id_column(list(d.columns))
+        if not game_col:
+            return set()
+        normalized = d[game_col].map(_normalize_game_id)
+        return set(gid for gid in normalized.tolist() if gid)
+
+    try:
+        header = pd.read_csv(csv_path, nrows=0)
+    except Exception:
+        return set()
+
+    game_col = _guess_game_id_column(list(header.columns))
+    if not game_col:
+        return set()
+
+    s = pd.read_csv(csv_path, usecols=[game_col], dtype={game_col: "string"})[game_col]
+    normalized = s.map(_normalize_game_id)
+    return set(gid for gid in normalized.tolist() if gid)
+
+
+def _dedupe_pbp_actions_df(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    d = df.copy()
+    game_col = _guess_game_id_column(list(d.columns))
+    # Prefer the strongest event identity key first. nba_api v3 can repeat
+    # actionNumber while keeping actionId unique, so deduping on actionNumber
+    # can drop valid events for recent games.
+    event_identity_cols: list[str] = []
+    if "actionId" in d.columns:
+        event_identity_cols = ["actionId"]
+    elif "orderNumber" in d.columns:
+        event_identity_cols = ["orderNumber"]
+    else:
+        for c in ("actionNumber", "EVENTNUM", "evt"):
+            if c in d.columns:
+                event_identity_cols = [c]
+                break
+
+    dedupe_cols: list[str] = []
+    if game_col:
+        dedupe_cols.append(game_col)
+    dedupe_cols.extend(event_identity_cols)
+
+    if len(dedupe_cols) >= 2:
+        d = d.drop_duplicates(subset=dedupe_cols, keep="last")
+    elif dedupe_cols:
+        d = d.drop_duplicates(subset=dedupe_cols, keep="last")
+    else:
+        d = d.drop_duplicates(keep="last")
+
+    sort_cols = [c for c in (game_col, "period", "PERIOD", "orderNumber", "actionNumber", "EVENTNUM", "evt") if c and c in d.columns]
+    if sort_cols:
+        d = d.sort_values(sort_cols, kind="stable")
+
+    return d.reset_index(drop=True)
+
+
+def _build_game_metadata_from_team_logs(team_logs: pd.DataFrame, season_type_label: str) -> Dict[str, Dict[str, str]]:
+    meta: Dict[str, Dict[str, str]] = {}
+    if team_logs.empty:
+        return meta
+
+    for _, row in team_logs.iterrows():
+        gid = _normalize_game_id(row.get("GAME_ID"))
+        if not gid:
+            continue
+
+        game_date = ""
+        raw_date = row.get("GAME_DATE")
+        if pd.notna(raw_date):
+            dt = pd.to_datetime(raw_date, errors="coerce")
+            if pd.notna(dt):
+                game_date = dt.strftime("%Y-%m-%d")
+
+        matchup = str(row.get("MATCHUP", "") or "")
+        existing = meta.get(gid)
+        if existing is None:
+            meta[gid] = {
+                "GAME_DATE": game_date,
+                "MATCHUP": matchup,
+                "SEASON_TYPE": season_type_label,
+            }
+            continue
+
+        # Prefer a home-team formatted matchup (`vs.`) if available.
+        if "vs." in matchup and "vs." not in existing.get("MATCHUP", ""):
+            existing["MATCHUP"] = matchup
+        if not existing.get("GAME_DATE") and game_date:
+            existing["GAME_DATE"] = game_date
+
+    return meta
+
+
+def _build_game_metadata_from_local_gamelog(
+    repo_dir: Path,
+    season: str,
+    season_type: str,
+) -> Dict[str, Dict[str, str]]:
+    """Build game metadata from local team_game_logs_YYYY-YY.csv.
+
+    This fallback is used when league game-list API calls time out.
+    """
+    csv_path = repo_dir / _season_to_filename(season)
+    if not csv_path.exists():
+        return {}
+
+    try:
+        df = pd.read_csv(
+            csv_path,
+            dtype={
+                "game_id": "string",
+                "game_date": "string",
+                "game_type": "string",
+                "team_abbreviation_home": "string",
+                "team_abbreviation_road": "string",
+            },
+            usecols=[
+                "game_id",
+                "game_date",
+                "game_type",
+                "team_abbreviation_home",
+                "team_abbreviation_road",
+            ],
+        )
+    except Exception:
+        return {}
+
+    if df.empty:
+        return {}
+
+    d = df.copy()
+    d["game_id"] = d["game_id"].map(_normalize_game_id)
+    d["game_type"] = d["game_type"].map(_snake_case)
+    d = d[d["game_id"] != ""].copy()
+
+    if season_type == "regular":
+        d = d[~d["game_type"].isin(["playoffs", "play_in"])]
+        season_type_label = "REGULAR"
+    else:
+        d = d[d["game_type"].isin(["playoffs", "play_in"])]
+        season_type_label = "PLAYOFFS"
+
+    out: Dict[str, Dict[str, str]] = {}
+    for _, row in d.iterrows():
+        gid = str(row.get("game_id") or "")
+        if not gid:
+            continue
+
+        game_date = ""
+        raw_date = row.get("game_date")
+        if pd.notna(raw_date):
+            dt = pd.to_datetime(raw_date, errors="coerce")
+            if pd.notna(dt):
+                game_date = dt.strftime("%Y-%m-%d")
+
+        home = str(row.get("team_abbreviation_home") or "")
+        road = str(row.get("team_abbreviation_road") or "")
+        matchup = f"{road} @ {home}".strip()
+
+        out[gid] = {
+            "GAME_DATE": game_date,
+            "MATCHUP": matchup,
+            "SEASON_TYPE": season_type_label,
+        }
+
+    return out
+
+
+def _normalize_api_pbpv3_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Enforce canonical column structure compatible with backfilled nbastatsv3 files."""
+    d = df.copy()
+
+    for col in PBPV3_CANONICAL_COLUMNS:
+        if col not in d.columns:
+            d[col] = pd.NA
+
+    d = d[PBPV3_CANONICAL_COLUMNS]
+
+    # Normalize IDs and numeric defaults to match nbastatsv3 conventions.
+    d["gameId"] = d["gameId"].map(_normalize_game_id)
+    d = d[d["gameId"] != ""].copy()
+
+    int_default_zero_cols = [
+        "actionNumber",
+        "period",
+        "teamId",
+        "personId",
+        "xLegacy",
+        "yLegacy",
+        "shotDistance",
+        "isFieldGoal",
+        "pointsTotal",
+        "videoAvailable",
+        "shotValue",
+    ]
+    for col in int_default_zero_cols:
+        d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0).astype("int64")
+
+    # Keep score columns nullable numeric (nbastatsv3 has many null score rows).
+    d["scoreHome"] = pd.to_numeric(d["scoreHome"], errors="coerce")
+    d["scoreAway"] = pd.to_numeric(d["scoreAway"], errors="coerce")
+
+    # actionId should be non-null in nbastatsv3; if missing, fall back to actionNumber.
+    action_id_numeric = pd.to_numeric(d["actionId"], errors="coerce")
+    d["actionId"] = action_id_numeric.fillna(d["actionNumber"]).astype("int64")
+
+    sort_cols = [c for c in ("gameId", "actionNumber") if c in d.columns]
+    if sort_cols:
+        d = d.sort_values(sort_cols, kind="stable")
+
+    return d.reset_index(drop=True)
+
+
+def _short_error(exc: Exception, max_len: int = 220) -> str:
+    msg = str(exc).replace("\n", " ").strip()
+    return msg[:max_len] + ("..." if len(msg) > max_len else "")
+
+
+def _fetch_pbp_from_cdnnba(game_id: str, request_timeout: float) -> pd.DataFrame:
+    """Fetch liveData play-by-play JSON directly from CDN for one game."""
+    url = f"https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{game_id}.json"
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+    }
+    with httpx.Client(timeout=request_timeout, follow_redirects=True, headers=headers) as client:
+        resp = client.get(url)
+        resp.raise_for_status()
+        payload = resp.json()
+
+    actions = payload.get("game", {}).get("actions", [])
+    if not isinstance(actions, list) or not actions:
+        raise RuntimeError("cdn.nba.com returned no actions")
+
+    df = pd.DataFrame(actions)
+    if df.empty:
+        raise RuntimeError("cdn.nba.com produced empty actions table")
+    if "gameId" not in df.columns:
+        df["gameId"] = game_id
+
+    return _normalize_api_pbpv3_df(df)
+
+
+def _fetch_single_game_pbp(
+    game_id: str,
+    playbyplayv3_module: Any,
+    request_timeout: float,
+    retries: int,
+) -> tuple[str, Optional[pd.DataFrame], str, str]:
+    """Fetch one game's PBP with fast retries and source fallback.
+
+    Returns:
+      (game_id, dataframe_or_none, source_name, error_message)
+    """
+    attempt_count = max(1, int(retries))
+    errors: list[str] = []
+
+    for attempt in range(1, attempt_count + 1):
+        try:
+            resp = playbyplayv3_module.PlayByPlayV3(game_id=game_id, timeout=request_timeout)
+            dfs = resp.get_data_frames()
+            if dfs and dfs[0] is not None and not dfs[0].empty:
+                df = dfs[0]
+                if "gameId" not in df.columns:
+                    df["gameId"] = game_id
+                return game_id, _normalize_api_pbpv3_df(df), "nba_api", ""
+            errors.append(f"nba_api attempt {attempt}: empty response")
+        except Exception as e:
+            errors.append(f"nba_api attempt {attempt}: {_short_error(e)}")
+
+        try:
+            cdn_df = _fetch_pbp_from_cdnnba(game_id, request_timeout=request_timeout)
+            if cdn_df is not None and not cdn_df.empty:
+                return game_id, cdn_df, "cdnnba", ""
+            errors.append(f"cdnnba attempt {attempt}: empty response")
+        except Exception as e:
+            errors.append(f"cdnnba attempt {attempt}: {_short_error(e)}")
+
+        if attempt < attempt_count:
+            # Jittered backoff to reduce synchronized retry storms.
+            time.sleep(PBP_FETCH_BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) + random.uniform(0.0, 0.35))
+
+    return game_id, None, "", " | ".join(errors[-4:])
+
+
+# ------------------------- Raw PBP commands -------------------------
+
+def backfill_pbp_raw(
+    start_season: str,
+    end_season: str,
+    repo_dir: Path,
+    source_dir: Path,
+    include_cdnnba: bool = True,
+    overwrite: bool = False,
+    dry_run: bool = False,
+) -> int:
+    start = time.time()
+    try:
+        repo_dir = ensure_data_repo(repo_dir)
+        source_dir = source_dir.resolve()
+        if not source_dir.exists():
+            raise FileNotFoundError(f"Historical source directory not found: {source_dir}")
+
+        start_year = _season_start_year_from_str(start_season)
+        end_year = _season_start_year_from_str(end_season)
+        if end_year < start_year:
+            raise ValueError("--end must be >= --start")
+
+        copied = 0
+        skipped_existing = 0
+        missing_source = 0
+
+        print(f"[pbp] Backfill from {start_season} to {end_season}")
+        print(f"[pbp] Source dir: {source_dir}")
+        print(f"[pbp] Target dir: {repo_dir / PBP_ROOT_DIRNAME}")
+
+        for year in range(start_year, end_year + 1):
+            season = _season_label_from_start_year(year)
+            for season_type in ("regular", "playoffs"):
+                for source in ("nbastatsv3", "cdnnba"):
+                    if source == "cdnnba" and (not include_cdnnba or year < 2020):
+                        continue
+
+                    src_file = _find_historical_pbp_file(source_dir, source, year, season_type)
+                    if src_file is None:
+                        print(f"[pbp] Missing source file: {source} {season} {season_type}")
+                        missing_source += 1
+                        continue
+
+                    dest_dir = _pbp_data_subdir(repo_dir, source, season_type, create=not dry_run)
+                    basename = _historical_pbp_basename(source, year, season_type)
+                    dest_file = dest_dir / f"{basename}.csv"
+
+                    if dest_file.exists() and not overwrite:
+                        print(f"[pbp] Skip existing: {dest_file}")
+                        skipped_existing += 1
+                        if not dry_run:
+                            _update_pbp_manifest_for_csv(repo_dir, source, season, season_type, dest_file)
+                        continue
+
+                    print(f"[pbp] {'Would write' if dry_run else 'Writing'} {dest_file.name} from {src_file.name}")
+                    if dry_run:
+                        copied += 1
+                        continue
+
+                    _copy_or_extract_historical_csv(src_file, dest_file)
+                    _update_pbp_manifest_for_csv(repo_dir, source, season, season_type, dest_file)
+                    copied += 1
+
+        elapsed = time.time() - start
+        print("\n[pbp] Historical backfill complete")
+        print(f"  copied_or_updated: {copied}")
+        print(f"  skipped_existing: {skipped_existing}")
+        print(f"  missing_source_files: {missing_source}")
+        print(f"  dry_run: {dry_run}")
+        print(f"  time: {elapsed:.1f}s")
+        return 0
+
+    except Exception as e:
+        print(f"[error] backfill-pbp-raw failed: {e}")
+        return 1
+
+
+def _prune_pbp_manifest_missing_files(repo_dir: Path) -> int:
+    manifest_path = repo_dir / PBP_ROOT_DIRNAME / PBP_MANIFEST_FILENAME
+    rows = _load_pbp_manifest_rows(manifest_path)
+    if not rows:
+        return 0
+
+    kept: list[dict[str, str]] = []
+    for row in rows:
+        rel = (row.get("file_path") or "").strip()
+        if not rel:
+            continue
+        candidate = Path(rel)
+        path = candidate if candidate.is_absolute() else (repo_dir / candidate)
+        if path.exists():
+            kept.append(row)
+
+    removed = len(rows) - len(kept)
+    if removed > 0:
+        _write_pbp_manifest_rows(manifest_path, kept)
+    return removed
+
+
+def migrate_nbastatsv3_csv_to_parquet(
+    repo_dir: Path,
+    archive_rel_dir: str = "PBPdata/nbastatsv3_csv_archive",
+    dry_run: bool = False,
+) -> int:
+    repo_dir = ensure_data_repo(repo_dir)
+    archive_root = Path(archive_rel_dir)
+    if not archive_root.is_absolute():
+        archive_root = repo_dir / archive_root
+
+    converted = 0
+    archived = 0
+
+    try:
+        for phase in ("regular", "playoffs"):
+            src_dir = repo_dir / PBP_ROOT_DIRNAME / "nbastatsv3" / phase
+            if not src_dir.exists():
+                continue
+
+            for csv_path in sorted(src_dir.glob("*.csv")):
+                archive_path = archive_root / phase / csv_path.name
+                m = re.match(r"^nbastatsv3(?:_po)?_(\d{4})\.csv$", csv_path.name)
+                parquet_path = csv_path.with_suffix(".parquet") if m else None
+
+                if dry_run:
+                    if parquet_path is not None:
+                        print(f"[pbp] DRY RUN - convert {csv_path.name} -> {parquet_path.name}")
+                        converted += 1
+                    print(f"[pbp] DRY RUN - archive {csv_path.name} -> {archive_path}")
+                    archived += 1
+                    continue
+
+                if parquet_path is not None:
+                    script = (
+                        "import pandas as pd, sys; "
+                        "d = pd.read_csv(sys.argv[1], low_memory=False); "
+                        "d.to_parquet(sys.argv[2], engine='pyarrow', compression=None, index=False)"
+                    )
+                    proc = subprocess.run(
+                        ["python3", "-c", script, str(csv_path), str(parquet_path)],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    if proc.returncode != 0:
+                        raise RuntimeError(
+                            f"Failed to convert {csv_path} to parquet: "
+                            f"{proc.stderr.strip() or proc.stdout.strip()}"
+                        )
+                    start_year = int(m.group(1))
+                    season = _season_label_from_start_year(start_year)
+                    _update_pbp_manifest_for_csv(
+                        repo_dir=repo_dir,
+                        source="nbastatsv3",
+                        season=season,
+                        season_type=phase,
+                        csv_path=parquet_path,
+                    )
+                    converted += 1
+
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                if archive_path.exists():
+                    archive_path.unlink()
+                shutil.move(str(csv_path), str(archive_path))
+                archived += 1
+
+        removed_manifest = 0
+        if not dry_run:
+            removed_manifest = _prune_pbp_manifest_missing_files(repo_dir)
+
+        print("\n[pbp] nbastatsv3 CSV -> Parquet migration complete")
+        print(f"  converted_to_parquet: {converted}")
+        print(f"  archived_csv_files: {archived}")
+        print(f"  manifest_rows_removed: {removed_manifest}")
+        print(f"  dry_run: {dry_run}")
+        return 0
+    except Exception as e:
+        print(f"[error] migrate nbastatsv3 csv->parquet failed: {e}")
+        return 1
+
+
+def _update_pbp_for_season_type(
+    season: str,
+    repo_dir: Path,
+    season_type: str,
+    output_source: str = "nbastatsv3",
+    backup_existing: bool = True,
+    overwrite_existing: bool = False,
+    max_games: Optional[int] = None,
+    request_timeout: float = PBP_FETCH_TIMEOUT_SECONDS,
+    retries: int = PBP_FETCH_RETRIES,
+    max_workers: int = PBP_FETCH_MAX_WORKERS,
+    dry_run: bool = False,
+) -> int:
+    if season_type not in {"regular", "playoffs"}:
+        raise ValueError(f"Unsupported season_type: {season_type}")
+    if output_source not in {"nbastatsv3", "api_pbpv3"}:
+        raise ValueError(f"Unsupported output_source: {output_source}")
+
+    try:
+        from nba_api.stats.endpoints import playbyplayv3
+    except Exception as e:
+        print(f"[error] Could not import playbyplayv3 endpoint: {e}")
+        return 1
+
+    start_year = _season_start_year_from_str(season)
+    filename = _pbp_output_filename(output_source, start_year, season_type)
+    out_dir = _pbp_data_subdir(repo_dir, output_source, season_type, create=not dry_run)
+    out_path = out_dir / filename
+    backup_done = False
+
+    def ensure_backup_before_write() -> None:
+        nonlocal backup_done
+        if backup_done:
+            return
+        if not backup_existing:
+            return
+        if output_source != "nbastatsv3":
+            return
+        if not out_path.exists():
+            return
+        _backup_existing_pbp_file(out_path, dry_run=dry_run)
+        backup_done = True
+
+    api_groups = (
+        [("Regular Season", "REGULAR"), ("IST", "IST")]
+        if season_type == "regular"
+        else [("Playoffs", "PLAYOFFS"), ("PlayIn", "PLAY_IN")]
+    )
+
+    # Prefer local game logs to avoid long season-list API timeouts.
+    game_meta: Dict[str, Dict[str, str]] = _build_game_metadata_from_local_gamelog(
+        repo_dir=repo_dir,
+        season=season,
+        season_type=season_type,
+    )
+    if game_meta:
+        print(f"[pbp] Using local game logs for {season} ({season_type}); games={len(game_meta)}")
+    else:
+        for api_season_type, label in api_groups:
+            try:
+                logs = _fetch_season_team_game_logs(season, season_type=api_season_type)
+            except Exception as e:
+                print(f"[pbp] Warning: failed to fetch {api_season_type} game list for {season}: {e}")
+                continue
+            if logs.empty:
+                continue
+            partial = _build_game_metadata_from_team_logs(logs, label)
+            for gid, meta in partial.items():
+                if gid not in game_meta:
+                    game_meta[gid] = meta
+
+    if not game_meta:
+        print(f"[pbp] No games found for {season} ({season_type})")
+        return 0
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    candidate_game_ids = sorted(
+        gid for gid, meta in game_meta.items()
+        if meta.get("GAME_DATE") and meta.get("GAME_DATE") != today
+    )
+    existing_game_ids = _existing_game_ids_from_pbp_csv(out_path)
+    if overwrite_existing:
+        missing_game_ids = list(candidate_game_ids)
+    else:
+        missing_game_ids = [gid for gid in candidate_game_ids if gid not in existing_game_ids]
+
+    if max_games is not None and max_games > 0:
+        missing_game_ids = missing_game_ids[:max_games]
+
+    print(f"[pbp] Season {season} ({season_type})")
+    print(f"[pbp] Output: {out_path}")
+    print(f"[pbp] Candidate games: {len(candidate_game_ids)}")
+    print(f"[pbp] Already present: {len(existing_game_ids)}")
+    print(f"[pbp] Missing to fetch: {len(missing_game_ids)}")
+    if overwrite_existing:
+        print("[pbp] Overwrite mode: replacing existing rows for selected game_ids")
+
+    if not missing_game_ids:
+        if out_path.exists():
+            # Still rewrite/normalize existing output so field defaults stay consistent.
+            try:
+                existing_df = _read_pbp_table(out_path)
+            except Exception:
+                existing_df = pd.DataFrame()
+            if not existing_df.empty:
+                existing_df = _normalize_api_pbpv3_df(existing_df)
+                existing_df = _dedupe_pbp_actions_df(existing_df)
+                existing_df = _normalize_api_pbpv3_df(existing_df)
+                ensure_backup_before_write()
+                _write_pbp_table(existing_df, out_path)
+            _update_pbp_manifest_for_csv(repo_dir, output_source, season, season_type, out_path)
+        return 0
+
+    if dry_run:
+        print("[pbp] DRY RUN - no API calls performed")
+        return 0
+
+    fetched_frames: list[pd.DataFrame] = []
+    ok = 0
+    failed = 0
+    workers = max(1, int(max_workers))
+    timeout_s = float(request_timeout)
+    retry_count = max(1, int(retries))
+    total = len(missing_game_ids)
+
+    print(f"[pbp] Fetch config: workers={workers}, timeout={timeout_s:.1f}s, retries={retry_count}")
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(
+                _fetch_single_game_pbp,
+                gid,
+                playbyplayv3,
+                timeout_s,
+                retry_count,
+            ): gid
+            for gid in missing_game_ids
+        }
+
+        for idx, future in enumerate(as_completed(future_map), 1):
+            gid = future_map[future]
+            try:
+                _, pbp_df, source_name, err_msg = future.result()
+            except Exception as e:
+                pbp_df = None
+                source_name = ""
+                err_msg = _short_error(e)
+
+            if pbp_df is not None and not pbp_df.empty:
+                fetched_frames.append(pbp_df)
+                ok += 1
+                print(f"[pbp]   [{idx}/{total}] {gid} OK ({source_name}, rows={len(pbp_df)})")
+            else:
+                failed += 1
+                print(f"[pbp]   [{idx}/{total}] {gid} FAIL ({err_msg})")
+
+    if not fetched_frames:
+        print(f"[pbp] No new rows fetched for {season} ({season_type})")
+        return 1 if failed else 0
+
+    new_df = pd.concat(fetched_frames, ignore_index=True)
+
+    if out_path.exists():
+        try:
+            existing_df = _read_pbp_table(out_path)
+        except Exception:
+            existing_df = pd.DataFrame()
+    else:
+        existing_df = pd.DataFrame()
+
+    if not existing_df.empty:
+        existing_df = _normalize_api_pbpv3_df(existing_df)
+        if overwrite_existing:
+            game_col = _guess_game_id_column(list(existing_df.columns))
+            if game_col:
+                refresh_set = set(missing_game_ids)
+                existing_df = existing_df[
+                    ~existing_df[game_col].map(_normalize_game_id).isin(refresh_set)
+                ].copy()
+
+    existing_rows = len(existing_df)
+    combined = pd.concat([existing_df, new_df], ignore_index=True, sort=False)
+    combined = _normalize_api_pbpv3_df(combined)
+    combined = _dedupe_pbp_actions_df(combined)
+    combined = _normalize_api_pbpv3_df(combined)
+    ensure_backup_before_write()
+    _write_pbp_table(combined, out_path)
+
+    _update_pbp_manifest_for_csv(repo_dir, output_source, season, season_type, out_path)
+
+    print(f"[pbp] Wrote {out_path.name}: rows {existing_rows} -> {len(combined)}")
+    print(f"[pbp] Fetch summary: success={ok}, failed={failed}")
+    return 1 if failed else 0
+
+
+def update_pbp_raw(
+    season: str,
+    repo_dir: Path,
+    season_phase: str = "both",
+    target_source: str = "nbastatsv3",
+    backup_existing: bool = True,
+    overwrite_existing: bool = False,
+    max_games: Optional[int] = None,
+    request_timeout: float = PBP_FETCH_TIMEOUT_SECONDS,
+    retries: int = PBP_FETCH_RETRIES,
+    max_workers: int = PBP_FETCH_MAX_WORKERS,
+    migrate_nbastatsv3_to_parquet: bool = False,
+    csv_archive_dir: str = "PBPdata/nbastatsv3_csv_archive",
+    dry_run: bool = False,
+) -> int:
+    try:
+        repo_dir = ensure_data_repo(repo_dir)
+        if migrate_nbastatsv3_to_parquet:
+            return migrate_nbastatsv3_csv_to_parquet(
+                repo_dir=repo_dir,
+                archive_rel_dir=csv_archive_dir,
+                dry_run=dry_run,
+            )
+        _season_start_year_from_str(season)  # validate format
+        if target_source not in {"nbastatsv3", "api_pbpv3"}:
+            raise ValueError(f"Unsupported --target-source: {target_source}")
+        current_season = get_current_season()
+        if target_source == "nbastatsv3" and season != current_season and not overwrite_existing:
+            raise ValueError(
+                f"nbastatsv3 updates are limited to current season ({current_season}). "
+                "Use --target-source api_pbpv3 for non-current seasons, "
+                "or pass --overwrite-existing for a full historical refresh."
+            )
+
+        phases = ["regular", "playoffs"] if season_phase == "both" else [season_phase]
+        exit_code = 0
+        for phase in phases:
+            rc = _update_pbp_for_season_type(
+                season=season,
+                repo_dir=repo_dir,
+                season_type=phase,
+                output_source=target_source,
+                backup_existing=backup_existing,
+                overwrite_existing=overwrite_existing,
+                max_games=max_games,
+                request_timeout=request_timeout,
+                retries=retries,
+                max_workers=max_workers,
+                dry_run=dry_run,
+            )
+            if rc != 0:
+                exit_code = rc
+        return exit_code
+
+    except Exception as e:
+        print(f"[error] update-pbp-raw failed: {e}")
+        return 1
+
+
+def fetch_pbp_game(
+    season: str,
+    game_id: str,
+    repo_dir: Path,
+    season_phase: str = "regular",
+    target_source: str = "nbastatsv3",
+    backup_existing: bool = True,
+    request_timeout: float = PBP_FETCH_TIMEOUT_SECONDS,
+    retries: int = PBP_FETCH_RETRIES,
+    overwrite_game: bool = False,
+    dry_run: bool = False,
+) -> int:
+    """Fetch raw PBP for one game_id and merge into a season source file."""
+    try:
+        from nba_api.stats.endpoints import playbyplayv3
+    except Exception as e:
+        print(f"[error] Could not import playbyplayv3 endpoint: {e}")
+        return 1
+
+    try:
+        repo_dir = ensure_data_repo(repo_dir)
+        start_year = _season_start_year_from_str(season)  # validates YYYY-YY
+        if season_phase not in {"regular", "playoffs"}:
+            raise ValueError(f"Unsupported --phase: {season_phase}")
+        if target_source not in {"nbastatsv3", "api_pbpv3"}:
+            raise ValueError(f"Unsupported --target-source: {target_source}")
+
+        gid = _normalize_game_id(game_id)
+        if len(gid) != 10 or not gid.isdigit():
+            raise ValueError(f"Invalid --game-id: {game_id}. Expected a 10-digit game id like 0021201216")
+
+        out_dir = _pbp_data_subdir(repo_dir, target_source, season_phase, create=not dry_run)
+        out_name = _pbp_output_filename(target_source, start_year, season_phase)
+        out_path = out_dir / out_name
+
+        existing_df = pd.DataFrame()
+        existing_ids: set[str] = set()
+        if out_path.exists():
+            try:
+                existing_df = _read_pbp_table(out_path)
+            except Exception:
+                existing_df = pd.DataFrame()
+            existing_ids = _existing_game_ids_from_pbp_csv(out_path)
+
+        already_present = gid in existing_ids
+        print(f"[pbp] Single-game fetch: season={season}, phase={season_phase}, source={target_source}, game_id={gid}")
+        print(f"[pbp] Output: {out_path}")
+        print(f"[pbp] Already present: {already_present}")
+
+        if already_present and not overwrite_game:
+            print("[pbp] Skip (game already present). Use --overwrite-game to replace existing rows for this game.")
+            return 0
+
+        if dry_run:
+            print("[pbp] DRY RUN - no API calls performed")
+            return 0
+
+        _, pbp_df, source_name, err_msg = _fetch_single_game_pbp(
+            gid,
+            playbyplayv3,
+            float(request_timeout),
+            max(1, int(retries)),
+        )
+        if pbp_df is None or pbp_df.empty:
+            print(f"[pbp] FAIL {gid} ({err_msg})")
+            return 1
+
+        if not existing_df.empty:
+            existing_df = _normalize_api_pbpv3_df(existing_df)
+            if overwrite_game:
+                game_col = _guess_game_id_column(list(existing_df.columns))
+                if game_col:
+                    mask = existing_df[game_col].map(_normalize_game_id) != gid
+                    existing_df = existing_df[mask].copy()
+
+        combined = pd.concat([existing_df, pbp_df], ignore_index=True, sort=False)
+        combined = _normalize_api_pbpv3_df(combined)
+        combined = _dedupe_pbp_actions_df(combined)
+        combined = _normalize_api_pbpv3_df(combined)
+
+        if backup_existing and target_source == "nbastatsv3" and out_path.exists():
+            _backup_existing_pbp_file(out_path, dry_run=False)
+
+        _write_pbp_table(combined, out_path)
+        _update_pbp_manifest_for_csv(repo_dir, target_source, season, season_phase, out_path)
+
+        print(f"[pbp] OK {gid} ({source_name}, rows={len(pbp_df)})")
+        print(f"[pbp] Wrote {out_path.name} with total rows={len(combined)} games={len(_existing_game_ids_from_pbp_csv(out_path))}")
+        return 0
+
+    except Exception as e:
+        print(f"[error] fetch-pbp-game failed: {e}")
+        return 1
+
+
 # ------------------------- CLI commands -------------------------
 
 def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int:
@@ -1654,6 +2808,8 @@ def build_parser() -> argparse.ArgumentParser:
 Examples (run from backend directory):
   python admin/cli.py update-data --season 2025-26
   python admin/cli.py download-data --start 2020-21 --end 2024-25
+  python admin/cli.py backfill-pbp-raw --start 2000-01 --end 2025-26
+  python admin/cli.py update-pbp-raw --season 2025-26 --phase both
   python admin/cli.py commit-and-push --message "Update data"
   python admin/cli.py git-status
 """,
@@ -1736,6 +2892,329 @@ Use --max-new N to fail when more than N new games would be generated.
     p_interp.add_argument("--max-new", type=int, default=None,
                           help="Fail when more than N new games would be generated")
 
+    p_backfill_pbp = sub.add_parser(
+        "backfill-pbp-raw",
+        help="Backfill raw historical PBP into NBA_Data/PBPdata",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py backfill-pbp-raw --start 2000-01 --end 2025-26
+  python admin/cli.py backfill-pbp-raw --start 2020-21 --end 2025-26 --skip-cdnnba
+  python admin/cli.py backfill-pbp-raw --start 2024-25 --end 2025-26 --dry-run
+
+Reads existing historical files from shuf_datasets and writes raw CSVs to:
+  NBA_Data/PBPdata/<source>/<regular|playoffs>/*.csv
+
+No parsing or feature engineering is performed.
+""",
+    )
+    p_backfill_pbp.add_argument("--start", required=True, help="Start season like 2000-01")
+    p_backfill_pbp.add_argument("--end", required=True, help="End season like 2025-26")
+    p_backfill_pbp.add_argument(
+        "--source-dir",
+        default=str(DEFAULT_SHUF_DATASETS_DIR),
+        help=f"Directory containing historical PBP files (default: {DEFAULT_SHUF_DATASETS_DIR})",
+    )
+    p_backfill_pbp.add_argument("--skip-cdnnba", action="store_true", help="Do not include cdnnba historical files")
+    p_backfill_pbp.add_argument("--overwrite", action="store_true", help="Overwrite existing destination CSV files")
+    p_backfill_pbp.add_argument("--dry-run", action="store_true", help="Show planned actions only")
+
+    p_update_pbp = sub.add_parser(
+        "update-pbp-raw",
+        help="Incrementally fetch missing raw PBP from nba_api into NBA_Data/PBPdata source files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py update-pbp-raw --season 2025-26
+  python admin/cli.py update-pbp-raw --season 2025-26 --phase regular
+  python admin/cli.py update-pbp-raw --season 2025-26 --phase both --max-games 20
+  python admin/cli.py update-pbp-raw --season 2025-26 --target-source api_pbpv3
+  python admin/cli.py update-pbp-raw --season 2025-26 --phase regular --max-games 20 --workers 8 --request-timeout 10 --retries 2
+
+Default write target:
+  NBA_Data/PBPdata/nbastatsv3/regular/nbastatsv3_YYYY.parquet
+  NBA_Data/PBPdata/nbastatsv3/playoffs/nbastatsv3_po_YYYY.parquet
+with a timestamped backup of existing files before overwrite.
+
+Optional legacy target:
+  NBA_Data/PBPdata/api_pbpv3/regular/api_pbpv3_YYYY.csv
+  NBA_Data/PBPdata/api_pbpv3/playoffs/api_pbpv3_po_YYYY.csv
+
+By default, only missing game IDs are fetched.
+Use --overwrite-existing to refetch and replace all eligible games for the season/phase.
+""",
+    )
+    p_update_pbp.add_argument("--season", required=True, help="Season like 2025-26")
+    p_update_pbp.add_argument(
+        "--migrate-nbastatsv3-to-parquet",
+        action="store_true",
+        help="Convert PBPdata/nbastatsv3/*.csv to .parquet and archive old CSVs",
+    )
+    p_update_pbp.add_argument(
+        "--csv-archive-dir",
+        default="PBPdata/nbastatsv3_csv_archive",
+        help="Archive directory (relative to --repo-dir unless absolute) for old nbastatsv3 CSV files",
+    )
+    p_update_pbp.add_argument(
+        "--target-source",
+        choices=["nbastatsv3", "api_pbpv3"],
+        default="nbastatsv3",
+        help="Destination source folder to update (default: nbastatsv3)",
+    )
+    p_update_pbp.add_argument(
+        "--phase",
+        choices=["regular", "playoffs", "both"],
+        default="both",
+        help="Which phase to update (default: both)",
+    )
+    p_update_pbp.add_argument("--max-games", type=int, default=None, help="Optional cap on missing games to fetch")
+    p_update_pbp.add_argument(
+        "--overwrite-existing",
+        action="store_true",
+        help="Refetch and replace existing rows for all eligible game IDs (historical refresh mode)",
+    )
+    p_update_pbp.add_argument(
+        "--workers",
+        type=int,
+        default=PBP_FETCH_MAX_WORKERS,
+        help=f"Parallel fetch workers (default: {PBP_FETCH_MAX_WORKERS})",
+    )
+    p_update_pbp.add_argument(
+        "--request-timeout",
+        type=float,
+        default=PBP_FETCH_TIMEOUT_SECONDS,
+        help=f"Per-request timeout seconds (default: {PBP_FETCH_TIMEOUT_SECONDS})",
+    )
+    p_update_pbp.add_argument(
+        "--retries",
+        type=int,
+        default=PBP_FETCH_RETRIES,
+        help=f"Attempts per game across nba_api + cdnnba fallback (default: {PBP_FETCH_RETRIES})",
+    )
+    p_update_pbp.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Skip backup file creation when overwriting nbastatsv3 outputs",
+    )
+    p_update_pbp.add_argument("--dry-run", action="store_true", help="Show what would be fetched without API calls")
+
+    p_fetch_pbp_game = sub.add_parser(
+        "fetch-pbp-game",
+        help="Fetch raw PBP for exactly one game_id and merge into a season source file",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py fetch-pbp-game --season 2012-13 --game-id 0021201216 --phase regular
+  python admin/cli.py fetch-pbp-game --season 2012-13 --game-id 0021201216 --phase regular --overwrite-game
+  python admin/cli.py fetch-pbp-game --season 2025-26 --game-id 0022500001 --target-source api_pbpv3
+
+This command is intended for targeted repairs of missing games.
+Season format is always YYYY-YY.
+""",
+    )
+    p_fetch_pbp_game.add_argument("--season", required=True, help="Season like 2012-13")
+    p_fetch_pbp_game.add_argument("--game-id", required=True, help="10-digit game_id like 0021201216")
+    p_fetch_pbp_game.add_argument(
+        "--phase",
+        choices=["regular", "playoffs"],
+        default="regular",
+        help="Which phase file to update (default: regular)",
+    )
+    p_fetch_pbp_game.add_argument(
+        "--target-source",
+        choices=["nbastatsv3", "api_pbpv3"],
+        default="nbastatsv3",
+        help="Destination source folder to update (default: nbastatsv3)",
+    )
+    p_fetch_pbp_game.add_argument(
+        "--request-timeout",
+        type=float,
+        default=PBP_FETCH_TIMEOUT_SECONDS,
+        help=f"Per-request timeout seconds (default: {PBP_FETCH_TIMEOUT_SECONDS})",
+    )
+    p_fetch_pbp_game.add_argument(
+        "--retries",
+        type=int,
+        default=PBP_FETCH_RETRIES,
+        help=f"Attempts across nba_api + cdnnba fallback (default: {PBP_FETCH_RETRIES})",
+    )
+    p_fetch_pbp_game.add_argument(
+        "--overwrite-game",
+        action="store_true",
+        help="Replace existing rows for this game_id instead of skipping when already present",
+    )
+    p_fetch_pbp_game.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Skip backup file creation when writing nbastatsv3 outputs",
+    )
+    p_fetch_pbp_game.add_argument("--dry-run", action="store_true", help="Show what would be fetched without API calls")
+
+    p_build_states = sub.add_parser(
+        "build-pbp-game-states",
+        help="Build per-event cumulative game-log states from raw PBP",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py build-pbp-game-states --season 2023-24 --phase regular
+  python admin/cli.py build-pbp-game-states --season 2023-24 --phase regular --max-games 10
+  python admin/cli.py build-pbp-game-states --season 2023-24 --game-id 0022300001 --overwrite
+
+Writes one JSON per game, with a full cumulative game-log state after each PBP row.
+Final event state is validated against team_game_logs_YYYY-YY.csv totals.
+""",
+    )
+    p_build_states.add_argument("--season", required=True, help="Season like 2023-24")
+    p_build_states.add_argument(
+        "--phase",
+        choices=["regular", "playoffs"],
+        default="regular",
+        help="Which phase to process (default: regular)",
+    )
+    p_build_states.add_argument(
+        "--pbp-source",
+        choices=["auto", "nbastatsv3", "api_pbpv3"],
+        default="auto",
+        help=(
+            "PBP source to parse. 'auto' prefers nbastatsv3 first, "
+            "then falls back to api_pbpv3 when needed."
+        ),
+    )
+    p_build_states.add_argument("--output-root", default=None, help="Optional root directory for output JSON files")
+    p_build_states.add_argument("--max-games", type=int, default=None, help="Optional max number of games to process")
+    p_build_states.add_argument("--game-id", default=None, help="Optional specific game_id to process")
+    p_build_states.add_argument("--overwrite", action="store_true", help="Overwrite existing per-game output files")
+
+    p_winprob_base = sub.add_parser(
+        "build-pbp-winprob-base",
+        help="Build stacked win-probability baseline CSV from game-state JSON files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py build-pbp-winprob-base --season 2023-24
+  python admin/cli.py build-pbp-winprob-base --season 2023-24 --phase regular --overwrite
+  python admin/cli.py build-pbp-winprob-base --season 2023-24 --input-root /path/to/game_states
+  python admin/cli.py build-pbp-winprob-base --season 2023-24 --output-root /path/to/winprob_base
+
+By default this reads from:
+  <repo-dir>/PBPdata/game_states/<phase>/<season>
+and writes to:
+  <repo-dir>/PBPdata/winprob_base/<phase>/stacked_<season>_winprob_base.csv
+""",
+    )
+    p_winprob_base.add_argument("--season", required=True, help="Season like 2023-24")
+    p_winprob_base.add_argument(
+        "--phase",
+        choices=["regular", "playoffs"],
+        default="regular",
+        help="Which phase to process (default: regular)",
+    )
+    p_winprob_base.add_argument(
+        "--input-root",
+        default=None,
+        help=(
+            "Optional game-state root. Accepted shapes: "
+            "<root>/<phase>/<season> or <root>/<season> or <root>."
+        ),
+    )
+    p_winprob_base.add_argument(
+        "--output-root",
+        default=None,
+        help=(
+            "Optional root directory for output CSV. "
+            "CSV path becomes <output-root>/<phase>/stacked_<season>_winprob_base.csv"
+        ),
+    )
+    p_winprob_base.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing output CSV if present",
+    )
+
+    default_winprob_input_root = str((Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "winprob_base").resolve())
+    default_wpm_output_root = str((Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "winprob_models").resolve())
+
+    p_wpm = sub.add_parser(
+        "build-pbp-winprob-models",
+        help="Train season-specific win probability models and export JSON artifacts",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Examples:
+  python admin/cli.py build-pbp-winprob-models --season 2025-26
+  python admin/cli.py build-pbp-winprob-models --lookback-seasons 3 --overwrite
+  python admin/cli.py build-pbp-winprob-models --input-root {default_winprob_input_root}
+
+Training rule:
+  - 2000-01: in-sample training on 2000-01
+  - Later seasons: train on up to 3 prior seasons (no in-season rows from target season)
+""",
+    )
+    p_wpm.add_argument("--season", default=None, help="Optional single target season like 2025-26")
+    p_wpm.add_argument(
+        "--phase",
+        choices=["regular", "playoffs"],
+        default="regular",
+        help="Phase namespace for input data path (default: regular). Artifacts are written flat under --output-root.",
+    )
+    p_wpm.add_argument(
+        "--lookback-seasons",
+        type=int,
+        default=3,
+        help="Number of prior seasons for training window (default: 3)",
+    )
+    p_wpm.add_argument(
+        "--input-root",
+        default=default_winprob_input_root,
+        help="Root directory containing stacked winprob CSVs",
+    )
+    p_wpm.add_argument(
+        "--output-root",
+        default=default_wpm_output_root,
+        help="Root directory for WPM JSON artifacts",
+    )
+    p_wpm.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing model artifacts if present",
+    )
+
+    p_wpm_predict = sub.add_parser(
+        "predict-pbp-winprob",
+        help="Predict home win probability from a season WPM artifact",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=f"""
+Examples:
+  python admin/cli.py predict-pbp-winprob --season 2025-26 --quarter 4 --seconds-left 120 --differential 3 --possession-numeric 1
+  python admin/cli.py predict-pbp-winprob --season 2025-26 --quarter 2 --seconds-left 300 --differential -5 --home-team BOS --road-team NYK --possession BOS
+  python admin/cli.py predict-pbp-winprob --season 2025-26 --output-root {default_wpm_output_root}
+""",
+    )
+    p_wpm_predict.add_argument("--season", required=True, help="Season like 2025-26")
+    p_wpm_predict.add_argument(
+        "--phase",
+        choices=["regular", "playoffs"],
+        default="regular",
+        help="Legacy artifact subfolder fallback (default: regular). New artifacts are read from flat --output-root paths.",
+    )
+    p_wpm_predict.add_argument(
+        "--output-root",
+        default=default_wpm_output_root,
+        help="Root directory containing WPM JSON artifacts",
+    )
+    p_wpm_predict.add_argument("--quarter", type=int, required=True, help="Quarter number (1.., OT > 4)")
+    p_wpm_predict.add_argument("--seconds-left", type=float, required=True, help="Seconds left in current period")
+    p_wpm_predict.add_argument("--differential", type=float, required=True, help="Home score minus road score at current moment")
+    p_wpm_predict.add_argument(
+        "--possession-numeric",
+        type=int,
+        default=None,
+        choices=[-1, 0, 1],
+        help="Optional possession encoding (home=1, road=-1, unknown=0). Overrides string possession mapping.",
+    )
+    p_wpm_predict.add_argument("--home-team", default=None, help="Optional home team tricode (used with --possession)")
+    p_wpm_predict.add_argument("--road-team", default=None, help="Optional road team tricode (used with --possession)")
+    p_wpm_predict.add_argument("--possession", default=None, help="Optional team tricode with possession")
+
     sub.add_parser(
         "git-status",
         help="Show git status (short) in NBA_Data repo",
@@ -1788,6 +3267,102 @@ def main(argv: Optional[list[str]] = None) -> int:
             dry_run=args.dry_run,
             limit=args.limit,
             max_new=args.max_new,
+        )
+
+    if args.command == "backfill-pbp-raw":
+        return backfill_pbp_raw(
+            start_season=args.start,
+            end_season=args.end,
+            repo_dir=repo_dir,
+            source_dir=Path(args.source_dir),
+            include_cdnnba=not args.skip_cdnnba,
+            overwrite=args.overwrite,
+            dry_run=args.dry_run,
+        )
+
+    if args.command == "update-pbp-raw":
+        return update_pbp_raw(
+            season=args.season,
+            repo_dir=repo_dir,
+            season_phase=args.phase,
+            target_source=args.target_source,
+            backup_existing=not args.no_backup,
+            overwrite_existing=args.overwrite_existing,
+            max_games=args.max_games,
+            request_timeout=args.request_timeout,
+            retries=args.retries,
+            max_workers=args.workers,
+            migrate_nbastatsv3_to_parquet=args.migrate_nbastatsv3_to_parquet,
+            csv_archive_dir=args.csv_archive_dir,
+            dry_run=args.dry_run,
+        )
+
+    if args.command == "fetch-pbp-game":
+        return fetch_pbp_game(
+            season=args.season,
+            game_id=args.game_id,
+            repo_dir=repo_dir,
+            season_phase=args.phase,
+            target_source=args.target_source,
+            backup_existing=not args.no_backup,
+            request_timeout=args.request_timeout,
+            retries=args.retries,
+            overwrite_game=args.overwrite_game,
+            dry_run=args.dry_run,
+        )
+
+    if args.command == "build-pbp-game-states":
+        from admin.pbp_game_states import build_pbp_game_states
+
+        return build_pbp_game_states(
+            season=args.season,
+            repo_dir=repo_dir,
+            phase=args.phase,
+            source=args.pbp_source,
+            output_root=args.output_root,
+            max_games=args.max_games,
+            game_id=args.game_id,
+            overwrite=args.overwrite,
+        )
+
+    if args.command == "build-pbp-winprob-base":
+        from admin.pbp_game_states import build_winprob_base
+
+        return build_winprob_base(
+            season=args.season,
+            repo_dir=repo_dir,
+            phase=args.phase,
+            input_root=args.input_root,
+            output_root=args.output_root,
+            overwrite=args.overwrite,
+        )
+
+    if args.command == "build-pbp-winprob-models":
+        from admin.winprob_models import build_winprob_models
+
+        return build_winprob_models(
+            input_root=args.input_root,
+            output_root=args.output_root,
+            phase=args.phase,
+            season=args.season,
+            lookback_seasons=args.lookback_seasons,
+            overwrite=args.overwrite,
+        )
+
+    if args.command == "predict-pbp-winprob":
+        from admin.winprob_models import predict_winprob
+
+        return predict_winprob(
+            season=args.season,
+            output_root=args.output_root,
+            phase=args.phase,
+            quarter=args.quarter,
+            seconds_left=args.seconds_left,
+            differential=args.differential,
+            possession_numeric=args.possession_numeric,
+            possession=args.possession,
+            home_team=args.home_team,
+            road_team=args.road_team,
         )
 
     if args.command == "git-status":

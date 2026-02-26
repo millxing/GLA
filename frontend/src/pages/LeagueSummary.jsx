@@ -128,6 +128,48 @@ const TEAM_NAME_BY_ABBR = {
   WSB: 'Washington Bullets',
 }
 
+const TEAM_CITY_BY_ABBR = {
+  ATL: 'Atlanta',
+  BOS: 'Boston',
+  BKN: 'Brooklyn',
+  BRK: 'Brooklyn',
+  CHH: 'Charlotte',
+  CHA: 'Charlotte',
+  CHO: 'Charlotte',
+  CHI: 'Chicago',
+  CLE: 'Cleveland',
+  DAL: 'Dallas',
+  DEN: 'Denver',
+  DET: 'Detroit',
+  GSW: 'Golden State',
+  HOU: 'Houston',
+  IND: 'Indiana',
+  LAC: 'LA Clippers',
+  LAL: 'LA Lakers',
+  MEM: 'Memphis',
+  MIA: 'Miami',
+  MIL: 'Milwaukee',
+  MIN: 'Minnesota',
+  NJN: 'New Jersey',
+  NOH: 'New Orleans',
+  NOK: 'New Orleans/Oklahoma City',
+  NOP: 'New Orleans',
+  NYK: 'New York',
+  OKC: 'Oklahoma City',
+  ORL: 'Orlando',
+  PHI: 'Philadelphia',
+  PHX: 'Phoenix',
+  POR: 'Portland',
+  SAC: 'Sacramento',
+  SAS: 'San Antonio',
+  SEA: 'Seattle',
+  TOR: 'Toronto',
+  UTA: 'Utah',
+  VAN: 'Vancouver',
+  WAS: 'Washington',
+  WSB: 'Washington',
+}
+
 function renderXAxisTitle(props) {
   const { viewBox } = props || {}
   if (!viewBox) return null
@@ -142,7 +184,7 @@ function renderXAxisTitle(props) {
       fill="var(--color-text-secondary)"
       fontSize="15"
     >
-      Offensive Efficiency
+      Offensive Rating
     </text>
   )
 }
@@ -162,7 +204,7 @@ function renderYAxisTitle(props) {
       fontSize="15"
       transform={`rotate(-90 ${x} ${y})`}
     >
-      Defensive Efficiency
+      Defensive Rating
     </text>
   )
 }
@@ -579,6 +621,7 @@ function LeagueSummary() {
     return sortedTeams.map((team) => ({
       team: team.team,
       team_name: TEAM_NAME_BY_ABBR[team.team] || team.team,
+      team_city: TEAM_CITY_BY_ABBR[team.team] || TEAM_NAME_BY_ABBR[team.team] || team.team,
       off_rating: team.off_rating,
       def_rating: team.def_rating,
       net_rating: team.net_rating,
@@ -657,6 +700,51 @@ function LeagueSummary() {
     return `${nowLabel} | ${rangeLabel}`
   }, [lastNGames, startDate, seasonBounds.first])
 
+  const quadrantTeams = useMemo(() => {
+    const offCut = efficiencyLeagueAverages.off
+    const defCut = efficiencyLeagueAverages.def
+    const byNetDesc = (a, b) => b.net_rating - a.net_rating
+
+    return {
+      badOffGoodDef: efficiencyChartData
+        .filter((team) => team.off_rating < offCut && team.def_rating <= defCut)
+        .sort(byNetDesc),
+      goodOffGoodDef: efficiencyChartData
+        .filter((team) => team.off_rating >= offCut && team.def_rating <= defCut)
+        .sort(byNetDesc),
+      badOffBadDef: efficiencyChartData
+        .filter((team) => team.off_rating < offCut && team.def_rating > defCut)
+        .sort(byNetDesc),
+      goodOffBadDef: efficiencyChartData
+        .filter((team) => team.off_rating >= offCut && team.def_rating > defCut)
+        .sort(byNetDesc),
+    }
+  }, [efficiencyChartData, efficiencyLeagueAverages])
+
+  const formatSignedNetRating = (value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}`
+
+  const renderQuadrantNote = (title, teams, keyPrefix) => (
+    <>
+      <h3 className="efficiency-note-title">{title}</h3>
+      <div className="efficiency-note-columns">
+        <span>Team</span>
+        <span>NRtg</span>
+      </div>
+      {teams.length > 0 ? (
+        <ul className="efficiency-note-list">
+          {teams.map((team) => (
+            <li key={`${keyPrefix}-${team.team}`} className="efficiency-note-list-item">
+              <span className="efficiency-note-team">{team.team_city}</span>
+              <span className="efficiency-note-net">{formatSignedNetRating(team.net_rating)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="efficiency-note-empty">No teams</div>
+      )}
+    </>
+  )
+
   return (
     <div className="league-summary container">
       <h1 className="page-title">League Summary</h1>
@@ -666,7 +754,7 @@ function LeagueSummary() {
 
       <div className="controls card">
         <div className="form-row">
-          <div className="form-group">
+          <div className="form-group season-control">
             <label className="form-label">Season</label>
             <select
               className="form-select"
@@ -680,7 +768,7 @@ function LeagueSummary() {
             </select>
           </div>
 
-          <div className="form-group">
+          <div className="form-group date-range-control">
             <label className="form-label">Date Range</label>
             <select
               className="form-select"
@@ -693,7 +781,35 @@ function LeagueSummary() {
             </select>
           </div>
 
-          <div className="form-group">
+          {dateRangePreset === 'custom' && (
+            <>
+              <div className="form-group custom-date-control">
+                <label className="form-label">Start Date</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={customStartDate}
+                  min={seasonBounds.first || undefined}
+                  max={seasonBounds.last || undefined}
+                  onChange={(e) => setCustomStartDate(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group custom-date-control">
+                <label className="form-label">End Date</label>
+                <input
+                  type="date"
+                  className="form-input"
+                  value={customEndDate}
+                  min={seasonBounds.first || undefined}
+                  max={seasonBounds.last || undefined}
+                  onChange={(e) => setCustomEndDate(e.target.value)}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="form-group table-view-control">
             <label className="form-label">Table View</label>
             <div className="view-toggle-group">
               <button
@@ -708,38 +824,10 @@ function LeagueSummary() {
                 className={`view-toggle-btn ${tableView === VIEW_SOS_ADJUSTMENTS ? 'active' : ''}`}
                 onClick={() => setTableView(VIEW_SOS_ADJUSTMENTS)}
               >
-                Show Strength of Schedule Adjustments
+                Show Strength of Schedule
               </button>
             </div>
           </div>
-
-          {dateRangePreset === 'custom' && (
-            <>
-              <div className="form-group">
-                <label className="form-label">Start Date</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={customStartDate}
-                  min={seasonBounds.first || undefined}
-                  max={seasonBounds.last || undefined}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">End Date</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={customEndDate}
-                  min={seasonBounds.first || undefined}
-                  max={seasonBounds.last || undefined}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                />
-              </div>
-            </>
-          )}
 
         </div>
       </div>
@@ -788,7 +876,9 @@ function LeagueSummary() {
               <tbody>
                 {sortedTeams.map((team, index) => (
                   <tr key={team.team}>
-                    <td className="rank-col">{index + 1}</td>
+                    <td className="rank-col">
+                      <span className="rank-value">{index + 1}</span>
+                    </td>
                     {activeColumns.map((col) => (
                       <td
                         key={col.key}
@@ -885,6 +975,20 @@ function LeagueSummary() {
                       </Scatter>
                     </ScatterChart>
                   </ResponsiveContainer>
+                  <div className="efficiency-quadrant-notes">
+                    <div className="efficiency-note efficiency-note--left-top efficiency-note--data">
+                      {renderQuadrantNote('Bad Offense & Good Defense', quadrantTeams.badOffGoodDef, 'bad-off-good-def')}
+                    </div>
+                    <div className="efficiency-note efficiency-note--right-top efficiency-note--data">
+                      {renderQuadrantNote('Good Offense & Good Defense', quadrantTeams.goodOffGoodDef, 'good-off-good-def')}
+                    </div>
+                    <div className="efficiency-note efficiency-note--left-bottom efficiency-note--data">
+                      {renderQuadrantNote('Bad Offense & Bad Defense', quadrantTeams.badOffBadDef, 'bad-off-bad-def')}
+                    </div>
+                    <div className="efficiency-note efficiency-note--right-bottom efficiency-note--data">
+                      {renderQuadrantNote('Good Offense & Bad Defense', quadrantTeams.goodOffBadDef, 'good-off-bad-def')}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

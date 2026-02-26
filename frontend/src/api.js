@@ -39,6 +39,17 @@ export async function getDecomposition(season, gameId, factorType) {
   return fetchApi(`/api/decomposition?${params}`)
 }
 
+export async function getGameTimeline(season, gameId, options = {}) {
+  const params = new URLSearchParams({
+    season,
+    game_id: gameId,
+  })
+  if (options.gameType) params.append('game_type', options.gameType)
+  if (options.homeTeam) params.append('home_team', options.homeTeam)
+  if (options.roadTeam) params.append('road_team', options.roadTeam)
+  return fetchApi(`/api/game-timeline?${params}`)
+}
+
 export async function getLeagueSummary(
   season,
   startDate,

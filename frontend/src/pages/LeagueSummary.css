@@ -18,20 +18,59 @@
   margin-bottom: var(--spacing-lg);
 }
 
+.league-summary .controls .form-row > .season-control {
+  flex: 0 0 125px;
+  min-width: 125px;
+  max-width: 125px;
+}
+
+.league-summary .controls .form-row > .date-range-control {
+  flex: 0 0 178px;
+  min-width: 178px;
+  max-width: 178px;
+}
+
+.league-summary .controls .form-row > .custom-date-control {
+  flex: 0 0 174px;
+  min-width: 174px;
+  max-width: 174px;
+}
+
+.league-summary .controls .form-row > .table-view-control {
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+
+.league-summary .form-select,
+.league-summary .form-input,
+.view-toggle-btn {
+  height: 42px;
+}
+
 .view-toggle-group {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-xs);
-  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
 }
 
 .view-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  white-space: nowrap;
   border: 1px solid var(--color-border);
   background-color: var(--color-background);
   color: var(--color-text);
   border-radius: var(--border-radius-sm);
-  padding: var(--spacing-xs) var(--spacing-sm);
-  font-size: 0.8125rem;
+  padding: 0 0.5rem;
+  font-size: 0.875rem;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
@@ -101,6 +140,18 @@
   display: block;
   text-align: center;
   width: 100%;
+}
+
+.summary-table tbody td.rank-col {
+  text-align: center;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.summary-table tbody td.rank-col .rank-value {
+  display: block;
+  width: 100%;
+  text-align: center;
 }
 
 .team-cell {
@@ -232,6 +283,8 @@
 .efficiency-chart-shell {
   display: flex;
   justify-content: center;
+  padding-inline: clamp(0px, 18vw, 220px);
+  overflow: visible;
 }
 
 .efficiency-chart-container {
@@ -239,6 +292,129 @@
   width: min(100%, 680px);
   aspect-ratio: 1 / 0.9;
   min-height: 500px;
+  --chart-margin-top: 20px;
+  --chart-margin-right: 56px;
+  --chart-margin-bottom: 54px;
+  --chart-margin-left: 56px;
+  --plot-half-width: calc((100% - var(--chart-margin-left) - var(--chart-margin-right)) / 2);
+  --axis-y: calc(var(--chart-margin-top) + ((100% - var(--chart-margin-top) - var(--chart-margin-bottom)) / 2));
+  --note-width: 220px;
+  --note-height: 220px;
+  --note-gap: 24px;
+}
+
+.efficiency-quadrant-notes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.efficiency-note {
+  position: absolute;
+  width: var(--note-width);
+  height: var(--note-height);
+  border: 2px solid rgba(31, 41, 55, 0.9);
+  border-radius: 24px;
+  background: var(--color-background);
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0.75rem;
+}
+
+.efficiency-note--data {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+}
+
+.efficiency-note-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  font-weight: 800;
+  white-space: normal;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  color: var(--color-text);
+}
+
+.efficiency-note-columns {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+  padding-bottom: 0.15rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--color-text-secondary);
+}
+
+.efficiency-note-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.efficiency-note-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.66rem;
+  line-height: 1.2;
+}
+
+.efficiency-note-team {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.efficiency-note-net {
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.efficiency-note-empty {
+  font-size: 0.66rem;
+  color: var(--color-text-secondary);
+}
+
+.efficiency-note--left-top {
+  left: calc(50% - var(--plot-half-width) - var(--note-gap) - var(--note-width));
+  top: calc((var(--axis-y) * 0.5) - (var(--note-height) * 0.5));
+}
+
+.efficiency-note--right-top {
+  left: calc(50% + var(--plot-half-width) + var(--note-gap));
+  top: calc((var(--axis-y) * 0.5) - (var(--note-height) * 0.5));
+}
+
+.efficiency-note--left-bottom {
+  left: calc(50% - var(--plot-half-width) - var(--note-gap) - var(--note-width));
+  top: calc(var(--axis-y) + ((100% - var(--axis-y)) * 0.5) - (var(--note-height) * 0.5));
+}
+
+.efficiency-note--right-bottom {
+  left: calc(50% + var(--plot-half-width) + var(--note-gap));
+  top: calc(var(--axis-y) + ((100% - var(--axis-y)) * 0.5) - (var(--note-height) * 0.5));
 }
 
 .efficiency-tooltip {
@@ -322,7 +498,7 @@
 
 .toggle-icon {
   font-size: 1.25rem;
-  font-weight: 400;
+  font-weight: 500;
   color: var(--color-text-secondary);
 }
 
@@ -485,6 +661,28 @@
     max-width: 55px;
   }
 
+  .league-summary .controls .form-row > .season-control {
+    flex-basis: 120px;
+    min-width: 120px;
+    max-width: 120px;
+  }
+
+  .league-summary .controls .form-row > .date-range-control {
+    flex-basis: 167px;
+    min-width: 167px;
+    max-width: 167px;
+  }
+
+  .league-summary .controls .form-row > .custom-date-control {
+    flex-basis: 154px;
+    min-width: 154px;
+    max-width: 154px;
+  }
+
+  .league-summary .controls .form-row > .table-view-control {
+    min-width: 100%;
+  }
+
   .glossary-list {
     grid-template-columns: 1fr;
   }
@@ -497,5 +695,13 @@
     width: 100%;
     aspect-ratio: 1 / 1;
     min-height: 420px;
+  }
+
+  .efficiency-chart-shell {
+    padding-inline: 0;
+  }
+
+  .efficiency-quadrant-notes {
+    display: none;
   }
 }

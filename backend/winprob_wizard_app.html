@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WPM Wizard</title>
+  <style>
+    :root {
+      --bg1: #f4efe6;
+      --bg2: #dfe7ef;
+      --ink: #1a232f;
+      --muted: #566273;
+      --panel: #ffffffcc;
+      --line: #cbd4df;
+      --brand: #0f766e;
+      --brand-2: #0b5f58;
+      --alert: #9f1239;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 20% 0%, #ffffff66 0, transparent 45%),
+        linear-gradient(135deg, var(--bg1), var(--bg2));
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+
+    .app {
+      width: min(760px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 14px 40px #0000001a;
+      overflow: hidden;
+    }
+
+    .top {
+      padding: 20px 22px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffffaa;
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 24px;
+      letter-spacing: 0.2px;
+    }
+
+    .sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .body {
+      padding: 18px 22px 22px;
+    }
+
+    .progress {
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .question {
+      font-size: 19px;
+      margin: 0 0 10px;
+      line-height: 1.35;
+    }
+
+    .hint {
+      margin: 0 0 12px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    input, select, button {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      padding: 11px 12px;
+      font-size: 16px;
+      background: #fff;
+      color: var(--ink);
+    }
+
+    input:focus, select:focus {
+      outline: 2px solid #0f766e33;
+      border-color: var(--brand);
+    }
+
+    .controls {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    button {
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.08s ease, background 0.12s ease;
+    }
+
+    button:active { transform: translateY(1px); }
+    .ghost { background: #fff; }
+    .primary {
+      background: var(--brand);
+      color: #fff;
+      border-color: var(--brand);
+    }
+    .primary:hover { background: var(--brand-2); }
+
+    .result {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      background: #fff;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 5px 0;
+      border-bottom: 1px dashed #d8e0ea;
+      font-size: 14px;
+    }
+
+    .row:last-child { border-bottom: none; }
+    .k { color: var(--muted); }
+    .v { font-weight: 600; text-align: right; }
+    .error {
+      margin-top: 12px;
+      color: var(--alert);
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    @media (max-width: 560px) {
+      .question { font-size: 17px; }
+      .controls { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="top">
+      <h1>Win Probability Wizard</h1>
+      <p class="sub">One input at a time. Forecast from season WPM, then compare to actual game result.</p>
+    </section>
+    <section class="body">
+      <div id="progress" class="progress"></div>
+      <h2 id="question" class="question"></h2>
+      <p id="hint" class="hint"></p>
+      <div id="inputWrap"></div>
+      <div class="controls">
+        <button id="backBtn" class="ghost" type="button">Back</button>
+        <button id="nextBtn" class="primary" type="button">Next</button>
+      </div>
+      <div id="error" class="error"></div>
+      <div id="result" class="result" hidden></div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      season: "",
+      game_id: "",
+      game_seconds_left: "",
+      seasons: [],
+      step: 0,
+    };
+
+    const steps = [
+      {
+        key: "season",
+        label: "1) Which season do you want to use?",
+        hint: "The app uses the model artifact for this season.",
+        type: "select",
+      },
+      {
+        key: "game_id",
+        label: "2) Enter the game ID",
+        hint: "Use the full 10-digit ID with leading zeros. Example: 0022500818",
+        type: "text",
+      },
+      {
+        key: "game_seconds_left",
+        label: "3) Seconds left in the game (0-720)?",
+        hint: "This is game time remaining. The app finds the nearest game moment automatically.",
+        type: "number",
+        min: 0,
+      },
+    ];
+
+    const els = {
+      progress: document.getElementById("progress"),
+      question: document.getElementById("question"),
+      hint: document.getElementById("hint"),
+      inputWrap: document.getElementById("inputWrap"),
+      backBtn: document.getElementById("backBtn"),
+      nextBtn: document.getElementById("nextBtn"),
+      error: document.getElementById("error"),
+      result: document.getElementById("result"),
+    };
+
+    async function loadSeasons() {
+      const res = await fetch("/api/winprob/model-seasons?phase=regular");
+      if (!res.ok) throw new Error("Could not load seasons");
+      const data = await res.json();
+      state.seasons = Array.isArray(data.seasons) ? data.seasons : [];
+      if (!state.season && state.seasons.length) {
+        state.season = state.seasons[state.seasons.length - 1];
+      }
+    }
+
+    function renderInput(step) {
+      els.inputWrap.innerHTML = "";
+      let input;
+
+      if (step.type === "select") {
+        input = document.createElement("select");
+        for (const season of state.seasons) {
+          const opt = document.createElement("option");
+          opt.value = season;
+          opt.textContent = season;
+          if (season === state[step.key]) opt.selected = true;
+          input.appendChild(opt);
+        }
+      } else {
+        input = document.createElement("input");
+        input.type = step.type;
+        if (typeof step.min !== "undefined") input.min = step.min;
+        input.value = state[step.key] ?? "";
+        input.placeholder = step.hint || "";
+      }
+
+      input.id = "currentInput";
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") onNext();
+      });
+      els.inputWrap.appendChild(input);
+      requestAnimationFrame(() => input.focus());
+    }
+
+    function render() {
+      const step = steps[state.step];
+      els.progress.textContent = `Step ${state.step + 1} of ${steps.length}`;
+      els.question.textContent = step.label;
+      els.hint.textContent = step.hint || "";
+      els.backBtn.disabled = state.step === 0;
+      els.nextBtn.textContent = state.step === steps.length - 1 ? "Generate Forecast" : "Next";
+      els.error.textContent = "";
+      renderInput(step);
+    }
+
+    function validateAndStoreCurrent() {
+      const step = steps[state.step];
+      const input = document.getElementById("currentInput");
+      if (!input) return false;
+      const value = input.value.trim();
+
+      if (value === "") {
+        els.error.textContent = "Please enter a value to continue.";
+        return false;
+      }
+      if (step.key === "game_id" && !/^\d{10}$/.test(value)) {
+        els.error.textContent = "Game ID must be exactly 10 digits (with leading zeros).";
+        return false;
+      }
+      if (step.key === "game_seconds_left") {
+        const n = Number(value);
+        if (!Number.isFinite(n) || n < 0 || n > 720) {
+          els.error.textContent = "Seconds left must be between 0 and 720.";
+          return false;
+        }
+      }
+      state[step.key] = value;
+      return true;
+    }
+
+    function onBack() {
+      if (state.step > 0) {
+        state.step -= 1;
+        render();
+      }
+    }
+
+    async function onNext() {
+      if (!validateAndStoreCurrent()) return;
+      if (state.step < steps.length - 1) {
+        state.step += 1;
+        render();
+        return;
+      }
+      await generateForecast();
+    }
+
+    function pct(v) {
+      return `${(Number(v) * 100).toFixed(1)}%`;
+    }
+
+    async function generateForecast() {
+      els.error.textContent = "";
+      els.nextBtn.disabled = true;
+      els.nextBtn.textContent = "Working...";
+      els.result.hidden = true;
+
+      try {
+        const url = new URL("/api/winprob/forecast", window.location.origin);
+        url.searchParams.set("season", state.season);
+        url.searchParams.set("game_id", state.game_id);
+        url.searchParams.set("game_seconds_left", state.game_seconds_left);
+        url.searchParams.set("phase", "regular");
+
+        const res = await fetch(url.toString());
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Forecast request failed");
+
+        const f = data.forecast || {};
+        const s = data.state_lookup || {};
+        const actualLabel = s.actual_result_label || "Unavailable";
+        const actualDiff = Number(s.final_score_diff ?? NaN);
+        const actualDiffLabel = Number.isFinite(actualDiff) ? actualDiff.toFixed(1) : "n/a";
+        const homeTeam = s.home_team || "HOME";
+        const roadTeam = s.road_team || "ROAD";
+
+        els.result.innerHTML = `
+          <div class="row"><span class="k">Season</span><span class="v">${data.season}</span></div>
+          <div class="row"><span class="k">Game</span><span class="v">${data.game_id} (${roadTeam} @ ${homeTeam})</span></div>
+          <div class="row"><span class="k">Requested sec left</span><span class="v">${Number(s.requested_game_seconds_left ?? 0).toFixed(1)}</span></div>
+          <div class="row"><span class="k">Matched sec left</span><span class="v">${Number(s.matched_game_seconds_left ?? 0).toFixed(1)} (off by ${Number(s.distance_seconds ?? 0).toFixed(1)}s)</span></div>
+          <div class="row"><span class="k">Matched state</span><span class="v">Q${s.quarter ?? "?"}, period sec ${Number(s.seconds_left ?? 0).toFixed(1)}, diff ${Number(s.differential ?? 0).toFixed(1)}, poss ${s.possession_numeric ?? 0}</span></div>
+          <div class="row"><span class="k">Forecast (soft vote)</span><span class="v">${pct(f.ensemble_soft_vote)} HOME win</span></div>
+          <div class="row"><span class="k">Predicted label</span><span class="v">${f.predicted_label || "n/a"}</span></div>
+          <div class="row"><span class="k">Actual result</span><span class="v">${actualLabel}</span></div>
+          <div class="row"><span class="k">Final score diff (home-road)</span><span class="v">${actualDiffLabel}</span></div>
+          <div class="row"><span class="k">Model probs</span><span class="v">LR ${pct(f.logistic_interactions)} | HGB ${pct(f.hist_gradient_boosting)} | RF ${pct(f.random_forest_isotonic)}</span></div>
+        `;
+        els.result.hidden = false;
+      } catch (err) {
+        els.error.textContent = err.message || String(err);
+      } finally {
+        els.nextBtn.disabled = false;
+        els.nextBtn.textContent = "Generate Forecast";
+      }
+    }
+
+    els.backBtn.addEventListener("click", onBack);
+    els.nextBtn.addEventListener("click", onNext);
+
+    (async function init() {
+      try {
+        await loadSeasons();
+        if (!state.seasons.length) {
+          els.error.textContent = "No model seasons found. Generate WPM artifacts first.";
+          els.nextBtn.disabled = true;
+          return;
+        }
+        render();
+      } catch (err) {
+        els.error.textContent = err.message || String(err);
+        els.nextBtn.disabled = true;
+      }
+    })();
+  </script>
+</body>
+</html>

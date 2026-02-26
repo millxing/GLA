@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WPM Hypothetical</title>
+  <style>
+    :root {
+      --bg-a: #f2ebdf;
+      --bg-b: #d7e4ef;
+      --ink: #1a2430;
+      --muted: #566476;
+      --panel: #ffffffde;
+      --line: #c8d3df;
+      --brand: #0f766e;
+      --brand-d: #0c5f59;
+      --err: #a11d42;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 80% 0%, #ffffff9c 0, transparent 42%),
+        linear-gradient(135deg, var(--bg-a), var(--bg-b));
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+    .shell {
+      width: min(820px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: 0 14px 36px #0000001f;
+      overflow: hidden;
+    }
+    .head {
+      padding: 18px 20px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #ffffffc7;
+    }
+    h1 { margin: 0; font-size: 24px; }
+    .sub { margin: 6px 0 0; color: var(--muted); font-size: 14px; }
+    .body { padding: 16px 20px 20px; }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .field label {
+      display: block;
+      font-size: 13px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+    input, select, button {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 11px 12px;
+      font-size: 16px;
+      color: var(--ink);
+      background: #fff;
+    }
+    input:focus, select:focus {
+      outline: 2px solid #0f766e33;
+      border-color: var(--brand);
+    }
+    .action {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: 1fr;
+    }
+    button {
+      cursor: pointer;
+      font-weight: 700;
+      background: var(--brand);
+      border-color: var(--brand);
+      color: #fff;
+    }
+    button:hover { background: var(--brand-d); }
+    .err {
+      margin-top: 10px;
+      color: var(--err);
+      font-size: 14px;
+      font-weight: 600;
+      min-height: 20px;
+    }
+    .result {
+      margin-top: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #fff;
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 0;
+      border-bottom: 1px dashed #dce4ee;
+      font-size: 14px;
+    }
+    .row:last-child { border-bottom: none; }
+    .k { color: var(--muted); }
+    .v { text-align: right; font-weight: 600; }
+    @media (max-width: 700px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="head">
+      <h1>Hypothetical Win Probability</h1>
+      <p class="sub">Enter a game state, choose season + model, then generate forecast.</p>
+    </section>
+    <section class="body">
+      <div class="grid">
+        <div class="field">
+          <label for="season">Season Model</label>
+          <select id="season"></select>
+        </div>
+        <div class="field">
+          <label for="model">ML Model View</label>
+          <select id="model">
+            <option value="ensemble_soft_vote">Ensemble Soft Vote</option>
+            <option value="logistic_interactions">Logistic (Interactions)</option>
+            <option value="hist_gradient_boosting">Hist Gradient Boosting</option>
+            <option value="random_forest_isotonic">Random Forest (Isotonic)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="quarter">Quarter</label>
+          <input id="quarter" type="number" min="1" value="4" />
+        </div>
+        <div class="field">
+          <label for="seconds_left">Seconds Left In Period</label>
+          <input id="seconds_left" type="number" min="0" max="720" value="120" />
+        </div>
+        <div class="field">
+          <label for="differential">Differential (Home - Road)</label>
+          <input id="differential" type="number" value="3" />
+        </div>
+        <div class="field">
+          <label for="possession_numeric">Possession</label>
+          <select id="possession_numeric">
+            <option value="1">Home (1)</option>
+            <option value="-1">Road (-1)</option>
+            <option value="0">Unknown (0)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="action">
+        <button id="run" type="button">Generate Forecast</button>
+      </div>
+      <div id="err" class="err"></div>
+      <div id="result" class="result" hidden></div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const pct = (v) => `${(Number(v) * 100).toFixed(1)}%`;
+    let lastPayload = null;
+
+    const keys = {
+      ensemble_soft_vote: "Ensemble Soft Vote",
+      logistic_interactions: "Logistic (Interactions)",
+      hist_gradient_boosting: "Hist Gradient Boosting",
+      random_forest_isotonic: "Random Forest (Isotonic)",
+    };
+
+    async function loadSeasons() {
+      const res = await fetch("/api/winprob/model-seasons");
+      if (!res.ok) throw new Error("Could not load season models.");
+      const data = await res.json();
+      const seasons = Array.isArray(data.seasons) ? data.seasons : [];
+      if (!seasons.length) throw new Error("No season model files found.");
+
+      const select = $("season");
+      select.innerHTML = "";
+      for (const season of seasons) {
+        const opt = document.createElement("option");
+        opt.value = season;
+        opt.textContent = season;
+        select.appendChild(opt);
+      }
+      select.value = seasons[seasons.length - 1];
+    }
+
+    function validateInputs() {
+      const quarter = Number($("quarter").value);
+      const secondsLeft = Number($("seconds_left").value);
+      const differential = Number($("differential").value);
+      const possessionNumeric = Number($("possession_numeric").value);
+
+      if (!Number.isFinite(quarter) || quarter < 1) return "Quarter must be 1 or higher.";
+      if (!Number.isFinite(secondsLeft) || secondsLeft < 0 || secondsLeft > 720) return "Seconds left must be between 0 and 720.";
+      if (!Number.isFinite(differential)) return "Differential must be a number.";
+      if (![1, 0, -1].includes(possessionNumeric)) return "Possession must be 1, 0, or -1.";
+      return null;
+    }
+
+    function renderResult(payload) {
+      const modelKey = $("model").value;
+      const modelName = keys[modelKey] || modelKey;
+      const forecast = payload.forecast || {};
+      const inputs = payload.inputs || {};
+      const selectedProb = Number(forecast[modelKey]);
+      const selectedLabel = selectedProb >= 0.5 ? "HOME_WIN" : "ROAD_WIN";
+
+      const html = `
+        <div class="row"><span class="k">Season model</span><span class="v">${payload.season}</span></div>
+        <div class="row"><span class="k">State</span><span class="v">Q${inputs.quarter}, ${Number(inputs.seconds_left).toFixed(1)}s, diff ${Number(inputs.differential).toFixed(1)}, poss ${inputs.possession_numeric}</span></div>
+        <div class="row"><span class="k">Selected model</span><span class="v">${modelName}</span></div>
+        <div class="row"><span class="k">Selected HOME win prob</span><span class="v">${pct(selectedProb)}</span></div>
+        <div class="row"><span class="k">Selected predicted side</span><span class="v">${selectedLabel}</span></div>
+        <div class="row"><span class="k">All model probs</span><span class="v">Ensemble ${pct(forecast.ensemble_soft_vote)} | LR ${pct(forecast.logistic_interactions)} | HGB ${pct(forecast.hist_gradient_boosting)} | RF ${pct(forecast.random_forest_isotonic)}</span></div>
+      `;
+      $("result").innerHTML = html;
+      $("result").hidden = false;
+    }
+
+    async function runForecast() {
+      $("err").textContent = "";
+      $("result").hidden = true;
+
+      const validationError = validateInputs();
+      if (validationError) {
+        $("err").textContent = validationError;
+        return;
+      }
+
+      const button = $("run");
+      button.disabled = true;
+      button.textContent = "Working...";
+      try {
+        const url = new URL("/api/winprob/hypothetical-forecast", location.origin);
+        url.searchParams.set("season", $("season").value);
+        url.searchParams.set("quarter", $("quarter").value);
+        url.searchParams.set("seconds_left", $("seconds_left").value);
+        url.searchParams.set("differential", $("differential").value);
+        url.searchParams.set("possession_numeric", $("possession_numeric").value);
+
+        const res = await fetch(url.toString());
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Forecast failed.");
+        lastPayload = data;
+        renderResult(data);
+      } catch (err) {
+        $("err").textContent = err.message || String(err);
+      } finally {
+        button.disabled = false;
+        button.textContent = "Generate Forecast";
+      }
+    }
+
+    $("run").addEventListener("click", runForecast);
+    $("model").addEventListener("change", () => {
+      if (lastPayload && !$("result").hidden) {
+        renderResult(lastPayload);
+      }
+    });
+
+    (async function init() {
+      try {
+        await loadSeasons();
+      } catch (err) {
+        $("err").textContent = err.message || String(err);
+        $("run").disabled = true;
+      }
+    })();
+  </script>
+</body>
+</html>

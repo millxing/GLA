@@ -66,6 +66,34 @@ class DecompositionResponse(BaseModel):
     overtime_count: int = 0
     game_type: Optional[str] = None
 
+
+class GameTimelineState(BaseModel):
+    pts_home: Optional[int] = None
+    pts_road: Optional[int] = None
+
+
+class GameTimelineEvent(BaseModel):
+    event_index: Optional[int] = None
+    period: Optional[int] = None
+    clock: Optional[str] = None
+    description: str = ""
+    possession_after_side: Optional[str] = None
+    possession_team_tricode: Optional[str] = None
+    game_log_state: GameTimelineState
+
+
+class GameTimelineResponse(BaseModel):
+    season: str
+    phase: str
+    game_id: str
+    game_date: Optional[str] = None
+    game_type: Optional[str] = None
+    home_team: str
+    road_team: str
+    events: List[GameTimelineEvent]
+    validation_match: Optional[bool] = None
+
+
 class TeamStats(BaseModel):
     team: str
     games: int

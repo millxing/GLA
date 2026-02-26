@@ -179,6 +179,45 @@
   gap: var(--spacing-lg);
 }
 
+.analysis-view-toggle-card {
+  padding: var(--spacing-xs);
+}
+
+.analysis-view-toggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+  background: var(--color-background-alt);
+}
+
+.analysis-view-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.analysis-view-toggle button:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.analysis-view-toggle button.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
 .factors-table,
 .ratings-table {
   overflow-x: auto;
@@ -373,7 +412,7 @@
 
 .toggle-icon {
   font-size: 1.5rem;
-  font-weight: 300;
+  font-weight: 500;
   color: var(--color-text-secondary);
 }
 
@@ -447,7 +486,7 @@
   padding: var(--spacing-md);
   border-radius: var(--border-radius-sm);
   margin-top: var(--spacing-md);
-  font-family: monospace;
+  font-family: var(--font-family);
 }
 
 .model-formula code {

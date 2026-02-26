@@ -1,0 +1,1246 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PBP Analyze</title>
+  <style>
+    :root {
+      --bg: #f5f3ef;
+      --panel: #ffffff;
+      --ink: #131313;
+      --muted: #666666;
+      --line: #d9d4cb;
+      --accent: #0f766e;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 10% 10%, #ece7dd 0%, transparent 40%),
+        radial-gradient(circle at 90% 0%, #e4efe8 0%, transparent 35%),
+        var(--bg);
+    }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 28px auto;
+      padding: 0 16px 24px;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 1.5rem;
+      letter-spacing: 0.02em;
+    }
+
+    .controls,
+    .summary,
+    .table-shell,
+    .chart-shell {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 4px 18px rgba(0, 0, 0, 0.05);
+    }
+
+    .controls {
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.84rem;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      font-size: 0.95rem;
+    }
+
+    .view-controls {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: minmax(240px, 360px);
+      gap: 8px;
+      align-items: end;
+    }
+
+    .view-controls label {
+      margin-bottom: 6px;
+    }
+
+    .mode-toggle {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      overflow: hidden;
+      background: #f3f2ef;
+    }
+
+    .mode-toggle button {
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      padding: 8px 14px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    .mode-toggle button.active {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .summary {
+      display: none;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+
+    .summary strong {
+      color: var(--accent);
+    }
+
+    .status {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      display: none;
+    }
+
+    .table-shell {
+      overflow: auto;
+      max-height: 360px;
+    }
+
+    .chart-shell {
+      display: block;
+      margin-bottom: 12px;
+      padding: 10px 10px 14px;
+    }
+
+    .chart-shell canvas {
+      width: 100%;
+      height: 360px;
+      display: block;
+      border: 1px solid #ece8e0;
+      border-radius: 8px;
+      background: #fff;
+      cursor: crosshair;
+    }
+
+    .chart-legend {
+      margin-top: 8px;
+      font-size: 0.84rem;
+      color: var(--muted);
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      margin-right: 12px;
+    }
+
+    .legend-swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      margin-right: 6px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #f7f7f7;
+      border-bottom: 1px solid var(--line);
+      z-index: 1;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 1px solid #ece8e0;
+      white-space: nowrap;
+    }
+
+    tbody tr:hover {
+      background: #faf8f3;
+    }
+
+    tbody tr {
+      cursor: pointer;
+    }
+
+    tbody tr.selected {
+      background: #eceff5;
+    }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .row-index {
+      text-align: left;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .play-desc {
+      white-space: normal;
+      min-width: 320px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>PBP Analyze</h1>
+
+    <div class="controls">
+      <label for="seasonSelect">Season</label>
+      <select id="seasonSelect" aria-label="Season">
+        <option value="">Loading seasons...</option>
+      </select>
+      <label for="phaseSelect">Phase</label>
+      <select id="phaseSelect" aria-label="Phase">
+        <option value="regular">Regular Season</option>
+        <option value="playoffs">Playoffs + Play-In</option>
+      </select>
+      <label for="gameSelect">Game</label>
+      <select id="gameSelect" aria-label="Game">
+        <option value="">Select season first...</option>
+      </select>
+      <div class="view-controls">
+        <div>
+          <div class="mode-toggle" role="group" aria-label="Chart series toggle">
+            <button id="modeBoth" type="button" class="active">Scores</button>
+            <button id="modeDiff" type="button">Differential</button>
+          </div>
+        </div>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="summary" id="summary"></div>
+
+    <div class="chart-shell" id="chartShell">
+      <canvas id="scoreChart"></canvas>
+      <div class="chart-legend" id="chartLegend"></div>
+    </div>
+
+    <div class="table-shell" id="tableShell">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Play</th>
+            <th>Quarter</th>
+            <th>Seconds Left</th>
+            <th class="num" id="homeHeader">Home</th>
+            <th class="num" id="roadHeader">Road</th>
+            <th class="num">Differential</th>
+            <th>Possession</th>
+          </tr>
+        </thead>
+        <tbody id="scoreRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const DEFAULT_SEASON = "2023-24";
+    const DEFAULT_PHASE = "regular";
+    const FIRST_SEASON_START_YEAR = 2000;
+    const GAME_LOGS_PATH_TEMPLATES = [
+      "./data/pbp/processed/game_logs/team_game_logs_{season}.csv",
+      "/data/pbp/processed/game_logs/team_game_logs_{season}.csv",
+      "./data/pbp/processed/team_game_logs_{season}.csv",
+      "/data/pbp/processed/team_game_logs_{season}.csv",
+      "./team_game_logs_{season}.csv",
+    ];
+    const GAME_STATES_BASE_ROOT_CANDIDATES = [
+      "./data/pbp/processed/game_states",
+      "/data/pbp/processed/game_states",
+      "./PBPdata/game_states",
+      "/PBPdata/game_states",
+    ];
+
+    const seasonSelect = document.getElementById("seasonSelect");
+    const phaseSelect = document.getElementById("phaseSelect");
+    const gameSelect = document.getElementById("gameSelect");
+    const scoreRows = document.getElementById("scoreRows");
+    const statusEl = document.getElementById("status");
+    const summaryEl = document.getElementById("summary");
+    const homeHeader = document.getElementById("homeHeader");
+    const roadHeader = document.getElementById("roadHeader");
+    const tableShell = document.getElementById("tableShell");
+    const chartShell = document.getElementById("chartShell");
+    const scoreChart = document.getElementById("scoreChart");
+    const chartLegend = document.getElementById("chartLegend");
+    const modeBothBtn = document.getElementById("modeBoth");
+    const modeDiffBtn = document.getElementById("modeDiff");
+
+    let activeStatesDir = "";
+    let currentSeason = DEFAULT_SEASON;
+    let currentPhase = DEFAULT_PHASE;
+    let currentGames = [];
+    let currentGameData = null;
+    let currentEvents = [];
+    let chartMode = "both";
+    let currentDiagnostics = null;
+    let selectedEventIndex = null;
+    let currentChartPoints = [];
+    let currentChartMeta = null;
+
+    function normalizeGameId(raw) {
+      const text = String(raw || "").trim().replace(/\.0$/, "");
+      const digits = text.replace(/\D/g, "");
+      if (!digits) return "";
+      return digits.padStart(10, "0");
+    }
+
+    function parseCsv(csvText) {
+      const rows = [];
+      let i = 0;
+      let value = "";
+      let row = [];
+      let inQuotes = false;
+
+      while (i < csvText.length) {
+        const ch = csvText[i];
+        const next = csvText[i + 1];
+
+        if (ch === '"' && inQuotes && next === '"') {
+          value += '"';
+          i += 2;
+          continue;
+        }
+        if (ch === '"') {
+          inQuotes = !inQuotes;
+          i += 1;
+          continue;
+        }
+        if (ch === "," && !inQuotes) {
+          row.push(value);
+          value = "";
+          i += 1;
+          continue;
+        }
+        if ((ch === "\n" || ch === "\r") && !inQuotes) {
+          if (ch === "\r" && next === "\n") i += 1;
+          row.push(value);
+          rows.push(row);
+          row = [];
+          value = "";
+          i += 1;
+          continue;
+        }
+
+        value += ch;
+        i += 1;
+      }
+
+      if (value.length > 0 || row.length > 0) {
+        row.push(value);
+        rows.push(row);
+      }
+
+      if (rows.length === 0) return [];
+      const headers = rows[0];
+      return rows.slice(1).filter((r) => r.length > 1).map((r) => {
+        const out = {};
+        headers.forEach((h, idx) => {
+          out[h] = r[idx] ?? "";
+        });
+        return out;
+      });
+    }
+
+    function buildGameLogsPaths(season) {
+      return GAME_LOGS_PATH_TEMPLATES.map((tpl) => tpl.replace("{season}", season));
+    }
+
+    function normalizeGameType(value) {
+      const normalized = String(value || "").trim().toLowerCase().replace(/\s+/g, "_");
+      if (normalized === "playoff") return "playoffs";
+      if (normalized === "playin") return "play_in";
+      return normalized;
+    }
+
+    function gameTypeMatchesPhase(gameType, phase) {
+      const normalized = normalizeGameType(gameType);
+      if (phase === "playoffs") return normalized === "playoffs" || normalized === "play_in";
+      return normalized !== "playoffs" && normalized !== "play_in" && normalized !== "all_star";
+    }
+
+    function statesDirCandidatesForSeason(season, phase) {
+      return GAME_STATES_BASE_ROOT_CANDIDATES.map((root) => `${root}/${phase}/${season}`);
+    }
+
+    function seasonLabelFromStartYear(startYear) {
+      const nextYearSuffix = String((startYear + 1) % 100).padStart(2, "0");
+      return `${startYear}-${nextYearSuffix}`;
+    }
+
+    function buildSeasonCandidates() {
+      const nowYear = new Date().getFullYear();
+      const defaultStartYear = Number(DEFAULT_SEASON.slice(0, 4)) || nowYear;
+      const maxStartYear = Math.max(defaultStartYear, nowYear) + 1;
+      const out = [];
+      for (let year = FIRST_SEASON_START_YEAR; year <= maxStartYear; year += 1) {
+        out.push(seasonLabelFromStartYear(year));
+      }
+      return out;
+    }
+
+    function parseSeasonsFromDirectoryListing(htmlText) {
+      const matches = [...htmlText.matchAll(/href="([^"]+)"/gi)];
+      const seasons = new Set();
+      const rx = /^(\d{4}-\d{2})\/?$/;
+      for (const m of matches) {
+        const name = decodeURIComponent(m[1].split("/").pop());
+        const hit = name.match(rx);
+        if (hit) seasons.add(hit[1]);
+      }
+      return Array.from(seasons);
+    }
+
+    function sortSeasonsDesc(seasons) {
+      return [...seasons].sort((a, b) => {
+        const ay = Number(a.slice(0, 4));
+        const by = Number(b.slice(0, 4));
+        return by - ay;
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function gameLabel(game) {
+      const dateLabel = game.game_date || currentSeason;
+      return `${dateLabel}: ${game.team_abbreviation_road} @ ${game.team_abbreviation_home}`;
+    }
+
+    function clearTable() {
+      scoreRows.innerHTML = "";
+      homeHeader.textContent = "Home";
+      roadHeader.textContent = "Road";
+    }
+
+    function clearChart() {
+      const ctx = scoreChart.getContext("2d");
+      ctx.clearRect(0, 0, scoreChart.width || 0, scoreChart.height || 0);
+      chartLegend.innerHTML = "";
+    }
+
+    function clearGameView() {
+      clearTable();
+      clearChart();
+      summaryEl.style.display = "none";
+      currentGameData = null;
+      currentEvents = [];
+      currentDiagnostics = null;
+      selectedEventIndex = null;
+      currentChartPoints = [];
+      currentChartMeta = null;
+    }
+
+    function resetGameSelect(message) {
+      gameSelect.innerHTML = "";
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = message;
+      gameSelect.appendChild(opt);
+      gameSelect.disabled = true;
+    }
+
+    function setStatus(text, isError = false) {
+      if (!isError || !text) {
+        statusEl.textContent = "";
+        statusEl.style.display = "none";
+        return;
+      }
+      statusEl.textContent = text;
+      statusEl.style.color = "#b91c1c";
+      statusEl.style.display = "block";
+    }
+
+    async function fetchTextFromCandidates(paths) {
+      let lastErr = null;
+      for (const path of paths) {
+        try {
+          const res = await fetch(path, { cache: "no-store" });
+          if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+          const text = await res.text();
+          return { path, text };
+        } catch (err) {
+          lastErr = err;
+        }
+      }
+      throw lastErr || new Error("Failed to fetch from candidate paths.");
+    }
+
+    async function detectStatesDir(season, phase) {
+      const dirCandidates = statesDirCandidatesForSeason(season, phase);
+      for (const dir of dirCandidates) {
+        try {
+          const summaryUrl = `${dir}/_summary_${season}_${phase}.json`;
+          const res = await fetch(summaryUrl, { cache: "no-store" });
+          if (!res.ok) continue;
+          await res.json();
+          return dir;
+        } catch (_) {
+          // continue
+        }
+      }
+      return dirCandidates[0];
+    }
+
+    async function detectAvailableSeasons(phase) {
+      const seasons = new Set();
+
+      // Fast path: use directory listing when available.
+      for (const root of GAME_STATES_BASE_ROOT_CANDIDATES) {
+        try {
+          const { text } = await fetchTextFromCandidates([`${root}/${phase}/`]);
+          for (const season of parseSeasonsFromDirectoryListing(text)) {
+            seasons.add(season);
+          }
+        } catch (_) {
+          // ignore unavailable roots
+        }
+      }
+
+      // Robust fallback: probe summary files directly (works without dir listing).
+      const candidates = buildSeasonCandidates();
+      for (const season of candidates) {
+        if (seasons.has(season)) continue;
+        const summaryName = `_summary_${season}_${phase}.json`;
+        for (const root of GAME_STATES_BASE_ROOT_CANDIDATES) {
+          try {
+            const res = await fetch(`${root}/${phase}/${season}/${summaryName}`, { cache: "no-store" });
+            if (!res.ok) continue;
+            await res.json();
+            seasons.add(season);
+            break;
+          } catch (_) {
+            // continue
+          }
+        }
+      }
+
+      if (!seasons.size) return [DEFAULT_SEASON];
+      return sortSeasonsDesc(Array.from(seasons));
+    }
+
+    async function loadGamesFromIndex(season, phase, statesDir) {
+      const indexUrl = `${statesDir}/_index_${season}_${phase}.json`;
+      try {
+        const res = await fetch(indexUrl, { cache: "no-store" });
+        if (!res.ok) return [];
+        const payload = await res.json();
+        const rows = Array.isArray(payload) ? payload : (Array.isArray(payload.games) ? payload.games : []);
+        return rows
+          .map((r) => ({
+            game_date: r.game_date || season,
+            team_abbreviation_home: String(r.team_abbreviation_home || "").trim(),
+            team_abbreviation_road: String(r.team_abbreviation_road || "").trim(),
+            game_id_norm: normalizeGameId(r.game_id_norm || r.game_id || ""),
+          }))
+          .filter((r) => r.game_id_norm && r.team_abbreviation_home && r.team_abbreviation_road)
+          .sort((a, b) => {
+            const da = String(a.game_date || "");
+            const db = String(b.game_date || "");
+            if (da === db) return b.game_id_norm.localeCompare(a.game_id_norm);
+            return db.localeCompare(da);
+          });
+      } catch (_) {
+        return [];
+      }
+    }
+
+    function parseGamesFromDirectoryListing(htmlText, season) {
+      const matches = [...htmlText.matchAll(/href="([^"]+\.json)"/gi)];
+      const games = [];
+      const seasonEscaped = season.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const rx = new RegExp(`^${seasonEscaped}_([A-Z0-9]+)_([A-Z0-9]+)_(\\d{10})\\.json$`);
+      for (const m of matches) {
+        const name = decodeURIComponent(m[1].split("/").pop());
+        if (!name || name.startsWith("_summary_")) continue;
+        const parts = name.match(rx);
+        if (!parts) continue;
+        games.push({
+          game_date: season,
+          team_abbreviation_home: parts[1],
+          team_abbreviation_road: parts[2],
+          game_id_norm: parts[3],
+        });
+      }
+      games.sort((a, b) => b.game_id_norm.localeCompare(a.game_id_norm));
+      return games;
+    }
+
+    function buildRow(event) {
+      const state = event.game_log_state || {};
+      const period = Number(event.period || 0);
+      const secondsLeft = clockToSecondsRemaining(event.clock, period);
+      const periodLabel = formatPeriod(period);
+      const home = Number(state.pts_home);
+      const road = Number(state.pts_road);
+      const diff = Number.isFinite(home) && Number.isFinite(road) ? home - road : "";
+      const possession =
+        event.possession_team_tricode ||
+        (event.possession_after_side === "home"
+          ? (currentGameData?.home_team || "")
+          : event.possession_after_side === "road"
+            ? (currentGameData?.road_team || "")
+            : "");
+      const description = escapeHtml(event.description || "");
+      const eventIndex = Number(event.event_index || 0);
+      const tr = document.createElement("tr");
+      if (Number.isFinite(eventIndex) && eventIndex > 0) {
+        tr.dataset.eventIndex = String(eventIndex);
+      }
+      tr.innerHTML = `
+        <td class="row-index">${event.event_index ?? ""}</td>
+        <td class="play-desc">${description}</td>
+        <td>${periodLabel}</td>
+        <td>${secondsLeft ?? ""}</td>
+        <td class="num">${Number.isFinite(home) ? home : (state.pts_home ?? "")}</td>
+        <td class="num">${Number.isFinite(road) ? road : (state.pts_road ?? "")}</td>
+        <td class="num">${diff}</td>
+        <td>${escapeHtml(possession)}</td>
+      `;
+      return tr;
+    }
+
+    function updateRowSelection() {
+      const rows = scoreRows.querySelectorAll("tr[data-event-index]");
+      rows.forEach((row) => {
+        const idx = Number(row.dataset.eventIndex || 0);
+        row.classList.toggle("selected", Number.isFinite(selectedEventIndex) && idx === selectedEventIndex);
+      });
+    }
+
+    function scrollSelectedRowIntoView() {
+      if (!Number.isFinite(selectedEventIndex)) return;
+      const row = scoreRows.querySelector(`tr[data-event-index="${selectedEventIndex}"]`);
+      if (!row) return;
+      const rowTop = row.offsetTop;
+      const rowBottom = rowTop + row.offsetHeight;
+      const viewTop = tableShell.scrollTop;
+      const viewBottom = viewTop + tableShell.clientHeight;
+      const padding = 10;
+
+      // Explicit scroll math is more reliable than scrollIntoView in nested overflow containers.
+      if (rowTop < viewTop + padding || rowBottom > viewBottom - padding) {
+        const targetTop = Math.max(0, Math.floor(rowTop - tableShell.clientHeight * 0.35));
+        tableShell.scrollTop = targetTop;
+      }
+    }
+
+    function periodLength(period) {
+      return period > 4 ? 300 : 720;
+    }
+
+    function elapsedSeconds(period, secondsLeft) {
+      if (!Number.isFinite(period) || period <= 0 || !Number.isFinite(secondsLeft)) return null;
+      let elapsed = 0;
+      for (let p = 1; p < period; p += 1) elapsed += periodLength(p);
+      return elapsed + (periodLength(period) - secondsLeft);
+    }
+
+    function chartPointsFromEvents(events) {
+      const raw = [];
+      events.forEach((event) => {
+        const period = Number(event.period || 0);
+        const secondsLeft = clockToSecondsRemaining(event.clock, period);
+        if (!period || secondsLeft === null) return;
+        const state = event.game_log_state || {};
+        const home = Number(state.pts_home);
+        const road = Number(state.pts_road);
+        if (!Number.isFinite(home) || !Number.isFinite(road)) return;
+        const xRaw = elapsedSeconds(period, secondsLeft);
+        if (!Number.isFinite(xRaw)) return;
+        raw.push({
+          xRaw,
+          period,
+          secondsLeft,
+          home,
+          road,
+          eventIndex: Number(event.event_index || 0),
+        });
+      });
+
+      raw.sort((a, b) => a.eventIndex - b.eventIndex);
+
+      let eventOrderDrops = 0;
+      let clockBacktracks = 0;
+      let timestampRevisits = 0;
+      let timestampConflicts = 0;
+      let prevEventHome = 0;
+      let prevEventRoad = 0;
+      let hasPrevEvent = false;
+      let prevXRaw = null;
+      let prevKey = null;
+      const seenKeys = new Set();
+      const firstScoreByKey = new Map();
+
+      const points = [];
+      let prevXAdjusted = -Infinity;
+      const epsilon = 0.001;
+
+      for (const p of raw) {
+        if (hasPrevEvent && (p.home < prevEventHome || p.road < prevEventRoad)) {
+          eventOrderDrops += 1;
+        }
+        prevEventHome = p.home;
+        prevEventRoad = p.road;
+        hasPrevEvent = true;
+
+        if (prevXRaw !== null && p.xRaw < prevXRaw) {
+          clockBacktracks += 1;
+        }
+        prevXRaw = p.xRaw;
+
+        const key = `${p.period}|${p.secondsLeft}`;
+        if (seenKeys.has(key) && prevKey !== key) {
+          timestampRevisits += 1;
+        }
+        seenKeys.add(key);
+        prevKey = key;
+
+        const firstScore = firstScoreByKey.get(key);
+        if (!firstScore) {
+          firstScoreByKey.set(key, { home: p.home, road: p.road });
+        } else if (firstScore.home !== p.home || firstScore.road !== p.road) {
+          timestampConflicts += 1;
+        }
+
+        let x = p.xRaw;
+        if (x < prevXAdjusted) {
+          x = prevXAdjusted + epsilon;
+        }
+        prevXAdjusted = x;
+
+        points.push({
+          x,
+          home: p.home,
+          road: p.road,
+          diff: p.home - p.road,
+          eventIndex: p.eventIndex,
+        });
+      }
+
+      return {
+        points,
+        diagnostics: {
+          eventOrderDrops,
+          clockBacktracks,
+          timestampRevisits,
+          timestampConflicts,
+        },
+      };
+    }
+
+    function resizeCanvasToDisplaySize(canvas) {
+      const dpr = window.devicePixelRatio || 1;
+      const width = Math.max(1, Math.floor(canvas.clientWidth * dpr));
+      const height = Math.max(1, Math.floor(canvas.clientHeight * dpr));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      return { dpr, width, height };
+    }
+
+    function drawLine(ctx, points, color, project) {
+      if (points.length === 0) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      points.forEach((p, idx) => {
+        const [x, y] = project(p);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    function periodLabelShort(period) {
+      if (period <= 4) return `Q${period}`;
+      return `OT${period - 4}`;
+    }
+
+    function buildPeriodTicks(maxPeriod) {
+      const ticks = [];
+      let elapsed = 0;
+      for (let p = 1; p <= maxPeriod; p += 1) {
+        ticks.push({ x: elapsed, label: periodLabelShort(p) });
+        elapsed += periodLength(p);
+      }
+      return ticks;
+    }
+
+    function renderChart(events, gameData, mode) {
+      const { points, diagnostics } = chartPointsFromEvents(events);
+      currentDiagnostics = diagnostics;
+      const ctx = scoreChart.getContext("2d");
+      const { width, height, dpr } = resizeCanvasToDisplaySize(scoreChart);
+      ctx.clearRect(0, 0, width, height);
+
+      if (!points.length) {
+        chartLegend.innerHTML = "No chartable events.";
+        return;
+      }
+
+      const left = 56;
+      const right = 18;
+      const top = 18;
+      const bottom = 52;
+      const plotW = width - left - right;
+      const plotH = height - top - bottom;
+      const maxPeriod = Math.max(1, ...events.map((e) => Number(e.period || 0)));
+      const fullDuration = Array.from({ length: maxPeriod }, (_, i) => periodLength(i + 1)).reduce((a, b) => a + b, 0);
+      const xMax = Math.max(points[points.length - 1].x, fullDuration, 1);
+      const xTicks = buildPeriodTicks(maxPeriod);
+
+      let yMin;
+      let yMax;
+      let yTicks = [];
+      if (mode === "diff") {
+        const diffs = points.map((p) => p.diff);
+        const diffMin = Math.min(...diffs);
+        const diffMax = Math.max(...diffs);
+        yMin = Math.floor(Math.min(0, diffMin) / 5) * 5;
+        yMax = Math.ceil(Math.max(0, diffMax) / 5) * 5;
+        if (yMin === yMax) {
+          if (yMax <= 0) yMin -= 5;
+          else yMax += 5;
+        }
+        for (let y = yMin; y <= yMax; y += 5) yTicks.push(y);
+      } else {
+        const values = points.flatMap((p) => [p.home, p.road]);
+        yMin = 0;
+        const maxScore = Math.max(20, ...values);
+        yMax = Math.ceil(maxScore / 20) * 20;
+        for (let y = 0; y <= yMax; y += 20) yTicks.push(y);
+      }
+
+      const ySpan = Math.max(1, yMax - yMin);
+
+      const px = (x) => left + (x / xMax) * plotW;
+      const py = (y) => top + ((yMax - y) / ySpan) * plotH;
+      currentChartPoints = points;
+      currentChartMeta = {
+        left,
+        top,
+        plotW,
+        plotH,
+        xMax,
+        dpr,
+      };
+
+      // Vertical guide lines at period boundaries.
+      ctx.strokeStyle = "#ece7dd";
+      ctx.lineWidth = 1;
+      for (const tick of xTicks) {
+        const x = px(tick.x);
+        ctx.beginPath();
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, top + plotH);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = "#e5e0d8";
+      ctx.lineWidth = 1;
+      for (const yv of yTicks) {
+        const y = py(yv);
+        ctx.beginPath();
+        ctx.moveTo(left, y);
+        ctx.lineTo(left + plotW, y);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#666";
+      ctx.font = `${12 * dpr}px Avenir Next`;
+      for (const yv of yTicks) {
+        const y = py(yv);
+        ctx.fillText(String(Math.round(yv)), 8, y + 4);
+      }
+
+      ctx.strokeStyle = "#bdb8af";
+      ctx.beginPath();
+      ctx.moveTo(left, top);
+      ctx.lineTo(left, top + plotH);
+      ctx.lineTo(left + plotW, top + plotH);
+      ctx.stroke();
+
+      // X-axis ticks at quarter/OT boundaries
+      ctx.strokeStyle = "#cfc9bf";
+      ctx.fillStyle = "#666";
+      for (const tick of xTicks) {
+        const x = px(tick.x);
+        ctx.beginPath();
+        ctx.moveTo(x, top + plotH);
+        ctx.lineTo(x, top + plotH + 6);
+        ctx.stroke();
+        ctx.fillText(tick.label, x - (12 * dpr), top + plotH + (18 * dpr));
+      }
+
+      if (mode === "diff") {
+        if (0 >= yMin && 0 <= yMax) {
+          const y0 = py(0);
+          ctx.strokeStyle = "#111";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(left, y0);
+          ctx.lineTo(left + plotW, y0);
+          ctx.stroke();
+        }
+        drawLine(ctx, points, "#0f766e", (p) => [px(p.x), py(p.diff)]);
+        chartLegend.innerHTML = "Differential line: Home - Road";
+      } else {
+        drawLine(ctx, points, "#1d4ed8", (p) => [px(p.x), py(p.home)]);
+        drawLine(ctx, points, "#dc2626", (p) => [px(p.x), py(p.road)]);
+        chartLegend.innerHTML = `
+          <span class="legend-item" style="color:#1d4ed8"><span class="legend-swatch" style="background:#1d4ed8"></span>${gameData.home_team || "Home"}</span>
+          <span class="legend-item" style="color:#dc2626"><span class="legend-swatch" style="background:#dc2626"></span>${gameData.road_team || "Road"}</span>
+        `;
+      }
+
+      if (Number.isFinite(selectedEventIndex)) {
+        let markerX = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+        for (const p of points) {
+          const dist = Math.abs(p.eventIndex - selectedEventIndex);
+          if (dist < bestDistance) {
+            bestDistance = dist;
+            markerX = p.x;
+            if (dist === 0) break;
+          }
+        }
+        if (markerX !== null) {
+          const x = px(markerX);
+          ctx.strokeStyle = "#111";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, top + plotH);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function renderCurrentView() {
+      if (!currentGameData) return;
+      renderChart(currentEvents, currentGameData, chartMode);
+    }
+
+    function autoSizeTable() {
+      const rect = tableShell.getBoundingClientRect();
+      const viewport = window.innerHeight || 800;
+      const bottomGap = 30;
+      const available = Math.max(180, Math.floor(viewport - rect.top - bottomGap));
+      tableShell.style.maxHeight = `${available}px`;
+    }
+
+    function setChartMode(mode) {
+      chartMode = mode === "diff" ? "diff" : "both";
+      modeBothBtn.classList.toggle("active", chartMode === "both");
+      modeDiffBtn.classList.toggle("active", chartMode === "diff");
+      renderCurrentView();
+    }
+
+    function formatPeriod(period) {
+      if (!Number.isFinite(period) || period <= 0) return "";
+      if (period <= 4) return `Q${period}`;
+      return `OT${period - 4}`;
+    }
+
+    function clockToSecondsRemaining(clockText, period) {
+      if (!clockText) return null;
+      const match = String(clockText).trim().match(/^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/);
+      if (!match) return null;
+
+      const mins = match[1] ? Number(match[1]) : 0;
+      const secs = match[2] ? Number(match[2]) : 0;
+      const total = mins * 60 + secs;
+      const whole = Math.floor(total);
+
+      const maxSeconds = period > 4 ? 300 : 720;
+      if (!Number.isFinite(whole)) return null;
+      if (whole < 0) return 0;
+      if (whole > maxSeconds) return maxSeconds;
+      return whole;
+    }
+
+    async function loadGame(game) {
+      clearGameView();
+      setStatus("Loading game timeline...");
+
+      const filename = `${currentSeason}_${game.team_abbreviation_home}_${game.team_abbreviation_road}_${game.game_id_norm}.json`;
+      const url = `${activeStatesDir}/${filename}`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Could not load ${filename}`);
+        const data = await res.json();
+        currentGameData = data;
+
+        homeHeader.textContent = data.home_team || "Home";
+        roadHeader.textContent = data.road_team || "Road";
+
+        const events = Array.isArray(data.events) ? data.events : [];
+        currentEvents = events;
+        selectedEventIndex = null;
+        const frag = document.createDocumentFragment();
+        events.forEach((event) => frag.appendChild(buildRow(event)));
+        scoreRows.appendChild(frag);
+        updateRowSelection();
+
+        const finalState = data.final_state || {};
+        summaryEl.style.display = "block";
+        summaryEl.innerHTML = `
+          <strong>${data.game_date || ""}</strong>
+          ${data.road_team || "Road"} @ ${data.home_team || "Home"}:
+          <strong>${finalState.pts_road ?? "?"}</strong> -
+          <strong>${finalState.pts_home ?? "?"}</strong>
+          ${data.validation?.match ? "" : "(validation: mismatch)"}
+        `;
+
+        setStatus("");
+        renderCurrentView();
+        autoSizeTable();
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    }
+
+    async function loadSeason(season, phase) {
+      currentSeason = season;
+      currentPhase = phase;
+      activeStatesDir = await detectStatesDir(season, phase);
+
+      let games = [];
+      try {
+        const { text } = await fetchTextFromCandidates(buildGameLogsPaths(season));
+        const rows = parseCsv(text);
+        games = rows
+          .map((r) => ({
+            ...r,
+            game_id_norm: normalizeGameId(r.game_id),
+            game_type_norm: normalizeGameType(r.game_type),
+          }))
+          .filter((r) => r.game_id_norm && gameTypeMatchesPhase(r.game_type_norm, phase))
+          .sort((a, b) => {
+            const da = String(a.game_date || "");
+            const db = String(b.game_date || "");
+            if (da === db) return b.game_id_norm.localeCompare(a.game_id_norm);
+            return db.localeCompare(da);
+          });
+      } catch (_) {
+        games = await loadGamesFromIndex(season, phase, activeStatesDir);
+        if (!games.length) {
+          const { text } = await fetchTextFromCandidates([`${activeStatesDir}/`]);
+          games = parseGamesFromDirectoryListing(text, season);
+        }
+      }
+
+      if (!games.length) {
+        throw new Error(`No games found for ${season}`);
+      }
+
+      currentGames = games;
+      gameSelect.innerHTML = "";
+      games.forEach((game, idx) => {
+        const opt = document.createElement("option");
+        opt.value = String(idx);
+        opt.textContent = gameLabel(game);
+        gameSelect.appendChild(opt);
+      });
+      gameSelect.disabled = false;
+
+      gameSelect.value = "0";
+      await loadGame(games[0]);
+    }
+
+    async function refreshSeasonOptions(phase) {
+      const seasons = await detectAvailableSeasons(phase);
+      seasonSelect.innerHTML = "";
+
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Select a season...";
+      seasonSelect.appendChild(placeholder);
+
+      seasons.forEach((season) => {
+        const opt = document.createElement("option");
+        opt.value = season;
+        opt.textContent = season;
+        seasonSelect.appendChild(opt);
+      });
+      return seasons;
+    }
+
+    async function loadCurrentSelection() {
+      const season = String(seasonSelect.value || "").trim();
+      const phase = String(phaseSelect.value || DEFAULT_PHASE).trim();
+      if (!season) {
+        clearGameView();
+        resetGameSelect("Select season first...");
+        return;
+      }
+
+      clearGameView();
+      resetGameSelect("Loading games...");
+      await loadSeason(season, phase);
+      autoSizeTable();
+      setStatus("");
+    }
+
+    async function init() {
+      clearGameView();
+      setStatus("Loading seasons...");
+      resetGameSelect("Select season first...");
+      gameSelect.disabled = true;
+      phaseSelect.value = DEFAULT_PHASE;
+
+      if (window.location.protocol === "file:") {
+        const target = "http://localhost:8000/pbp_analyze.html";
+        setStatus(`Redirecting to ${target} ...`, true);
+        setTimeout(() => {
+          window.location.href = target;
+        }, 400);
+        return;
+      }
+
+      try {
+        const initialSeasons = await refreshSeasonOptions(DEFAULT_PHASE);
+        const initialSeason = initialSeasons.length ? initialSeasons[0] : "";
+        seasonSelect.value = initialSeason;
+
+        scoreRows.addEventListener("click", (event) => {
+          const row = event.target.closest("tr[data-event-index]");
+          if (!row) return;
+          const idx = Number(row.dataset.eventIndex || 0);
+          if (!Number.isFinite(idx) || idx <= 0) return;
+          selectedEventIndex = idx;
+          updateRowSelection();
+          renderCurrentView();
+        });
+
+        scoreChart.addEventListener("click", (event) => {
+          if (!currentChartMeta || !currentChartPoints.length) return;
+          const rect = scoreChart.getBoundingClientRect();
+          if (!rect.width || !rect.height) return;
+          const xCanvas = (event.clientX - rect.left) * currentChartMeta.dpr;
+          const xClamped = Math.min(
+            currentChartMeta.left + currentChartMeta.plotW,
+            Math.max(currentChartMeta.left, xCanvas)
+          );
+          const xValue = ((xClamped - currentChartMeta.left) / currentChartMeta.plotW) * currentChartMeta.xMax;
+
+          let best = null;
+          let bestDistance = Number.POSITIVE_INFINITY;
+          for (const p of currentChartPoints) {
+            const dist = Math.abs(p.x - xValue);
+            if (dist < bestDistance) {
+              bestDistance = dist;
+              best = p;
+            }
+          }
+          if (!best || !Number.isFinite(best.eventIndex)) return;
+
+          selectedEventIndex = Number(best.eventIndex);
+          updateRowSelection();
+          scrollSelectedRowIntoView();
+          renderCurrentView();
+        });
+
+        seasonSelect.addEventListener("change", async (event) => {
+          const season = String(event.target.value || "").trim();
+          try {
+            if (!season) {
+              clearGameView();
+              resetGameSelect("Select season first...");
+              return;
+            }
+            await loadCurrentSelection();
+          } catch (err) {
+            setStatus(`Failed to load season ${season}: ${err.message}`, true);
+          }
+        });
+
+        phaseSelect.addEventListener("change", async () => {
+          const phase = String(phaseSelect.value || DEFAULT_PHASE).trim();
+          const currentSelectedSeason = String(seasonSelect.value || "").trim();
+          try {
+            const seasonsForPhase = await refreshSeasonOptions(phase);
+            if (currentSelectedSeason && seasonsForPhase.includes(currentSelectedSeason)) {
+              seasonSelect.value = currentSelectedSeason;
+            } else {
+              seasonSelect.value = "";
+            }
+            await loadCurrentSelection();
+          } catch (err) {
+            setStatus(`Failed to switch phase ${phase}: ${err.message}`, true);
+          }
+        });
+
+        gameSelect.addEventListener("change", async (event) => {
+          const value = Number(event.target.value);
+          if (!Number.isFinite(value) || value < 0 || value >= currentGames.length) return;
+          await loadGame(currentGames[value]);
+        });
+
+        modeBothBtn.addEventListener("click", () => setChartMode("both"));
+        modeDiffBtn.addEventListener("click", () => setChartMode("diff"));
+
+        window.addEventListener("resize", () => {
+          if (currentGameData) renderCurrentView();
+          autoSizeTable();
+        });
+
+        setChartMode("both");
+        if (initialSeason) {
+          await loadCurrentSelection();
+        } else {
+          setStatus("");
+        }
+      } catch (err) {
+        setStatus(`Failed to load games: ${err.message}`, true);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

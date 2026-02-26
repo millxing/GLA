@@ -1,6 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import FileResponse, HTMLResponse
 from typing import Optional, Dict, Any
 import subprocess
+import json
+from pathlib import Path
 from config import get_available_seasons, ADMIN_SECRET_KEY
 from services.cache import clear_cache
 from services.data_loader import (
@@ -38,6 +41,9 @@ from schemas.models import (
     LeagueTopContributorsResponse,
     InterpretationRequest,
     InterpretationResponse,
+    GameTimelineResponse,
+    GameTimelineEvent,
+    GameTimelineState,
 )
 
 STAT_ALIASES = {
@@ -52,6 +58,81 @@ STAT_ALIASES = {
 }
 
 router = APIRouter(prefix="/api")
+WINPROB_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_wizard_app.html").resolve()
+WINPROB_HYPOTHETICAL_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_hypothetical_app.html").resolve()
+PBP_GAME_STATES_ROOT = (Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "game_states").resolve()
+
+
+def _normalize_game_id_for_timeline(game_id: str) -> str:
+    text = str(game_id or "").strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    digits = "".join(ch for ch in text if ch.isdigit())
+    return digits.zfill(10) if digits else ""
+
+
+def _normalize_game_type_for_timeline(game_type: Optional[str]) -> str:
+    value = str(game_type or "").strip().lower().replace(" ", "_")
+    if value == "playoff":
+        return "playoffs"
+    if value == "playin":
+        return "play_in"
+    return value
+
+
+def _timeline_phase_candidates(game_type: Optional[str]) -> list[str]:
+    normalized = _normalize_game_type_for_timeline(game_type)
+    if normalized in {"playoffs", "play_in"}:
+        return ["playoffs", "regular"]
+    return ["regular", "playoffs"]
+
+
+def _sanitize_team_code(team: Optional[str]) -> str:
+    return "".join(ch for ch in str(team or "").upper() if ch.isalnum())
+
+
+def _find_timeline_file(
+    season: str,
+    game_id: str,
+    game_type: Optional[str] = None,
+    home_team: Optional[str] = None,
+    road_team: Optional[str] = None,
+) -> tuple[Optional[Path], Optional[str]]:
+    home_code = _sanitize_team_code(home_team)
+    road_code = _sanitize_team_code(road_team)
+
+    for phase in _timeline_phase_candidates(game_type):
+        season_dir = PBP_GAME_STATES_ROOT / phase / season
+        if not season_dir.exists():
+            continue
+
+        if home_code and road_code:
+            exact = season_dir / f"{season}_{home_code}_{road_code}_{game_id}.json"
+            if exact.exists():
+                return exact, phase
+
+        matches = sorted(season_dir.glob(f"{season}_*_*_{game_id}.json"))
+        if matches:
+            return matches[0], phase
+
+    return None, None
+
+
+def _teams_from_timeline_filename(path: Path) -> tuple[str, str]:
+    # Expected shape: season_HOME_ROAD_gameid.json
+    parts = path.stem.split("_")
+    if len(parts) >= 4:
+        return parts[1], parts[2]
+    return "", ""
+
+
+def _to_int_or_none(value: Any) -> Optional[int]:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _get_git_commit() -> str:
@@ -169,6 +250,89 @@ async def get_version():
     return {"commit": GIT_COMMIT}
 
 
+@router.get("/winprob/model-seasons")
+async def get_winprob_model_seasons(
+    phase: str = Query("regular", description="Legacy artifact subfolder fallback"),
+):
+    from admin.winprob_models import DEFAULT_OUTPUT_ROOT, list_wpm_seasons
+
+    seasons = list_wpm_seasons(output_root=str(DEFAULT_OUTPUT_ROOT), phase=phase)
+    return {"seasons": seasons}
+
+
+@router.get("/winprob/forecast")
+async def get_winprob_forecast(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: str = Query(..., description="Game ID from stacked winprob data"),
+    game_seconds_left: float = Query(..., ge=0.0, le=720.0, description="Seconds left in game (0-720)"),
+    phase: str = Query("regular", description="Phase namespace for base data; also used for legacy artifact fallback"),
+):
+    from admin.winprob_models import DEFAULT_INPUT_ROOT, DEFAULT_OUTPUT_ROOT, forecast_from_game_seconds_left
+
+    try:
+        result = forecast_from_game_seconds_left(
+            season=season,
+            phase=phase,
+            output_root=str(DEFAULT_OUTPUT_ROOT),
+            input_root=str(DEFAULT_INPUT_ROOT),
+            game_id=game_id,
+            game_seconds_left=game_seconds_left,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate forecast: {exc}")
+
+    return result
+
+
+@router.get("/winprob/app", response_class=HTMLResponse)
+async def get_winprob_app():
+    if not WINPROB_APP_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"Winprob app file not found: {WINPROB_APP_PATH}")
+    return FileResponse(str(WINPROB_APP_PATH), media_type="text/html")
+
+
+@router.get("/winprob/hypothetical-forecast")
+async def get_winprob_hypothetical_forecast(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    quarter: int = Query(..., ge=1, description="Quarter number (1-4 regulation, 5+ OT)"),
+    seconds_left: float = Query(..., ge=0.0, le=720.0, description="Seconds left in current period (0-720)"),
+    differential: float = Query(..., description="Home minus road score differential"),
+    possession_numeric: int = Query(..., ge=-1, le=1, description="home=1, road=-1, unknown=0"),
+    phase: str = Query("regular", description="Legacy artifact subfolder fallback"),
+):
+    from admin.winprob_models import DEFAULT_OUTPUT_ROOT, forecast_hypothetical
+
+    try:
+        result = forecast_hypothetical(
+            season=season,
+            phase=phase,
+            output_root=str(DEFAULT_OUTPUT_ROOT),
+            quarter=quarter,
+            seconds_left=seconds_left,
+            differential=differential,
+            possession_numeric=possession_numeric,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate hypothetical forecast: {exc}")
+
+    return result
+
+
+@router.get("/winprob/hypothetical-app", response_class=HTMLResponse)
+async def get_winprob_hypothetical_app():
+    if not WINPROB_HYPOTHETICAL_APP_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"Hypothetical app file not found: {WINPROB_HYPOTHETICAL_APP_PATH}")
+    return FileResponse(str(WINPROB_HYPOTHETICAL_APP_PATH), media_type="text/html")
+
+
 STAT_LABELS = {
     "pts": "Points",
     "fg_pct": "FG%",
@@ -216,6 +380,84 @@ async def get_games(season: str = Query(..., description="Season in format YYYY-
 async def get_teams(season: str = Query(..., description="Season in format YYYY-YY")):
     teams = await get_teams_list(season)
     return TeamsResponse(teams=teams)
+
+
+@router.get("/game-timeline", response_model=GameTimelineResponse)
+async def get_game_timeline(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: str = Query(..., description="Game ID"),
+    game_type: Optional[str] = Query(None, description="Game type (regular_season/playoffs/play_in)"),
+    home_team: Optional[str] = Query(None, description="Home team abbreviation"),
+    road_team: Optional[str] = Query(None, description="Road team abbreviation"),
+):
+    game_id_norm = _normalize_game_id_for_timeline(game_id)
+    if not game_id_norm:
+        raise HTTPException(status_code=400, detail="Invalid game_id")
+
+    timeline_path, phase = _find_timeline_file(
+        season=season,
+        game_id=game_id_norm,
+        game_type=game_type,
+        home_team=home_team,
+        road_team=road_team,
+    )
+    if timeline_path is None or phase is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
+        )
+
+    try:
+        payload = json.loads(timeline_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read timeline JSON: {exc}")
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Invalid timeline JSON payload")
+
+    raw_events = payload.get("events")
+    if not isinstance(raw_events, list):
+        raw_events = []
+
+    events: list[GameTimelineEvent] = []
+    for event in raw_events:
+        if not isinstance(event, dict):
+            continue
+        state = event.get("game_log_state")
+        if not isinstance(state, dict):
+            state = {}
+
+        events.append(
+            GameTimelineEvent(
+                event_index=_to_int_or_none(event.get("event_index")),
+                period=_to_int_or_none(event.get("period")),
+                clock=str(event.get("clock") or ""),
+                description=str(event.get("description") or ""),
+                possession_after_side=str(event.get("possession_after_side") or "") or None,
+                possession_team_tricode=str(event.get("possession_team_tricode") or "") or None,
+                game_log_state=GameTimelineState(
+                    pts_home=_to_int_or_none(state.get("pts_home")),
+                    pts_road=_to_int_or_none(state.get("pts_road")),
+                ),
+            )
+        )
+
+    file_home, file_road = _teams_from_timeline_filename(timeline_path)
+    validation = payload.get("validation")
+    validation_match = validation.get("match") if isinstance(validation, dict) else None
+
+    return GameTimelineResponse(
+        season=str(payload.get("season") or season),
+        phase=str(payload.get("phase") or phase),
+        game_id=_normalize_game_id_for_timeline(str(payload.get("game_id") or game_id_norm)),
+        game_date=str(payload.get("game_date") or "") or None,
+        game_type=_normalize_game_type_for_timeline(payload.get("game_type") or game_type) or None,
+        home_team=str(payload.get("home_team") or home_team or file_home),
+        road_team=str(payload.get("road_team") or road_team or file_road),
+        events=events,
+        validation_match=validation_match,
+    )
+
 
 @router.get("/decomposition", response_model=DecompositionResponse)
 async def get_decomposition(

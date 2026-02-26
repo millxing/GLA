@@ -49,6 +49,10 @@ Build/preview:
 - `npm run build`
 - `npm run preview`
 
+## Update Troubleshooting
+- If `backend/admin/cli.py update-data` starts failing (timeouts/errors despite valid commands), check and update `nba_api` first. Current known-good version: `1.11.4`.
+- Keep `NBA_Data/PBPdata/` git-ignored. Raw PBP CSV files can exceed GitHub size limits and can break the daily `commit-and-push` step if staged.
+
 Notes/assumptions:
 - No explicit test or lint commands are documented in the repo root or `DEPLOYMENT.md`.
 
