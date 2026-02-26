@@ -5,6 +5,7 @@ import json
 import re
 import subprocess
 import tempfile
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -101,6 +102,7 @@ STATES_PARQUET_COLUMNS = [
     "validation_match",
     "payload_json",
 ]
+STATES_PARQUET_ROW_GROUP_SIZE = 1
 
 
 def _normalize_game_id(value: Any) -> str:
@@ -291,6 +293,36 @@ def _load_states_parquet_df(parquet_path: Path, columns: Optional[list[str]] = N
                 pass
 
 
+def _write_states_parquet(df: pd.DataFrame, parquet_path: Path, compression: Optional[str]) -> None:
+    try:
+        # Keep row groups tiny so timeline reads can fetch a single game without
+        # inflating a whole-season payload chunk in memory.
+        df.to_parquet(
+            parquet_path,
+            index=False,
+            compression=compression,
+            engine="pyarrow",
+            row_group_size=STATES_PARQUET_ROW_GROUP_SIZE,
+        )
+    except Exception:
+        df.to_parquet(parquet_path, index=False, compression=compression)
+
+
+def _repack_states_parquet_in_place(parquet_path: Path, compression: Optional[str]) -> None:
+    import pyarrow.parquet as pq
+
+    tmp_path = parquet_path.with_name(f"{parquet_path.stem}.tmp{parquet_path.suffix}")
+    pf = pq.ParquetFile(parquet_path)
+    writer = pq.ParquetWriter(tmp_path, pf.schema_arrow, compression=compression or "NONE")
+    try:
+        for batch in pf.iter_batches(batch_size=STATES_PARQUET_ROW_GROUP_SIZE):
+            writer.write_batch(batch)
+    finally:
+        writer.close()
+
+    shutil.move(str(tmp_path), str(parquet_path))
+
+
 def _list_game_state_json_files(states_dir: Path, season: str) -> list[Path]:
     return sorted(
         p
@@ -379,7 +411,15 @@ def pack_pbp_game_states(
     json_files = _list_game_state_json_files(input_dir, season)
     if not json_files:
         if parquet_path.exists():
-            print(f"[pbp-pack] No JSON inputs; existing parquet kept: {parquet_path}")
+            if overwrite:
+                _repack_states_parquet_in_place(parquet_path, compression=compression_arg)
+                parquet_bytes = parquet_path.stat().st_size
+                print(
+                    f"[pbp-pack] Repacked existing parquet with row_group_size={STATES_PARQUET_ROW_GROUP_SIZE}: "
+                    f"{parquet_path} bytes={parquet_bytes}"
+                )
+            else:
+                print(f"[pbp-pack] No JSON inputs; existing parquet kept: {parquet_path}")
             return 0
         print(f"[pbp-pack] No game-state JSON files found in: {input_dir} (skipped)")
         return 0
@@ -395,7 +435,7 @@ def pack_pbp_game_states(
         if col not in df.columns:
             df[col] = pd.NA
     df = df[STATES_PARQUET_COLUMNS].copy()
-    df.to_parquet(parquet_path, index=False, compression=compression_arg)
+    _write_states_parquet(df, parquet_path, compression=compression_arg)
 
     json_total_bytes = sum(p.stat().st_size for p in json_files)
     parquet_bytes = parquet_path.stat().st_size

@@ -1,11 +1,10 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from typing import Optional, Dict, Any
-from functools import lru_cache
 import subprocess
 import json
 from pathlib import Path
-import pandas as pd
+import pyarrow.parquet as pq
 from config import get_available_seasons, ADMIN_SECRET_KEY
 from services.cache import clear_cache
 from services.data_loader import (
@@ -137,54 +136,68 @@ def _find_timeline_parquet_file(
     return None, None
 
 
-@lru_cache(maxsize=8)
-def _read_timeline_parquet_cached(path: str, mtime_ns: int) -> pd.DataFrame:
-    return pd.read_parquet(path)
-
-
-def _load_timeline_parquet(path: Path) -> pd.DataFrame:
-    stat = path.stat()
-    return _read_timeline_parquet_cached(str(path), int(stat.st_mtime_ns))
-
-
 def _timeline_payload_from_parquet(
     parquet_path: Path,
     game_id: str,
     home_team: Optional[str] = None,
     road_team: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
-    df = _load_timeline_parquet(parquet_path)
-    if df.empty or "game_id" not in df.columns or "payload_json" not in df.columns:
-        return None
-
-    ids = df["game_id"].astype("string").map(_normalize_game_id_for_timeline)
-    mask = ids == game_id
     home_code = _sanitize_team_code(home_team)
     road_code = _sanitize_team_code(road_team)
+    filters: list[tuple[str, str, str]] = [("game_id", "==", game_id)]
+    if home_code:
+        filters.append(("home_team", "==", home_code))
+    if road_code:
+        filters.append(("road_team", "==", road_code))
 
-    if home_code and "home_team" in df.columns:
-        home_series = df["home_team"].astype("string").map(_sanitize_team_code)
-        mask = mask & (home_series == home_code)
-    if road_code and "road_team" in df.columns:
-        road_series = df["road_team"].astype("string").map(_sanitize_team_code)
-        mask = mask & (road_series == road_code)
-
-    matches = df[mask]
-    if matches.empty and (home_code or road_code):
-        matches = df[ids == game_id]
-    if matches.empty:
+    def _parse_payload(raw: Any) -> Optional[dict[str, Any]]:
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                return None
+            if isinstance(parsed, dict):
+                return parsed
         return None
 
-    payload_raw = matches.iloc[0].get("payload_json")
-    if isinstance(payload_raw, dict):
-        return payload_raw
-    if isinstance(payload_raw, str) and payload_raw.strip():
-        try:
-            parsed = json.loads(payload_raw)
-        except Exception:
-            return None
-        if isinstance(parsed, dict):
-            return parsed
+    # Primary path: push predicate down to parquet so only the matching game row is read.
+    table = pq.read_table(
+        parquet_path,
+        columns=["payload_json"],
+        filters=filters,
+        use_threads=False,
+    )
+    if table.num_rows > 0 and "payload_json" in table.column_names:
+        payload = _parse_payload(table.column("payload_json")[0].as_py())
+        if payload is not None:
+            return payload
+
+    # Fallback: if strict home/road filter missed, retry by game_id only.
+    if home_code or road_code:
+        fallback = pq.read_table(
+            parquet_path,
+            columns=["home_team", "road_team", "payload_json"],
+            filters=[("game_id", "==", game_id)],
+            use_threads=False,
+        )
+        if fallback.num_rows > 0:
+            cols = {name: fallback.column(name) for name in fallback.column_names}
+            for i in range(fallback.num_rows):
+                row_home = _sanitize_team_code(cols.get("home_team")[i].as_py() if "home_team" in cols else "")
+                row_road = _sanitize_team_code(cols.get("road_team")[i].as_py() if "road_team" in cols else "")
+                if home_code and row_home != home_code:
+                    continue
+                if road_code and row_road != road_code:
+                    continue
+                payload = _parse_payload(cols.get("payload_json")[i].as_py() if "payload_json" in cols else None)
+                if payload is not None:
+                    return payload
+            payload = _parse_payload(cols.get("payload_json")[0].as_py() if "payload_json" in cols else None)
+            if payload is not None:
+                return payload
+
     return None
 
 
