@@ -88,6 +88,19 @@ FREE_THROW_OF_RE = re.compile(r"free throw\s+(\d+)\s+of\s+(\d+)", re.IGNORECASE)
 FT_MISS_RE = re.compile(r"\bmiss(?:ed|es)?\b", re.IGNORECASE)
 TURNOVER_COUNTER_RE = re.compile(r"T#(\d+)|\.T(\d+)\)", re.IGNORECASE)
 BLOCK_COUNTER_RE = re.compile(r"^(.*?)\s+BLOCK\s*\((\d+)\s+BLK\)", re.IGNORECASE)
+GAME_STATE_FILENAME_RE = re.compile(r"^(\d{4}-\d{2})_([A-Z0-9]+)_([A-Z0-9]+)_(\d{10})\.json$")
+STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
+STATES_PARQUET_COLUMNS = [
+    "season",
+    "phase",
+    "game_id",
+    "home_team",
+    "road_team",
+    "game_date",
+    "game_type",
+    "validation_match",
+    "payload_json",
+]
 
 
 def _normalize_game_id(value: Any) -> str:
@@ -222,6 +235,10 @@ def _build_output_dir(repo_dir: Path, season: str, phase: str, output_root: Opti
     return root / phase / season
 
 
+def _build_states_parquet_path(states_dir: Path, season: str, phase: str) -> Path:
+    return states_dir / STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)
+
+
 def _resolve_states_input_dir(repo_dir: Path, season: str, phase: str, input_root: Optional[str]) -> Path:
     if input_root:
         root = Path(input_root)
@@ -230,14 +247,178 @@ def _resolve_states_input_dir(repo_dir: Path, season: str, phase: str, input_roo
 
     candidates = [root / phase / season, root / season, root]
     summary_filename = f"_summary_{season}_{phase}.json"
+    parquet_filename = STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)
     for candidate in candidates:
         if not candidate.exists() or not candidate.is_dir():
             continue
         if (candidate / summary_filename).exists():
             return candidate
+        if (candidate / parquet_filename).exists():
+            return candidate
         if any(candidate.glob(f"{season}_*_*.json")):
             return candidate
     return candidates[0]
+
+
+def _load_states_parquet_df(parquet_path: Path, columns: Optional[list[str]] = None) -> pd.DataFrame:
+    try:
+        return pd.read_parquet(parquet_path, columns=columns)
+    except Exception:
+        with tempfile.NamedTemporaryFile(prefix="states_parquet_bridge_", suffix=".csv", delete=False) as tmp_f:
+            tmp_csv = Path(tmp_f.name)
+        try:
+            script = (
+                "import pandas as pd, sys; "
+                "d = pd.read_parquet(sys.argv[1]); "
+                "d.to_csv(sys.argv[2], index=False)"
+            )
+            proc = subprocess.run(
+                ["python3", "-c", script, str(parquet_path), str(tmp_csv)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(
+                    "Parquet read failed and bridge via python3 was unsuccessful: "
+                    f"{proc.stderr.strip() or proc.stdout.strip()}"
+                )
+            return pd.read_csv(tmp_csv, low_memory=False)
+        finally:
+            try:
+                tmp_csv.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _list_game_state_json_files(states_dir: Path, season: str) -> list[Path]:
+    return sorted(
+        p
+        for p in states_dir.glob(f"{season}_*_*.json")
+        if not p.name.startswith("_summary_")
+    )
+
+
+def _pack_states_rows_from_json_files(json_files: list[Path], season: str, phase: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for game_file in json_files:
+        m = GAME_STATE_FILENAME_RE.match(game_file.name)
+        if m:
+            home_from_name = m.group(2)
+            road_from_name = m.group(3)
+            game_id_from_name = m.group(4)
+        else:
+            home_from_name = ""
+            road_from_name = ""
+            game_id_from_name = ""
+
+        with game_file.open("r", encoding="utf-8") as src:
+            payload = json.load(src)
+
+        game_id_norm = _normalize_game_id(payload.get("game_id") or game_id_from_name)
+        home_team = _safe_str(payload.get("home_team") or home_from_name).strip().upper()
+        road_team = _safe_str(payload.get("road_team") or road_from_name).strip().upper()
+        game_date = _safe_str(payload.get("game_date")).strip()
+        game_type = _safe_str(payload.get("game_type")).strip()
+        validation = payload.get("validation")
+        validation_match = validation.get("match") if isinstance(validation, dict) else None
+        payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+        rows.append(
+            {
+                "season": season,
+                "phase": phase,
+                "game_id": game_id_norm,
+                "home_team": home_team,
+                "road_team": road_team,
+                "game_date": game_date,
+                "game_type": game_type,
+                "validation_match": validation_match,
+                "payload_json": payload_json,
+            }
+        )
+    return rows
+
+
+def pack_pbp_game_states(
+    season: str,
+    repo_dir: Path,
+    phase: str = "regular",
+    input_root: Optional[str] = None,
+    output_root: Optional[str] = None,
+    compression: str = "zstd",
+    overwrite: bool = False,
+    delete_json: bool = False,
+) -> int:
+    phase_norm = _normalize_phase(phase)
+    input_dir = _resolve_states_input_dir(repo_dir, season, phase_norm, input_root=input_root)
+    if not input_dir.exists():
+        print(f"[pbp-pack] Missing game-state input directory: {input_dir}")
+        return 1
+
+    if output_root:
+        output_dir = _build_output_dir(repo_dir, season, phase_norm, output_root=output_root)
+        output_dir.mkdir(parents=True, exist_ok=True)
+    else:
+        output_dir = input_dir
+
+    compression_norm = str(compression or "zstd").strip().lower()
+    if compression_norm in {"none", "uncompressed", "null", "off"}:
+        compression_arg = None
+        compression_label = "none"
+    elif compression_norm in {"zstd", "snappy", "gzip"}:
+        compression_arg = compression_norm
+        compression_label = compression_norm
+    else:
+        raise ValueError("Invalid compression. Expected one of: zstd, snappy, gzip, none.")
+
+    parquet_path = _build_states_parquet_path(output_dir, season, phase_norm)
+    if parquet_path.exists() and not overwrite:
+        print(f"[pbp-pack] Output already exists (use --overwrite): {parquet_path}")
+        return 0
+
+    json_files = _list_game_state_json_files(input_dir, season)
+    if not json_files:
+        if parquet_path.exists():
+            print(f"[pbp-pack] No JSON inputs; existing parquet kept: {parquet_path}")
+            return 0
+        print(f"[pbp-pack] No game-state JSON files found in: {input_dir} (skipped)")
+        return 0
+
+    rows = _pack_states_rows_from_json_files(json_files, season=season, phase=phase_norm)
+    if not rows:
+        print(f"[pbp-pack] No packable game-state rows found in: {input_dir}")
+        return 1
+
+    rows.sort(key=lambda r: (str(r.get("game_date") or ""), str(r.get("game_id") or "")))
+    df = pd.DataFrame(rows)
+    for col in STATES_PARQUET_COLUMNS:
+        if col not in df.columns:
+            df[col] = pd.NA
+    df = df[STATES_PARQUET_COLUMNS].copy()
+    df.to_parquet(parquet_path, index=False, compression=compression_arg)
+
+    json_total_bytes = sum(p.stat().st_size for p in json_files)
+    parquet_bytes = parquet_path.stat().st_size
+    reduction_pct = 0.0
+    if json_total_bytes > 0:
+        reduction_pct = 100.0 * (1.0 - (parquet_bytes / json_total_bytes))
+
+    removed = 0
+    if delete_json:
+        for p in json_files:
+            try:
+                p.unlink()
+                removed += 1
+            except Exception:
+                pass
+
+    print(
+        f"[pbp-pack] Wrote {parquet_path} games={len(df)} compression={compression_label} "
+        f"json_bytes={json_total_bytes} parquet_bytes={parquet_bytes} reduction_pct={reduction_pct:.2f}"
+    )
+    if delete_json:
+        print(f"[pbp-pack] Removed JSON files: {removed}/{len(json_files)}")
+    return 0
 
 
 def _build_winprob_output_path(repo_dir: Path, season: str, phase: str, output_root: Optional[str]) -> Path:
@@ -1428,13 +1609,42 @@ def build_winprob_base(
         print(f"[pbp-winprob] Output already exists (use --overwrite): {output_path}")
         return 0
 
-    json_files = sorted(
-        p
-        for p in input_dir.glob(f"{season}_*_*.json")
-        if not p.name.startswith("_summary_")
-    )
-    if not json_files:
-        print(f"[pbp-winprob] No game-state JSON files found in: {input_dir}")
+    parquet_path = _build_states_parquet_path(input_dir, season, phase_norm)
+    payloads: list[dict[str, Any]] = []
+    source_label = "json"
+
+    if parquet_path.exists():
+        try:
+            states_df = _load_states_parquet_df(parquet_path, columns=["payload_json"])
+        except Exception as exc:
+            print(f"[pbp-winprob] Failed to read packed game states: {parquet_path} ({exc})")
+            return 1
+        payload_values = states_df.get("payload_json")
+        if payload_values is None:
+            print(f"[pbp-winprob] Missing payload_json column in: {parquet_path}")
+            return 1
+        for raw in payload_values.tolist():
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    payloads.append(payload)
+        source_label = "parquet"
+    else:
+        json_files = _list_game_state_json_files(input_dir, season)
+        if not json_files:
+            print(f"[pbp-winprob] No game-state files found in: {input_dir}")
+            return 1
+        for game_file in json_files:
+            with game_file.open("r", encoding="utf-8") as src:
+                payload = json.load(src)
+            if isinstance(payload, dict):
+                payloads.append(payload)
+
+    if not payloads:
+        print(f"[pbp-winprob] No readable game-state payloads found in: {input_dir}")
         return 1
 
     games_processed = 0
@@ -1443,10 +1653,7 @@ def build_winprob_base(
         writer = csv.DictWriter(f, fieldnames=WINPROB_BASE_COLUMNS)
         writer.writeheader()
 
-        for game_file in json_files:
-            with game_file.open("r", encoding="utf-8") as src:
-                payload = json.load(src)
-
+        for payload in payloads:
             final_state = payload.get("final_state") or {}
             home_team = _safe_str(payload.get("home_team") or final_state.get("team_abbreviation_home"))
             road_team = _safe_str(payload.get("road_team") or final_state.get("team_abbreviation_road"))
@@ -1514,6 +1721,6 @@ def build_winprob_base(
 
     print(
         f"[pbp-winprob] Wrote {rows_written} rows from {games_processed} games "
-        f"to {output_path}"
+        f"to {output_path} (source={source_label})"
     )
     return 0

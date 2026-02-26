@@ -2115,6 +2115,88 @@ def fetch_pbp_game(
 
 # ------------------------- CLI commands -------------------------
 
+
+def _discover_state_seasons(repo_dir: Path, input_root: Optional[str], phase: str) -> list[str]:
+    root = Path(input_root) if input_root else (repo_dir / "PBPdata" / "game_states")
+    phase_dir = root / phase
+    seasons: set[str] = set()
+
+    if phase_dir.exists() and phase_dir.is_dir():
+        for child in phase_dir.iterdir():
+            if child.is_dir() and re.match(r"^\d{4}-\d{2}$", child.name):
+                seasons.add(child.name)
+            elif child.is_file():
+                m = re.match(r"^_states_(\d{4}-\d{2})_[a-z]+\.parquet$", child.name)
+                if m:
+                    seasons.add(m.group(1))
+
+    if not seasons:
+        for p in repo_dir.glob("team_game_logs_????-??.csv"):
+            season = p.stem.replace("team_game_logs_", "", 1)
+            if re.match(r"^\d{4}-\d{2}$", season):
+                seasons.add(season)
+
+    return sorted(seasons, key=_season_start_year_from_str)
+
+
+def pack_pbp_game_states_cmd(
+    season: str,
+    repo_dir: Path,
+    phase: str = "regular",
+    input_root: Optional[str] = None,
+    output_root: Optional[str] = None,
+    compression: str = "zstd",
+    overwrite: bool = False,
+    delete_json: bool = False,
+) -> int:
+    from admin.pbp_game_states import pack_pbp_game_states
+
+    phase_norm = str(phase or "regular").strip().lower()
+    if phase_norm not in {"regular", "playoffs", "both"}:
+        raise ValueError("Invalid phase. Expected regular, playoffs, or both.")
+    phases = ["regular", "playoffs"] if phase_norm == "both" else [phase_norm]
+
+    season_norm = str(season or "").strip().lower()
+    if season_norm == "all":
+        season_set: set[str] = set()
+        for p in phases:
+            season_set.update(_discover_state_seasons(repo_dir=repo_dir, input_root=input_root, phase=p))
+        seasons = sorted(season_set, key=_season_start_year_from_str)
+    else:
+        seasons = [season]
+
+    if not seasons:
+        print("[pbp-pack] No seasons found to pack.")
+        return 1
+
+    total_jobs = len(seasons) * len(phases)
+    failures = 0
+    completed = 0
+
+    for p in phases:
+        for s in seasons:
+            completed += 1
+            print(f"[pbp-pack] [{completed}/{total_jobs}] season={s} phase={p}")
+            rc = pack_pbp_game_states(
+                season=s,
+                repo_dir=repo_dir,
+                phase=p,
+                input_root=input_root,
+                output_root=output_root,
+                compression=compression,
+                overwrite=overwrite,
+                delete_json=delete_json,
+            )
+            if rc != 0:
+                failures += 1
+
+    if failures:
+        print(f"[pbp-pack] Finished with failures: {failures}/{total_jobs}")
+        return 1
+
+    print(f"[pbp-pack] Done: {total_jobs} season/phase pack jobs")
+    return 0
+
 def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int:
     start = time.time()
     try:
@@ -3085,9 +3167,60 @@ Final event state is validated against team_game_logs_YYYY-YY.csv totals.
     p_build_states.add_argument("--game-id", default=None, help="Optional specific game_id to process")
     p_build_states.add_argument("--overwrite", action="store_true", help="Overwrite existing per-game output files")
 
+    p_pack_states = sub.add_parser(
+        "pack-pbp-game-states",
+        help="Pack per-game game-state JSON files into one parquet per season/phase",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py pack-pbp-game-states --season 2023-24 --phase regular
+  python admin/cli.py pack-pbp-game-states --season all --phase both --compression zstd --overwrite
+  python admin/cli.py pack-pbp-game-states --season 2023-24 --phase playoffs --delete-json
+
+Input defaults to:
+  <repo-dir>/PBPdata/game_states/<phase>/<season>/*.json
+Output defaults to:
+  <repo-dir>/PBPdata/game_states/<phase>/<season>/_states_<season>_<phase>.parquet
+""",
+    )
+    p_pack_states.add_argument("--season", required=True, help="Season like 2023-24, or 'all'")
+    p_pack_states.add_argument(
+        "--phase",
+        choices=["regular", "playoffs", "both"],
+        default="regular",
+        help="Which phase to pack (default: regular)",
+    )
+    p_pack_states.add_argument(
+        "--input-root",
+        default=None,
+        help=(
+            "Optional game-state root. Accepted shapes: "
+            "<root>/<phase>/<season> or <root>/<season> or <root>."
+        ),
+    )
+    p_pack_states.add_argument(
+        "--output-root",
+        default=None,
+        help=(
+            "Optional game-state output root. Default writes next to input season directories."
+        ),
+    )
+    p_pack_states.add_argument(
+        "--compression",
+        choices=["zstd", "snappy", "gzip", "none"],
+        default="zstd",
+        help="Parquet compression codec (default: zstd)",
+    )
+    p_pack_states.add_argument("--overwrite", action="store_true", help="Overwrite existing packed parquet file")
+    p_pack_states.add_argument(
+        "--delete-json",
+        action="store_true",
+        help="Delete per-game JSON files after successful pack",
+    )
+
     p_winprob_base = sub.add_parser(
         "build-pbp-winprob-base",
-        help="Build stacked win-probability baseline CSV from game-state JSON files",
+        help="Build stacked win-probability baseline CSV from packed game states or JSON files",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -3098,6 +3231,9 @@ Examples:
 
 By default this reads from:
   <repo-dir>/PBPdata/game_states/<phase>/<season>
+preferring packed parquet:
+  _states_<season>_<phase>.parquet
+and falling back to per-game JSON files when parquet is absent.
 and writes to:
   <repo-dir>/PBPdata/winprob_base/<phase>/stacked_<season>_winprob_base.csv
 """,
@@ -3323,6 +3459,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             max_games=args.max_games,
             game_id=args.game_id,
             overwrite=args.overwrite,
+        )
+
+    if args.command == "pack-pbp-game-states":
+        return pack_pbp_game_states_cmd(
+            season=args.season,
+            repo_dir=repo_dir,
+            phase=args.phase,
+            input_root=args.input_root,
+            output_root=args.output_root,
+            compression=args.compression,
+            overwrite=args.overwrite,
+            delete_json=args.delete_json,
         )
 
     if args.command == "build-pbp-winprob-base":

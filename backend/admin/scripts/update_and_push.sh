@@ -75,11 +75,10 @@ PARQUET_ENGINE="$("$ENV_PYTHON" -c 'import importlib.util as u; print("pyarrow" 
 if [ -n "$PARQUET_ENGINE" ]; then
     report_line "SUCCESS" "Parquet engine available ($PARQUET_ENGINE)"
 else
-    report_line "WARN" "Parquet engine missing (install pyarrow or fastparquet in $ENV_NAME)"
-    report_line "WARN" "Switching PBP update target to api_pbpv3 CSV to avoid parquet write failures"
-    echo "[warn] No parquet engine in $ENV_NAME (pyarrow/fastparquet). Falling back to api_pbpv3 CSV output."
-    PBP_TARGET_SOURCE="api_pbpv3"
-    PBP_SOURCE_FOR_STATES="api_pbpv3"
+    report_line "FAILED" "Parquet engine missing (install pyarrow in $ENV_NAME)"
+    echo "[error] No parquet engine in $ENV_NAME (pyarrow/fastparquet)."
+    echo "[error] Game-state timeline now depends on packed parquet files; install pyarrow and rerun."
+    exit 1
 fi
 report_line "INFO" "PBP source target for this run: $PBP_TARGET_SOURCE"
 
@@ -88,7 +87,7 @@ run_build_states() {
     local rc=0
 
     if [ "$DRY_RUN" = "1" ]; then
-        echo "[dry-run] Would build-pbp-game-states for phase=$phase and refresh pbp_analyze index"
+        echo "[dry-run] Would build-pbp-game-states, pack parquet, and refresh pbp_analyze index for phase=$phase"
         return 0
     fi
 
@@ -110,6 +109,16 @@ run_build_states() {
     if [ "$rc" -eq 2 ]; then
         echo "[warn] build-pbp-game-states completed with validation mismatches for phase=$phase"
     fi
+
+    "$ENV_PYTHON" -m backend.admin.cli \
+        --repo-dir "$REPO_DIR" \
+        pack-pbp-game-states \
+        --season "$SEASON" \
+        --phase "$phase" \
+        --input-root "$PBP_ANALYZE_STATES_ROOT" \
+        --compression zstd \
+        --overwrite \
+        --delete-json
 
     "$ENV_PYTHON" "$PBP_INDEX_SCRIPT" \
         --states-root "$PBP_ANALYZE_STATES_ROOT" \

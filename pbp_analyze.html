@@ -1005,13 +1005,17 @@
     async function loadGame(game) {
       clearGameView();
       setStatus("Loading game timeline...");
-
-      const filename = `${currentSeason}_${game.team_abbreviation_home}_${game.team_abbreviation_road}_${game.game_id_norm}.json`;
-      const url = `${activeStatesDir}/${filename}`;
+      const params = new URLSearchParams({
+        season: currentSeason,
+        game_id: game.game_id_norm,
+      });
+      if (game.team_abbreviation_home) params.set("home_team", game.team_abbreviation_home);
+      if (game.team_abbreviation_road) params.set("road_team", game.team_abbreviation_road);
+      const url = `/api/game-timeline?${params.toString()}`;
 
       try {
         const res = await fetch(url);
-        if (!res.ok) throw new Error(`Could not load ${filename}`);
+        if (!res.ok) throw new Error(`Could not load timeline (${res.status})`);
         const data = await res.json();
         currentGameData = data;
 

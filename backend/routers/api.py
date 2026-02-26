@@ -1,9 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from typing import Optional, Dict, Any
+from functools import lru_cache
 import subprocess
 import json
 from pathlib import Path
+import pandas as pd
 from config import get_available_seasons, ADMIN_SECRET_KEY
 from services.cache import clear_cache
 from services.data_loader import (
@@ -61,6 +63,7 @@ router = APIRouter(prefix="/api")
 WINPROB_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_wizard_app.html").resolve()
 WINPROB_HYPOTHETICAL_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_hypothetical_app.html").resolve()
 PBP_GAME_STATES_ROOT = (Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "game_states").resolve()
+STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
 
 
 def _normalize_game_id_for_timeline(game_id: str) -> str:
@@ -91,7 +94,11 @@ def _sanitize_team_code(team: Optional[str]) -> str:
     return "".join(ch for ch in str(team or "").upper() if ch.isalnum())
 
 
-def _find_timeline_file(
+def _build_timeline_parquet_path(season_dir: Path, season: str, phase: str) -> Path:
+    return season_dir / STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)
+
+
+def _find_timeline_json_file(
     season: str,
     game_id: str,
     game_type: Optional[str] = None,
@@ -116,6 +123,69 @@ def _find_timeline_file(
             return matches[0], phase
 
     return None, None
+
+
+def _find_timeline_parquet_file(
+    season: str,
+    game_type: Optional[str] = None,
+) -> tuple[Optional[Path], Optional[str]]:
+    for phase in _timeline_phase_candidates(game_type):
+        season_dir = PBP_GAME_STATES_ROOT / phase / season
+        parquet_path = _build_timeline_parquet_path(season_dir, season=season, phase=phase)
+        if parquet_path.exists():
+            return parquet_path, phase
+    return None, None
+
+
+@lru_cache(maxsize=8)
+def _read_timeline_parquet_cached(path: str, mtime_ns: int) -> pd.DataFrame:
+    return pd.read_parquet(path)
+
+
+def _load_timeline_parquet(path: Path) -> pd.DataFrame:
+    stat = path.stat()
+    return _read_timeline_parquet_cached(str(path), int(stat.st_mtime_ns))
+
+
+def _timeline_payload_from_parquet(
+    parquet_path: Path,
+    game_id: str,
+    home_team: Optional[str] = None,
+    road_team: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    df = _load_timeline_parquet(parquet_path)
+    if df.empty or "game_id" not in df.columns or "payload_json" not in df.columns:
+        return None
+
+    ids = df["game_id"].astype("string").map(_normalize_game_id_for_timeline)
+    mask = ids == game_id
+    home_code = _sanitize_team_code(home_team)
+    road_code = _sanitize_team_code(road_team)
+
+    if home_code and "home_team" in df.columns:
+        home_series = df["home_team"].astype("string").map(_sanitize_team_code)
+        mask = mask & (home_series == home_code)
+    if road_code and "road_team" in df.columns:
+        road_series = df["road_team"].astype("string").map(_sanitize_team_code)
+        mask = mask & (road_series == road_code)
+
+    matches = df[mask]
+    if matches.empty and (home_code or road_code):
+        matches = df[ids == game_id]
+    if matches.empty:
+        return None
+
+    payload_raw = matches.iloc[0].get("payload_json")
+    if isinstance(payload_raw, dict):
+        return payload_raw
+    if isinstance(payload_raw, str) and payload_raw.strip():
+        try:
+            parsed = json.loads(payload_raw)
+        except Exception:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+    return None
 
 
 def _teams_from_timeline_filename(path: Path) -> tuple[str, str]:
@@ -394,26 +464,48 @@ async def get_game_timeline(
     if not game_id_norm:
         raise HTTPException(status_code=400, detail="Invalid game_id")
 
-    timeline_path, phase = _find_timeline_file(
-        season=season,
-        game_id=game_id_norm,
-        game_type=game_type,
-        home_team=home_team,
-        road_team=road_team,
-    )
-    if timeline_path is None or phase is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
-        )
+    phase: Optional[str] = None
+    timeline_path: Optional[Path] = None
+    payload: Optional[dict[str, Any]] = None
 
-    try:
-        payload = json.loads(timeline_path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to read timeline JSON: {exc}")
+    parquet_path, parquet_phase = _find_timeline_parquet_file(
+        season=season,
+        game_type=game_type,
+    )
+    if parquet_path is not None and parquet_phase is not None:
+        phase = parquet_phase
+        try:
+            payload = _timeline_payload_from_parquet(
+                parquet_path=parquet_path,
+                game_id=game_id_norm,
+                home_team=home_team,
+                road_team=road_team,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read timeline parquet: {exc}")
+
+    if payload is None:
+        timeline_path, phase = _find_timeline_json_file(
+            season=season,
+            game_id=game_id_norm,
+            game_type=game_type,
+            home_team=home_team,
+            road_team=road_team,
+        )
+        if timeline_path is None or phase is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
+            )
+
+        try:
+            loaded = json.loads(timeline_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to read timeline JSON: {exc}")
+        payload = loaded if isinstance(loaded, dict) else None
 
     if not isinstance(payload, dict):
-        raise HTTPException(status_code=500, detail="Invalid timeline JSON payload")
+        raise HTTPException(status_code=500, detail="Invalid timeline payload")
 
     raw_events = payload.get("events")
     if not isinstance(raw_events, list):
@@ -442,7 +534,7 @@ async def get_game_timeline(
             )
         )
 
-    file_home, file_road = _teams_from_timeline_filename(timeline_path)
+    file_home, file_road = _teams_from_timeline_filename(timeline_path) if timeline_path else ("", "")
     validation = payload.get("validation")
     validation_match = validation.get("match") if isinstance(validation, dict) else None
 
