@@ -95,6 +95,7 @@
 
 .timeline-table-shell {
   overflow: auto;
+  height: 420px;
   max-height: 420px;
 }
 

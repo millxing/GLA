@@ -383,13 +383,6 @@ export default function GameTimeline({ timeline }) {
   useEffect(() => {
     const onResize = () => {
       drawChart()
-      const tableShell = tableShellRef.current
-      if (!tableShell) return
-      const rect = tableShell.getBoundingClientRect()
-      const viewport = window.innerHeight || 800
-      const bottomGap = 30
-      const available = Math.max(180, Math.floor(viewport - rect.top - bottomGap))
-      tableShell.style.maxHeight = `${available}px`
     }
 
     onResize()
