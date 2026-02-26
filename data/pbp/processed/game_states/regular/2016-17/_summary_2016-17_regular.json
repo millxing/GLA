@@ -1,17 +1,17 @@
 {
   "season": "2016-17",
   "phase": "regular",
-  "generated_at_utc": "2026-02-25T21:43:47.649195+00:00",
+  "generated_at_utc": "2026-02-26T21:30:02.507013+00:00",
   "pbp_source_file": "/Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/nbastatsv3/regular/nbastatsv3_2016.parquet",
   "pbp_source": "nbastatsv3",
   "output_dir": "/Users/robschoen/Dropbox/CC/GLA/data/pbp/processed/game_states/regular/2016-17",
   "candidate_games": 1230,
   "processed_games": 1230,
   "skipped_existing_games": 0,
-  "matched_games": 1221,
-  "mismatched_games": 9,
+  "matched_games": 1220,
+  "mismatched_games": 10,
   "source_consistent_mismatched_games": 0,
-  "parser_mismatched_games": 9,
+  "parser_mismatched_games": 10,
   "mixed_mismatched_games": 0,
   "missing_pbp_games": 0,
   "missing_pbp_game_ids": [],
@@ -249,6 +249,35 @@
       "source_consistency_reasons": {},
       "source_consistent_mismatch": false,
       "output_file": "/Users/robschoen/Dropbox/CC/GLA/data/pbp/processed/game_states/regular/2016-17/2016-17_IND_OKC_0021600770.json"
+    },
+    {
+      "game_id": "0021600871",
+      "home_team": "CLE",
+      "road_team": "CHI",
+      "differences": {
+        "fgm": {
+          "expected_home": 37,
+          "expected_road": 46,
+          "actual_home": 37,
+          "actual_road": 45,
+          "delta_home": 0,
+          "delta_road": -1
+        }
+      },
+      "parser_differences": {
+        "fgm": {
+          "expected_home": 37,
+          "expected_road": 46,
+          "actual_home": 37,
+          "actual_road": 45,
+          "delta_home": 0,
+          "delta_road": -1
+        }
+      },
+      "source_consistent_differences": {},
+      "source_consistency_reasons": {},
+      "source_consistent_mismatch": false,
+      "output_file": "/Users/robschoen/Dropbox/CC/GLA/data/pbp/processed/game_states/regular/2016-17/2016-17_CLE_CHI_0021600871.json"
     },
     {
       "game_id": "0021601215",

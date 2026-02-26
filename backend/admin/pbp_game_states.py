@@ -742,6 +742,24 @@ def _rebound_possession_kind(
     return None
 
 
+def _is_malformed_event_row(action_type: str, sub_type: str, desc: str) -> bool:
+    if action_type:
+        return False
+    if sub_type:
+        return False
+    return not desc.strip()
+
+
+def _is_dead_ball_or_admin_event(action_type: str, sub_type: str, desc_lower: str) -> bool:
+    if action_type in {"timeout", "substitution", "instant replay", "period", "game"}:
+        return True
+    if action_type == "violation" and any(token in f"{sub_type} {desc_lower}" for token in ("kicked ball", "delay of game")):
+        return True
+    if "timeout" in desc_lower or desc_lower.startswith("sub:") or "instant replay" in desc_lower:
+        return True
+    return False
+
+
 def _accept_score_update(
     score_known: bool,
     old_home: int,
@@ -814,6 +832,64 @@ def _should_swap_score_columns(events_sorted: pd.DataFrame, game_row: pd.Series)
 
     # Require a strong improvement and a close swapped fit to avoid false positives.
     return swapped_best <= 2 and (normal_best - swapped_best) >= 10
+
+
+def _prepare_events_for_processing(events_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, int]]:
+    """Normalize feed ordering for timeline-safe possession/state processing."""
+    d = events_df.sort_values(["actionNumber", "actionId"], kind="stable").reset_index(drop=True).copy()
+    if d.empty:
+        return d, {"period_backtracks_in_feed": 0, "clock_backtracks_in_feed": 0}
+
+    d["period_raw"] = pd.to_numeric(d.get("period"), errors="coerce").fillna(0).astype("int64")
+
+    corrected_periods: list[int] = []
+    period_backtracks = 0
+    max_period_seen = 0
+    for _, row in d.iterrows():
+        period_raw = _to_optional_int(row.get("period_raw")) or 0
+        action_type = _normalize_text(row.get("action_type_norm", row.get("actionType")))
+        corrected_period = period_raw
+        if period_raw > max_period_seen:
+            max_period_seen = period_raw
+        if period_raw > 0 and max_period_seen > 0 and period_raw < max_period_seen and action_type != "period":
+            corrected_period = max_period_seen
+            period_backtracks += 1
+        corrected_periods.append(corrected_period)
+        if corrected_period > max_period_seen:
+            max_period_seen = corrected_period
+
+    d["period"] = pd.Series(corrected_periods, index=d.index, dtype="int64")
+    d["_clock_seconds"] = d["clock"].map(_clock_to_seconds_remaining)
+    d["_clock_missing"] = d["_clock_seconds"].isna().astype("int64")
+
+    action_num_sort = pd.to_numeric(d.get("actionNumber"), errors="coerce")
+    action_id_sort = pd.to_numeric(d.get("actionId"), errors="coerce")
+    d["_action_num_sort"] = action_num_sort.fillna(10**12).astype("int64")
+    d["_action_id_sort"] = action_id_sort.fillna(10**12).astype("int64")
+
+    clock_backtracks = 0
+    period_min_clock: dict[int, float] = {}
+    for _, row in d.iterrows():
+        period = _to_optional_int(row.get("period")) or 0
+        clock_sec = _clock_to_seconds_remaining(row.get("clock"))
+        if period <= 0 or clock_sec is None:
+            continue
+        min_clock = period_min_clock.get(period)
+        if min_clock is not None and clock_sec > (min_clock + 1e-6):
+            clock_backtracks += 1
+        period_min_clock[period] = clock_sec if min_clock is None else min(min_clock, clock_sec)
+
+    events_sorted = d.sort_values(
+        ["period", "_clock_missing", "_clock_seconds", "_action_num_sort", "_action_id_sort"],
+        ascending=[True, True, False, True, True],
+        kind="stable",
+    ).reset_index(drop=True)
+    events_sorted = events_sorted.drop(columns=["_clock_seconds", "_clock_missing", "_action_num_sort", "_action_id_sort"])
+
+    return events_sorted, {
+        "period_backtracks_in_feed": int(period_backtracks),
+        "clock_backtracks_in_feed": int(clock_backtracks),
+    }
 
 
 def _live_wl(pts_home: int, pts_road: int) -> str:
@@ -1051,10 +1127,13 @@ def _event_payload(
     score_home_aligned: Optional[int] = None,
     score_away_aligned: Optional[int] = None,
     score_columns_swapped: bool = False,
+    event_quarantined: bool = False,
+    event_quarantine_reason: Optional[str] = None,
 ) -> dict[str, Any]:
     action_number = _to_optional_int(row.get("actionNumber"))
     action_id = _to_optional_int(row.get("actionId"))
     period = _to_optional_int(row.get("period"))
+    period_raw = _to_optional_int(row.get("period_raw"))
     team_id = _to_optional_int(row.get("teamId"))
     person_id = _to_optional_int(row.get("personId"))
     is_field_goal = _to_optional_int(row.get("isFieldGoal"))
@@ -1078,6 +1157,7 @@ def _event_payload(
         "action_number": action_number,
         "action_id": action_id,
         "period": period,
+        "period_raw": period_raw,
         "clock": _safe_str(row.get("clock")),
         "team_id": team_id,
         "team_tricode": _safe_str(row.get("teamTricode")),
@@ -1103,6 +1183,8 @@ def _event_payload(
         "possession_confidence": possession_confidence,
         "possession_team_id": possession_team_id,
         "possession_team_tricode": possession_team_tricode,
+        "event_quarantined": bool(event_quarantined),
+        "event_quarantine_reason": _safe_str(event_quarantine_reason),
         "changed_stats": {
             "home": changed["home"],
             "road": changed["road"],
@@ -1119,12 +1201,19 @@ def _build_game_payload(
     pbp_file: Path,
     pbp_source: str,
 ) -> dict[str, Any]:
-    events_sorted = events_df.sort_values(["actionNumber", "actionId"], kind="stable").reset_index(drop=True)
+    events_sorted, event_ordering_anomalies = _prepare_events_for_processing(events_df)
     period_series = pd.to_numeric(events_sorted.get("period"), errors="coerce")
     max_period_in_game = int(period_series.max()) if not period_series.empty and pd.notna(period_series.max()) else 0
     score_columns_swapped = _should_swap_score_columns(events_sorted, game_row)
     aliases = _build_aliases(game_row)
     state = _initial_state()
+    period_closed: set[int] = set()
+    integrity = {
+        "quarantined_events": 0,
+        "quarantined_malformed_events": 0,
+        "quarantined_after_period_end_events": 0,
+        "low_confidence_possession_events": 0,
+    }
 
     rebound_prev: dict[tuple[str, str], dict[str, int]] = {}
     offensive_foul_nums: dict[str, list[int]] = {"home": [], "road": []}
@@ -1176,10 +1265,52 @@ def _build_game_payload(
         shot_value = _to_optional_int(row.get("shotValue"))
         period = _to_optional_int(row.get("period")) or 0
         clock = _safe_str(row.get("clock"))
+        period_start = action_type == "period" and "start of" in desc_lower
+        period_end = action_type == "period" and "end of" in desc_lower
+
+        if period_start and period > 0:
+            period_closed.discard(period)
+
+        quarantine_reason: Optional[str] = None
+        if _is_malformed_event_row(action_type, sub_type, desc):
+            quarantine_reason = "malformed_blank_event"
+        elif period > 0 and period in period_closed and action_type not in {"period", "game"}:
+            quarantine_reason = "event_after_period_end"
 
         # Legacy excess-timeout turnovers can omit team fields; infer via paired technical.
         if side is None and action_type == "turnover" and "excess timeout turnover" in sub_type:
             side = excess_timeout_side_by_key.get((period, clock))
+
+        if quarantine_reason:
+            integrity["quarantined_events"] += 1
+            if quarantine_reason == "malformed_blank_event":
+                integrity["quarantined_malformed_events"] += 1
+            elif quarantine_reason == "event_after_period_end":
+                integrity["quarantined_after_period_end_events"] += 1
+
+            possession_before = possession_side
+            possession_after = possession_side
+            state_line = _build_game_log_state(game_row, state, season)
+            event_rows.append(
+                _event_payload(
+                    row,
+                    idx + 1,
+                    side,
+                    changed,
+                    state_line,
+                    possession_before=possession_before,
+                    possession_after=possession_after,
+                    possession_changed=False,
+                    possession_reason="quarantined_event",
+                    possession_confidence="unknown",
+                    score_home_aligned=None,
+                    score_away_aligned=None,
+                    score_columns_swapped=score_columns_swapped,
+                    event_quarantined=True,
+                    event_quarantine_reason=quarantine_reason,
+                )
+            )
+            continue
 
         fg_event = _is_fg_event(action_type, is_field_goal) and side is not None
         fg_made = fg_event and _is_made_shot(action_type, shot_result)
@@ -1336,12 +1467,13 @@ def _build_game_payload(
         possession_reason: Optional[str] = None
         possession_confidence: Optional[str] = None
         rebound_kind: Optional[str] = None
+        team_rebound_inferred = False
+        dead_ball_admin_event = _is_dead_ball_or_admin_event(action_type, sub_type, desc_lower)
 
         if action_type == "rebound":
             rebound_kind = _rebound_possession_kind(side, sub_type, desc_lower, changed)
-
-        period_start = action_type == "period" and "start of" in desc_lower
-        period_end = action_type == "period" and "end of" in desc_lower
+            if rebound_kind is None and side is not None and "rebound" in desc_lower:
+                team_rebound_inferred = True
 
         if period_start:
             if period == 1:
@@ -1388,6 +1520,15 @@ def _build_game_payload(
             possession_after = side
             possession_reason = "offensive_rebound"
             possession_confidence = "high"
+        elif team_rebound_inferred and side is not None:
+            possession_after = side
+            if possession_before == side:
+                possession_reason = "team_rebound_inferred_offensive"
+            elif possession_before == _other_side(side):
+                possession_reason = "team_rebound_inferred_defensive"
+            else:
+                possession_reason = "team_rebound_inferred"
+            possession_confidence = "low"
         elif fg_made:
             possession_after = _other_side(side)
             possession_reason = "made_field_goal"
@@ -1411,11 +1552,21 @@ def _build_game_payload(
             possession_confidence = "medium"
 
         if possession_reason is None:
-            possession_reason = "carry_forward"
-            possession_confidence = "high" if possession_after is not None else "unknown"
+            if dead_ball_admin_event:
+                possession_reason = "dead_ball_admin_carry"
+                possession_confidence = "low" if possession_after is not None else "unknown"
+            else:
+                possession_reason = "carry_forward"
+                possession_confidence = "high" if possession_after is not None else "unknown"
+
+        if possession_confidence == "low":
+            integrity["low_confidence_possession_events"] += 1
 
         possession_changed = possession_after != possession_before
         possession_side = possession_after
+
+        if period_end and period > 0:
+            period_closed.add(period)
 
         state_line = _build_game_log_state(game_row, state, season)
         event_rows.append(
@@ -1433,6 +1584,8 @@ def _build_game_payload(
                 score_home_aligned=new_score_home,
                 score_away_aligned=new_score_away,
                 score_columns_swapped=score_columns_swapped,
+                event_quarantined=False,
+                event_quarantine_reason=None,
             )
         )
 
@@ -1455,6 +1608,8 @@ def _build_game_payload(
         "road_team_id": _to_optional_int(game_row.get("team_id_road")) or 0,
         "score_columns_swapped": score_columns_swapped,
         "pbp_source_file": str(pbp_file),
+        "event_ordering_anomalies": event_ordering_anomalies,
+        "event_integrity": integrity,
         "events": event_rows,
         "final_state": _build_game_log_state(game_row, state, season),
         "expected_totals": expected_totals,
@@ -1473,6 +1628,7 @@ def build_pbp_game_states(
     overwrite: bool = False,
 ) -> int:
     phase_norm = _normalize_phase(phase)
+    source_norm = source.strip().lower()
     pbp_path, pbp_source = _build_pbp_path(repo_dir, season, phase_norm, source=source)
     output_dir = _build_output_dir(repo_dir, season, phase_norm, output_root=output_root)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1496,9 +1652,24 @@ def build_pbp_game_states(
 
     pbp_grouped = pbp_df.groupby("game_id_norm", sort=False)
     pbp_game_ids = set(pbp_grouped.indices.keys())
+    fallback_pbp_path: Optional[Path] = None
+    fallback_pbp_source: Optional[str] = None
+    fallback_pbp_grouped = None
+    fallback_pbp_game_ids: set[str] = set()
+    fallback_loaded = False
+    fallback_hits = 0
+
+    if source_norm == "auto":
+        alt_source = "api_pbpv3" if pbp_source == "nbastatsv3" else "nbastatsv3"
+        alt_path, alt_label = _build_pbp_path(repo_dir, season, phase_norm, source=alt_source)
+        if alt_path.exists() and alt_path != pbp_path:
+            fallback_pbp_path = alt_path
+            fallback_pbp_source = alt_label
 
     print(f"[pbp-state] Season={season} phase={phase_norm}")
     print(f"[pbp-state] PBP source={pbp_path} ({pbp_source})")
+    if fallback_pbp_path is not None and fallback_pbp_source is not None:
+        print(f"[pbp-state] Fallback source={fallback_pbp_path} ({fallback_pbp_source})")
     print(f"[pbp-state] Output dir={output_dir}")
     print(f"[pbp-state] Candidate games={len(game_logs)}")
 
@@ -1529,7 +1700,25 @@ def build_pbp_game_states(
             skipped_existing += 1
             continue
 
-        if gid not in pbp_game_ids:
+        events_df: Optional[pd.DataFrame] = None
+        events_pbp_path = pbp_path
+        events_pbp_source = pbp_source
+        if gid in pbp_game_ids:
+            events_df = pbp_grouped.get_group(gid)
+        elif fallback_pbp_path is not None and fallback_pbp_source is not None:
+            if not fallback_loaded:
+                fallback_df = _load_pbp_df(fallback_pbp_path)
+                if not fallback_df.empty:
+                    fallback_pbp_grouped = fallback_df.groupby("game_id_norm", sort=False)
+                    fallback_pbp_game_ids = set(fallback_pbp_grouped.indices.keys())
+                fallback_loaded = True
+            if fallback_pbp_grouped is not None and gid in fallback_pbp_game_ids:
+                events_df = fallback_pbp_grouped.get_group(gid)
+                events_pbp_path = fallback_pbp_path
+                events_pbp_source = fallback_pbp_source
+                fallback_hits += 1
+
+        if events_df is None:
             game_date_sort = game_row.get("game_date_sort")
             game_date_norm: Optional[pd.Timestamp] = None
             if pd.notna(game_date_sort):
@@ -1546,14 +1735,13 @@ def build_pbp_game_states(
                 missing_pbp_game_ids.append(gid)
             continue
 
-        events_df = pbp_grouped.get_group(gid)
         payload = _build_game_payload(
             season=season,
             phase=phase_norm,
             game_row=game_row,
             events_df=events_df,
-            pbp_file=pbp_path,
-            pbp_source=pbp_source,
+            pbp_file=events_pbp_path,
+            pbp_source=events_pbp_source,
         )
 
         with out_path.open("w", encoding="utf-8") as f:
@@ -1590,7 +1778,7 @@ def build_pbp_game_states(
             print(
                 f"[pbp-state] Processed={processed} "
                 f"matched={matched} mismatched={mismatched} "
-                f"missing_pbp={missing_pbp} pending_pbp={pending_pbp}"
+                f"missing_pbp={missing_pbp} pending_pbp={pending_pbp} fallback_hits={fallback_hits}"
             )
 
     summary = {
@@ -1599,6 +1787,9 @@ def build_pbp_game_states(
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "pbp_source_file": str(pbp_path),
         "pbp_source": pbp_source,
+        "fallback_source_file": str(fallback_pbp_path) if fallback_pbp_path is not None else "",
+        "fallback_source": fallback_pbp_source or "",
+        "fallback_source_games_used": fallback_hits,
         "output_dir": str(output_dir),
         "candidate_games": int(len(game_logs)),
         "processed_games": processed,
@@ -1623,7 +1814,7 @@ def build_pbp_game_states(
         f"[pbp-state] Done. processed={processed} matched={matched} "
         f"mismatched={mismatched} source_consistent_mismatched={source_consistent_mismatched} "
         f"parser_mismatched={parser_mismatched} mixed_mismatched={mixed_mismatched} missing_pbp={missing_pbp} "
-        f"pending_pbp={pending_pbp} skipped={skipped_existing}"
+        f"pending_pbp={pending_pbp} fallback_hits={fallback_hits} skipped={skipped_existing}"
     )
     print(f"[pbp-state] Summary: {summary_path}")
     return 0 if mismatched == 0 else 2
@@ -1689,6 +1880,7 @@ def build_winprob_base(
 
     games_processed = 0
     rows_written = 0
+    collapsed_rows = 0
     with output_path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=WINPROB_BASE_COLUMNS)
         writer.writeheader()
@@ -1710,7 +1902,10 @@ def build_winprob_base(
                 gameid_value = game_id_norm
 
             events = payload.get("events") or []
+            last_state_key: Optional[tuple[int, int, int, int, str]] = None
             for event in events:
+                if bool(event.get("event_quarantined")):
+                    continue
                 period = _to_optional_int(event.get("period"))
                 if period is None:
                     continue
@@ -1739,6 +1934,12 @@ def build_winprob_base(
                     elif possession_after == "road":
                         possession = road_team
 
+                state_key = (period, seconds_left, home_score, road_score, possession)
+                if state_key == last_state_key:
+                    collapsed_rows += 1
+                    continue
+                last_state_key = state_key
+
                 writer.writerow(
                     {
                         "gameid": gameid_value,
@@ -1761,6 +1962,6 @@ def build_winprob_base(
 
     print(
         f"[pbp-winprob] Wrote {rows_written} rows from {games_processed} games "
-        f"to {output_path} (source={source_label})"
+        f"to {output_path} (source={source_label}, collapsed_duplicates={collapsed_rows})"
     )
     return 0

@@ -1,7 +1,7 @@
 {
   "season": "2007-08",
   "phase": "regular",
-  "generated_at_utc": "2026-02-25T21:33:34.644393+00:00",
+  "generated_at_utc": "2026-02-26T21:13:37.115746+00:00",
   "pbp_source_file": "/Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/nbastatsv3/regular/nbastatsv3_2007.parquet",
   "pbp_source": "nbastatsv3",
   "output_dir": "/Users/robschoen/Dropbox/CC/GLA/data/pbp/processed/game_states/regular/2007-08",
