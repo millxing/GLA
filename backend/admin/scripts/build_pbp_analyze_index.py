@@ -113,7 +113,7 @@ def build_index(states_root: Path, season: str, phase: str) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build pbp_analyze index for one season/phase")
-    parser.add_argument("--states-root", required=True, help="Root path like <GLA>/data/pbp/processed/game_states")
+    parser.add_argument("--states-root", required=True, help="Root path like <NBA_Data>/PBPdata/game_states")
     parser.add_argument("--season", required=True, help="Season like 2025-26")
     parser.add_argument("--phase", required=True, choices=["regular", "playoffs"], help="Season phase")
     args = parser.parse_args()

@@ -52,7 +52,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from services.calculations import compute_four_factors, compute_game_ratings
 from services.llm import generate_interpretation_sync, LLM_MODELS
-from config import get_current_season
+from config import get_current_season, PBP_WINPROB_BASE_ROOT, PBP_WINPROB_MODELS_ROOT
 
 PARQUET_BRIDGE_PYTHON = sys.executable or "python3"
 
@@ -3267,8 +3267,8 @@ and writes to:
         help="Overwrite existing output CSV if present",
     )
 
-    default_winprob_input_root = str((Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "winprob_base").resolve())
-    default_wpm_output_root = str((Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "winprob_models").resolve())
+    default_winprob_input_root = str(PBP_WINPROB_BASE_ROOT)
+    default_wpm_output_root = str(PBP_WINPROB_MODELS_ROOT)
 
     p_wpm = sub.add_parser(
         "build-pbp-winprob-models",

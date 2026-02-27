@@ -8,7 +8,8 @@ SEASON="${SEASON:-}"
 ENV_NAME="gla_admin"
 CONDA_PATH="/opt/miniconda3"
 ENV_PYTHON="$CONDA_PATH/envs/$ENV_NAME/bin/python"
-PBP_ANALYZE_STATES_ROOT="$PROJECT_DIR/data/pbp/processed/game_states"
+PBP_ANALYZE_STATES_REL="PBPdata/game_states"
+PBP_ANALYZE_STATES_ROOT="$REPO_DIR/$PBP_ANALYZE_STATES_REL"
 PBP_INDEX_SCRIPT="$PROJECT_DIR/backend/admin/scripts/build_pbp_analyze_index.py"
 DRY_RUN="${DRY_RUN:-0}"
 REPORTS_DIR="$PROJECT_DIR/reports"
@@ -61,6 +62,7 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "[run] DRY RUN enabled (no writes/commits)"
 fi
 report_line "INFO" "Daily update started (season=$SEASON dry_run=$DRY_RUN)"
+report_line "INFO" "PBP timeline states root: $PBP_ANALYZE_STATES_ROOT"
 
 echo "[check] Verifying nba_api version"
 NBA_API_VERSION="$("$ENV_PYTHON" -c 'from importlib.metadata import version; print(version("nba_api"))')"
@@ -70,6 +72,15 @@ if [ "$NBA_API_VERSION" != "1.11.4" ]; then
     exit 1
 fi
 report_line "SUCCESS" "nba_api version verified (1.11.4)"
+
+echo "[check] Verifying scikit-learn version"
+SKLEARN_VERSION="$("$ENV_PYTHON" -c 'from importlib.metadata import version; print(version("scikit-learn"))')"
+if [ "$SKLEARN_VERSION" != "1.8.0" ]; then
+    report_line "FAILED" "scikit-learn version check failed (expected=1.8.0 found=$SKLEARN_VERSION)"
+    echo "[error] Expected scikit-learn==1.8.0, found $SKLEARN_VERSION"
+    exit 1
+fi
+report_line "SUCCESS" "scikit-learn version verified (1.8.0)"
 
 echo "[check] Verifying parquet engine (pyarrow/fastparquet)"
 PARQUET_ENGINE="$("$ENV_PYTHON" -c 'import importlib.util as u; print("pyarrow" if u.find_spec("pyarrow") else ("fastparquet" if u.find_spec("fastparquet") else ""))')"
@@ -204,6 +215,10 @@ elif [ "$HAS_POSTSEASON" = "1" ]; then
 else
     echo "[run] No playoff/play-in games found for $SEASON yet; skipping playoff game-state build"
     report_line "SKIPPED" "Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for $SEASON"
+fi
+
+if [ "$PBP_EXIT" -ne 0 ]; then
+    report_line "SKIPPED" "PBP timeline commit via NBA_Data skipped because raw PBP update failed"
 fi
 
 # Commit/push data updates immediately (before interpretations)

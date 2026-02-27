@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from pathlib import Path
 
 GITHUB_USER = "millxing"
 GITHUB_BRANCH = "main"
@@ -12,6 +13,36 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_NBA_DATA_REPO_DIR = Path("/Users/robschoen/Dropbox/CC/NBA_Data").resolve()
+NBA_DATA_REPO_DIR = Path(
+    os.getenv("NBA_DATA_REPO_DIR", str(DEFAULT_NBA_DATA_REPO_DIR))
+).expanduser().resolve()
+PBP_ROOT_DIR = Path(
+    os.getenv("PBP_ROOT_DIR", str(NBA_DATA_REPO_DIR / "PBPdata"))
+).expanduser().resolve()
+PBP_GAME_STATES_ROOT = Path(
+    os.getenv("PBP_GAME_STATES_ROOT", str(PBP_ROOT_DIR / "game_states"))
+).expanduser().resolve()
+PBP_WINPROB_BASE_ROOT = Path(
+    os.getenv("PBP_WINPROB_BASE_ROOT", str(PBP_ROOT_DIR / "winprob_base"))
+).expanduser().resolve()
+PBP_WINPROB_MODELS_ROOT = Path(
+    os.getenv("PBP_WINPROB_MODELS_ROOT", str(PBP_ROOT_DIR / "winprob_models"))
+).expanduser().resolve()
+PBP_GITHUB_RAW_BASE_URL = os.getenv(
+    "PBP_GITHUB_RAW_BASE_URL", f"{DATA_BASE_URL}/PBPdata"
+).rstrip("/")
+PBP_ENABLE_LEGACY_GLA_FALLBACK = os.getenv(
+    "PBP_ENABLE_LEGACY_GLA_FALLBACK", "1"
+).strip().lower() in {"1", "true", "yes", "on"}
+PBP_LEGACY_GLA_ROOT = Path(
+    os.getenv("PBP_LEGACY_GLA_ROOT", str(PROJECT_ROOT / "data" / "pbp" / "processed"))
+).expanduser().resolve()
+PBP_REMOTE_CACHE_DIR = Path(
+    os.getenv("PBP_REMOTE_CACHE_DIR", "/tmp/gla_pbp_cache")
+).expanduser().resolve()
 
 CACHE_TTL_SECONDS = 1800  # 30 minutes
 CACHE_MAX_SIZE = 50

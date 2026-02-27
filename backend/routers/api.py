@@ -4,9 +4,22 @@ from typing import Optional, Dict, Any
 import subprocess
 import json
 import re
+import sys
+from importlib.metadata import version as pkg_version
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 import pyarrow.parquet as pq
-from config import get_available_seasons, ADMIN_SECRET_KEY
+from config import (
+    ADMIN_SECRET_KEY,
+    PBP_ENABLE_LEGACY_GLA_FALLBACK,
+    PBP_GAME_STATES_ROOT,
+    PBP_GITHUB_RAW_BASE_URL,
+    PBP_LEGACY_GLA_ROOT,
+    PBP_REMOTE_CACHE_DIR,
+    get_available_seasons,
+)
 from services.cache import clear_cache
 from services.data_loader import (
     get_normalized_season_data,
@@ -62,8 +75,47 @@ STAT_ALIASES = {
 router = APIRouter(prefix="/api")
 WINPROB_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_wizard_app.html").resolve()
 WINPROB_HYPOTHETICAL_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_hypothetical_app.html").resolve()
-PBP_GAME_STATES_ROOT = (Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "game_states").resolve()
 STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
+LEGACY_PBP_GAME_STATES_ROOT = (PBP_LEGACY_GLA_ROOT / "game_states").resolve()
+
+PBP_GAME_STATES_ROOTS = [PBP_GAME_STATES_ROOT]
+if PBP_ENABLE_LEGACY_GLA_FALLBACK and LEGACY_PBP_GAME_STATES_ROOT != PBP_GAME_STATES_ROOT:
+    PBP_GAME_STATES_ROOTS.append(LEGACY_PBP_GAME_STATES_ROOT)
+
+
+def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
+    rel = relative_path.lstrip("/")
+    cache_path = (PBP_REMOTE_CACHE_DIR / rel).resolve()
+    if cache_path.exists():
+        return cache_path
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    remote_url = f"{PBP_GITHUB_RAW_BASE_URL}/{rel}"
+    req = Request(remote_url, headers={"User-Agent": "GLA-timeline-fallback"})
+    try:
+        with urlopen(req, timeout=20) as resp:
+            payload = resp.read()
+    except (HTTPError, URLError, TimeoutError, OSError):
+        return None
+
+    if not payload:
+        return None
+    cache_path.write_bytes(payload)
+    return cache_path
+
+
+def _resolve_remote_timeline_parquet(season: str, phase: str) -> Optional[Path]:
+    relative = f"game_states/{phase}/{season}/{STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)}"
+    return _download_remote_pbpdata_file(relative)
+
+
+def _timeline_season_dirs(phase: str, season: str) -> list[Path]:
+    dirs: list[Path] = []
+    for root in PBP_GAME_STATES_ROOTS:
+        season_dir = root / phase / season
+        if season_dir.exists():
+            dirs.append(season_dir)
+    return dirs
 
 
 def _normalize_game_id_for_timeline(game_id: str) -> str:
@@ -109,18 +161,15 @@ def _find_timeline_json_file(
     road_code = _sanitize_team_code(road_team)
 
     for phase in _timeline_phase_candidates(game_type):
-        season_dir = PBP_GAME_STATES_ROOT / phase / season
-        if not season_dir.exists():
-            continue
+        for season_dir in _timeline_season_dirs(phase, season):
+            if home_code and road_code:
+                exact = season_dir / f"{season}_{home_code}_{road_code}_{game_id}.json"
+                if exact.exists():
+                    return exact, phase
 
-        if home_code and road_code:
-            exact = season_dir / f"{season}_{home_code}_{road_code}_{game_id}.json"
-            if exact.exists():
-                return exact, phase
-
-        matches = sorted(season_dir.glob(f"{season}_*_*_{game_id}.json"))
-        if matches:
-            return matches[0], phase
+            matches = sorted(season_dir.glob(f"{season}_*_*_{game_id}.json"))
+            if matches:
+                return matches[0], phase
 
     return None, None
 
@@ -130,10 +179,14 @@ def _find_timeline_parquet_file(
     game_type: Optional[str] = None,
 ) -> tuple[Optional[Path], Optional[str]]:
     for phase in _timeline_phase_candidates(game_type):
-        season_dir = PBP_GAME_STATES_ROOT / phase / season
-        parquet_path = _build_timeline_parquet_path(season_dir, season=season, phase=phase)
-        if parquet_path.exists():
-            return parquet_path, phase
+        for season_dir in _timeline_season_dirs(phase, season):
+            parquet_path = _build_timeline_parquet_path(season_dir, season=season, phase=phase)
+            if parquet_path.exists():
+                return parquet_path, phase
+
+        remote_parquet = _resolve_remote_timeline_parquet(season=season, phase=phase)
+        if remote_parquet is not None:
+            return remote_parquet, phase
     return None, None
 
 
@@ -270,6 +323,15 @@ def _get_git_commit() -> str:
     return "unknown"
 
 
+def _get_pkg_version(name: str) -> Optional[str]:
+    try:
+        return pkg_version(name)
+    except PackageNotFoundError:
+        return None
+    except Exception:
+        return None
+
+
 # Cache at startup
 GIT_COMMIT = _get_git_commit()
 
@@ -366,7 +428,15 @@ def _build_llm_decomposition_data(request: InterpretationRequest) -> Dict[str, A
 @router.get("/version")
 async def get_version():
     """Return the current git commit hash for deployment verification."""
-    return {"commit": GIT_COMMIT}
+    return {
+        "commit": GIT_COMMIT,
+        "python_version": sys.version.split()[0],
+        "packages": {
+            "scikit-learn": _get_pkg_version("scikit-learn"),
+            "numpy": _get_pkg_version("numpy"),
+            "pandas": _get_pkg_version("pandas"),
+        },
+    }
 
 
 @router.get("/winprob/model-seasons")
@@ -623,7 +693,14 @@ async def get_game_timeline(
                 states=wp_states,
             )
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to compute timeline win probability: {exc}")
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Failed to compute timeline win probability: {exc} "
+                    f"(runtime scikit-learn={_get_pkg_version('scikit-learn')}, "
+                    f"numpy={_get_pkg_version('numpy')}, pandas={_get_pkg_version('pandas')})"
+                ),
+            )
 
         for event_idx, p_home in zip(wp_event_positions, wp_probs):
             if p_home is not None:

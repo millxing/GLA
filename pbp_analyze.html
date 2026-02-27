@@ -273,6 +273,9 @@
     const DEFAULT_PHASE = "regular";
     const FIRST_SEASON_START_YEAR = 2000;
     const GAME_LOGS_PATH_TEMPLATES = [
+      "./PBPdata/game_logs/team_game_logs_{season}.csv",
+      "/PBPdata/game_logs/team_game_logs_{season}.csv",
+      "../NBA_Data/team_game_logs_{season}.csv",
       "./data/pbp/processed/game_logs/team_game_logs_{season}.csv",
       "/data/pbp/processed/game_logs/team_game_logs_{season}.csv",
       "./data/pbp/processed/team_game_logs_{season}.csv",
@@ -280,10 +283,10 @@
       "./team_game_logs_{season}.csv",
     ];
     const GAME_STATES_BASE_ROOT_CANDIDATES = [
-      "./data/pbp/processed/game_states",
-      "/data/pbp/processed/game_states",
       "./PBPdata/game_states",
       "/PBPdata/game_states",
+      "./data/pbp/processed/game_states",
+      "/data/pbp/processed/game_states",
     ];
 
     const seasonSelect = document.getElementById("seasonSelect");

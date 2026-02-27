@@ -24,8 +24,11 @@ import pickle
 from collections import OrderedDict
 from datetime import datetime, timezone
 from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version as pkg_version
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
@@ -35,6 +38,15 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, f1_score, log_loss, roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+
+from config import (
+    PBP_GITHUB_RAW_BASE_URL,
+    PBP_REMOTE_CACHE_DIR,
+    PBP_ROOT_DIR,
+    PBP_WINPROB_BASE_ROOT,
+    PBP_WINPROB_MODELS_ROOT,
+    get_available_seasons,
+)
 
 
 RANDOM_STATE = 42
@@ -61,10 +73,11 @@ HGB_NAME = "hist_gradient_boosting"
 RF_NAME = "random_forest_isotonic"
 SOFT_VOTE_NAME = "ensemble_soft_vote"
 SYMMETRY_MODE = "mirror_average"
+REQUIRED_SKLEARN_VERSION = "1.8.0"
 
 
-DEFAULT_INPUT_ROOT = (Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "winprob_base").resolve()
-DEFAULT_OUTPUT_ROOT = (Path(__file__).resolve().parents[2] / "data" / "pbp" / "processed" / "winprob_models").resolve()
+DEFAULT_INPUT_ROOT = PBP_WINPROB_BASE_ROOT
+DEFAULT_OUTPUT_ROOT = PBP_WINPROB_MODELS_ROOT
 
 
 SMALL_RF_PARAMS: Dict[str, Any] = {
@@ -75,6 +88,112 @@ SMALL_RF_PARAMS: Dict[str, Any] = {
     "random_state": RANDOM_STATE,
     "n_jobs": -1,
 }
+
+
+def _pbpdata_relative(path: Path) -> Optional[str]:
+    try:
+        rel = path.expanduser().resolve().relative_to(PBP_ROOT_DIR)
+    except Exception:
+        return None
+    return rel.as_posix()
+
+
+def _cache_path_for_relative(relative_path: str) -> Path:
+    return PBP_REMOTE_CACHE_DIR / relative_path
+
+
+def _remote_url(relative_path: str) -> str:
+    return f"{PBP_GITHUB_RAW_BASE_URL}/{relative_path.lstrip('/')}"
+
+
+def _download_remote_to_cache(relative_path: str) -> Optional[Path]:
+    cache_path = _cache_path_for_relative(relative_path)
+    if cache_path.exists():
+        return cache_path
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    req = Request(_remote_url(relative_path), headers={"User-Agent": "GLA-winprob-fallback"})
+    try:
+        with urlopen(req, timeout=20) as resp:
+            payload = resp.read()
+    except (HTTPError, URLError, TimeoutError, OSError):
+        return None
+
+    if not payload:
+        return None
+
+    cache_path.write_bytes(payload)
+    return cache_path
+
+
+def _ensure_local_or_remote(path: Path) -> Optional[Path]:
+    p = path.expanduser().resolve()
+    if p.exists():
+        return p
+
+    relative = _pbpdata_relative(p)
+    if not relative:
+        return None
+    return _download_remote_to_cache(relative)
+
+
+@lru_cache(maxsize=1)
+def _discover_remote_wpm_seasons() -> Tuple[str, ...]:
+    seasons: List[str] = []
+    for season in get_available_seasons():
+        rel = f"winprob_models/wpm_{season}.json"
+        req = Request(_remote_url(rel), method="HEAD", headers={"User-Agent": "GLA-winprob-fallback"})
+        try:
+            with urlopen(req, timeout=6):
+                seasons.append(season)
+        except HTTPError as exc:
+            if exc.code != 404:
+                continue
+        except Exception:
+            continue
+    return tuple(seasons)
+
+
+def _runtime_lib_versions() -> Dict[str, str]:
+    versions: Dict[str, str] = {}
+    packages = {
+        "scikit_learn": "scikit-learn",
+        "numpy": "numpy",
+        "pandas": "pandas",
+    }
+    for key, package_name in packages.items():
+        try:
+            versions[key] = pkg_version(package_name)
+        except PackageNotFoundError:
+            versions[key] = "unknown"
+    return versions
+
+
+def _assert_required_sklearn_runtime() -> str:
+    runtime_sklearn = str(_runtime_lib_versions().get("scikit_learn") or "").strip() or "unknown"
+    if runtime_sklearn != REQUIRED_SKLEARN_VERSION:
+        raise RuntimeError(
+            f"[wpm] scikit-learn=={REQUIRED_SKLEARN_VERSION} is required for winprob models; "
+            f"found {runtime_sklearn}. Activate/install the required version and retry."
+        )
+    return runtime_sklearn
+
+
+def _assert_artifact_sklearn_version(artifact_path: Path, artifact: Dict[str, Any]) -> str:
+    artifact_versions = artifact.get("library_versions")
+    if not isinstance(artifact_versions, dict):
+        raise ValueError(
+            f"[wpm] Artifact {artifact_path.name} is missing library_versions metadata. "
+            f"Rebuild all winprob artifacts with scikit-learn=={REQUIRED_SKLEARN_VERSION}."
+        )
+
+    artifact_sklearn = str(artifact_versions.get("scikit_learn") or "").strip()
+    if artifact_sklearn != REQUIRED_SKLEARN_VERSION:
+        raise ValueError(
+            f"[wpm] Artifact {artifact_path.name} was trained with scikit-learn={artifact_sklearn or 'unknown'}, "
+            f"but required version is {REQUIRED_SKLEARN_VERSION}. Rebuild all winprob artifacts."
+        )
+    return artifact_sklearn
 
 
 def _season_sort_key(season: str) -> int:
@@ -91,8 +210,9 @@ def _find_stacked_path(input_root: Path, season: str, phase: str) -> Optional[Pa
         input_root / phase / filename,
     ]
     for path in candidates:
-        if path.exists():
-            return path
+        resolved = _ensure_local_or_remote(path)
+        if resolved is not None:
+            return resolved
     return None
 
 
@@ -166,7 +286,11 @@ def _train_models(x_train: pd.DataFrame, y_train_sign: pd.Series) -> Dict[str, A
     logistic_model = make_pipeline(
         PolynomialFeatures(degree=2, interaction_only=True, include_bias=False),
         StandardScaler(),
-        LogisticRegression(max_iter=1000, random_state=RANDOM_STATE),
+        LogisticRegression(
+            solver="liblinear",
+            max_iter=1000,
+            random_state=RANDOM_STATE,
+        ),
     )
     logistic_model.fit(x_fit, y_fit)
 
@@ -205,11 +329,13 @@ def _home_prob(model: Any, x: pd.DataFrame, symmetry_mode: Optional[str] = None)
     if 1 not in classes:
         raise ValueError("Model classes do not include +1 home-win class.")
     idx = classes.index(1)
-    p_home = model.predict_proba(x)[:, idx]
+    with np.errstate(divide="ignore", over="ignore", invalid="ignore", under="ignore"):
+        p_home = model.predict_proba(x)[:, idx]
 
     if symmetry_mode == SYMMETRY_MODE:
         x_mirror = _mirror_features(x)
-        p_mirror_home = model.predict_proba(x_mirror)[:, idx]
+        with np.errstate(divide="ignore", over="ignore", invalid="ignore", under="ignore"):
+            p_mirror_home = model.predict_proba(x_mirror)[:, idx]
         # Symmetric home-win probability wrapper:
         # p*(s) = 0.5 * (p(s) + (1 - p(s_mirror)))
         p_home = 0.5 * (p_home + (1.0 - p_mirror_home))
@@ -264,6 +390,54 @@ def _decode_model(payload_b64: str) -> Any:
     return pickle.loads(raw)
 
 
+def _patch_model_compat(model: Any) -> int:
+    """Patch known cross-version sklearn pickle incompatibilities."""
+    patched = 0
+    seen: set[int] = set()
+
+    def _walk(obj: Any) -> None:
+        nonlocal patched
+        obj_id = id(obj)
+        if obj_id in seen:
+            return
+        seen.add(obj_id)
+
+        if isinstance(obj, LogisticRegression):
+            # Older artifacts can miss this attribute after pickle load.
+            if not hasattr(obj, "multi_class"):
+                obj.multi_class = "auto"
+                patched += 1
+            return
+
+        if isinstance(obj, dict):
+            for value in obj.values():
+                _walk(value)
+            return
+
+        if isinstance(obj, (list, tuple, set)):
+            for value in obj:
+                _walk(value)
+            return
+
+        steps = getattr(obj, "steps", None)
+        if isinstance(steps, list):
+            for _, step in steps:
+                _walk(step)
+
+        for attr in ("estimator", "estimator_", "base_estimator"):
+            child = getattr(obj, attr, None)
+            if child is not None:
+                _walk(child)
+
+        estimators = getattr(obj, "estimators_", None)
+        if isinstance(estimators, list):
+            for child in estimators:
+                _walk(child)
+
+    _walk(model)
+    return patched
+
+
 def _normalize_game_key(game_id: Any) -> str:
     if game_id is None:
         return ""
@@ -304,6 +478,8 @@ def build_winprob_models(
     lookback_seasons: int = LOOKBACK_SEASONS_DEFAULT,
     overwrite: bool = False,
 ) -> int:
+    _assert_required_sklearn_runtime()
+
     input_path = Path(input_root).expanduser().resolve()
     output_path = Path(output_root).expanduser().resolve()
     output_path.mkdir(parents=True, exist_ok=True)
@@ -355,6 +531,7 @@ def build_winprob_models(
             "schema_version": 1,
             "season": target_season,
             "phase": phase,
+            "library_versions": _runtime_lib_versions(),
             "trained_on_seasons": train_seasons,
             "lookback_seasons": lookback_seasons,
             "train_rows": int(len(x_train)),
@@ -376,6 +553,7 @@ def build_winprob_models(
                     "polynomial_degree": 2,
                     "interaction_only": True,
                     "include_bias": False,
+                    "logistic_solver": "liblinear",
                     "logistic_max_iter": 1000,
                     "random_state": RANDOM_STATE,
                 },
@@ -418,12 +596,14 @@ def build_winprob_models(
 def _resolve_artifact_path(output_root: str, season: str, phase: str) -> Path:
     base = Path(output_root).expanduser().resolve()
     flat_path = base / f"wpm_{season}.json"
-    if flat_path.exists():
-        return flat_path
+    resolved_flat = _ensure_local_or_remote(flat_path)
+    if resolved_flat is not None:
+        return resolved_flat
     # Backward compatibility for older artifacts written under <output_root>/<phase>/.
     phase_path = base / phase / f"wpm_{season}.json"
-    if phase_path.exists():
-        return phase_path
+    resolved_phase = _ensure_local_or_remote(phase_path)
+    if resolved_phase is not None:
+        return resolved_phase
     raise FileNotFoundError(f"No WPM artifact found for season={season} under {base}")
 
 
@@ -437,6 +617,8 @@ def list_wpm_seasons(output_root: str, phase: str = "regular") -> List[str]:
         if not stem.startswith("wpm_"):
             continue
         seasons.add(stem[4:])
+    if not seasons:
+        seasons.update(_discover_remote_wpm_seasons())
     return sorted(seasons, key=_season_sort_key)
 
 
@@ -446,12 +628,16 @@ def _load_artifact_with_models(output_root: str, phase: str, season: str) -> Tup
     with artifact_path.open("r", encoding="utf-8") as f:
         artifact = json.load(f)
 
+    _assert_required_sklearn_runtime()
+    _assert_artifact_sklearn_version(artifact_path=artifact_path, artifact=artifact)
+
     model_payloads = artifact.get("model_artifacts", {})
     missing = [k for k in [LOGISTIC_NAME, HGB_NAME, RF_NAME] if k not in model_payloads]
     if missing:
         raise ValueError(f"Artifact missing model payloads: {missing}")
 
     models = {k: _decode_model(v) for k, v in model_payloads.items()}
+    _ = sum(_patch_model_compat(model) for model in models.values())
     return artifact_path, artifact, models
 
 
@@ -559,7 +745,15 @@ def _lookup_game_state_by_game_seconds_left(
     game_rows["_full_q_left"] = np.where(game_rows["quarter"].astype(int) <= 4, 4 - game_rows["quarter"].astype(int), 0)
     game_rows["_game_seconds_left"] = game_rows["_full_q_left"] * 720.0 + game_rows["seconds_left"].astype(float)
     game_rows["_distance"] = (game_rows["_game_seconds_left"] - float(game_seconds_left)).abs()
-    matched = game_rows.sort_values(["_distance"], ascending=True).iloc[0]
+    game_rows["_is_terminal_non_tie"] = (
+        (game_rows["quarter"].astype(int) >= 4)
+        & np.isclose(game_rows["seconds_left"].astype(float), 0.0, atol=0.5)
+        & (~np.isclose(game_rows["differential"].astype(float), 0.0, atol=1e-9))
+    ).astype(int)
+    matched = game_rows.sort_values(
+        ["_distance", "_is_terminal_non_tie", "quarter"],
+        ascending=[True, False, False],
+    ).iloc[0]
 
     final_score_diff = float(matched["final_score_diff"])
     return {
@@ -614,6 +808,48 @@ def _feature_row(
     )
 
 
+def _terminal_home_probability(quarter: int, seconds_left: float, differential: float) -> Optional[float]:
+    if int(quarter) < 4:
+        return None
+    if float(seconds_left) > 0.0:
+        return None
+    if float(differential) > 0.0:
+        return 1.0
+    if float(differential) < 0.0:
+        return 0.0
+    # End of regulation tie can proceed to OT; keep it neutral.
+    return 0.5
+
+
+def _predict_state_probabilities(
+    models: Dict[str, Any],
+    quarter: int,
+    seconds_left: float,
+    differential: float,
+    possession_numeric: int,
+) -> Tuple[float, float, float, float]:
+    forced = _terminal_home_probability(quarter=quarter, seconds_left=seconds_left, differential=differential)
+    if forced is not None:
+        return forced, forced, forced, forced
+
+    x = _feature_row(
+        quarter=quarter,
+        seconds_left=seconds_left,
+        differential=differential,
+        possession_numeric=possession_numeric,
+    )
+    p_lr = float(_home_prob(models[LOGISTIC_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
+    p_hgb = float(_home_prob(models[HGB_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
+    p_rf = float(_home_prob(models[RF_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
+    p_soft_vote = float(np.mean([p_lr, p_hgb, p_rf]))
+    return (
+        float(np.clip(p_lr, 0.0, 1.0)),
+        float(np.clip(p_hgb, 0.0, 1.0)),
+        float(np.clip(p_rf, 0.0, 1.0)),
+        float(np.clip(p_soft_vote, 0.0, 1.0)),
+    )
+
+
 def predict_home_winprob_batch(
     season: str,
     output_root: str,
@@ -650,6 +886,11 @@ def predict_home_winprob_batch(
         seconds_left = min(max(seconds_left, 0.0), max_seconds)
         possession_numeric = max(-1, min(1, possession_numeric))
         full_q_left = 4 - quarter if quarter <= 4 else 0
+
+        forced = _terminal_home_probability(quarter=quarter, seconds_left=seconds_left, differential=differential)
+        if forced is not None:
+            probs[idx] = forced
+            continue
 
         rows.append(
             {
@@ -702,10 +943,13 @@ def predict_winprob(
         home_team=home_team,
         road_team=road_team,
     )
-    p_lr = float(_home_prob(models[LOGISTIC_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_hgb = float(_home_prob(models[HGB_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_rf = float(_home_prob(models[RF_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_soft_vote = float(np.mean([p_lr, p_hgb, p_rf]))
+    p_lr, p_hgb, p_rf, p_soft_vote = _predict_state_probabilities(
+        models=models,
+        quarter=int(quarter),
+        seconds_left=float(seconds_left),
+        differential=float(differential),
+        possession_numeric=int(x.iloc[0]["possession_numeric"]),
+    )
 
     result = {
         "season": season,
@@ -742,17 +986,13 @@ def forecast_with_actual(
     possession_numeric: int,
 ) -> Dict[str, Any]:
     artifact_path, artifact, models = _load_artifact_with_models(output_root=output_root, phase=phase, season=season)
-    x = _feature_row(
-        quarter=quarter,
-        seconds_left=seconds_left,
-        differential=differential,
-        possession_numeric=possession_numeric,
+    p_lr, p_hgb, p_rf, p_soft_vote = _predict_state_probabilities(
+        models=models,
+        quarter=int(quarter),
+        seconds_left=float(seconds_left),
+        differential=float(differential),
+        possession_numeric=int(possession_numeric),
     )
-
-    p_lr = float(_home_prob(models[LOGISTIC_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_hgb = float(_home_prob(models[HGB_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_rf = float(_home_prob(models[RF_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_soft_vote = float(np.mean([p_lr, p_hgb, p_rf]))
 
     actual = _lookup_actual_result(
         input_root=input_root,
@@ -808,17 +1048,13 @@ def forecast_from_game_seconds_left(
     if state is None:
         raise ValueError(f"Game ID not found in season {season}: {game_id}")
 
-    x = _feature_row(
-        quarter=state["quarter"],
-        seconds_left=state["seconds_left"],
-        differential=state["differential"],
-        possession_numeric=state["possession_numeric"],
+    p_lr, p_hgb, p_rf, p_soft_vote = _predict_state_probabilities(
+        models=models,
+        quarter=int(state["quarter"]),
+        seconds_left=float(state["seconds_left"]),
+        differential=float(state["differential"]),
+        possession_numeric=int(state["possession_numeric"]),
     )
-
-    p_lr = float(_home_prob(models[LOGISTIC_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_hgb = float(_home_prob(models[HGB_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_rf = float(_home_prob(models[RF_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_soft_vote = float(np.mean([p_lr, p_hgb, p_rf]))
 
     return {
         "season": season,
@@ -847,17 +1083,13 @@ def forecast_hypothetical(
     possession_numeric: int,
 ) -> Dict[str, Any]:
     artifact_path, artifact, models = _load_artifact_with_models(output_root=output_root, phase=phase, season=season)
-    x = _feature_row(
-        quarter=quarter,
-        seconds_left=seconds_left,
-        differential=differential,
-        possession_numeric=possession_numeric,
+    p_lr, p_hgb, p_rf, p_soft_vote = _predict_state_probabilities(
+        models=models,
+        quarter=int(quarter),
+        seconds_left=float(seconds_left),
+        differential=float(differential),
+        possession_numeric=int(possession_numeric),
     )
-
-    p_lr = float(_home_prob(models[LOGISTIC_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_hgb = float(_home_prob(models[HGB_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_rf = float(_home_prob(models[RF_NAME], x, symmetry_mode=SYMMETRY_MODE)[0])
-    p_soft_vote = float(np.mean([p_lr, p_hgb, p_rf]))
 
     return {
         "season": season,
