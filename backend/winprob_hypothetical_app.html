@@ -168,6 +168,7 @@
     const $ = (id) => document.getElementById(id);
     const pct = (v) => `${(Number(v) * 100).toFixed(1)}%`;
     let lastPayload = null;
+    let resolvedApiBase = "";
 
     const keys = {
       ensemble_soft_vote: "Ensemble Soft Vote",
@@ -176,10 +177,92 @@
       random_forest_isotonic: "Random Forest (Isotonic)",
     };
 
+    function _stripTrailingSlash(v) {
+      return String(v || "").replace(/\/+$/, "");
+    }
+
+    function getApiBaseCandidates() {
+      const params = new URLSearchParams(location.search);
+      const explicit = _stripTrailingSlash(params.get("api_base"));
+      const bases = [];
+
+      if (explicit) bases.push(explicit);
+
+      if (location.protocol === "http:" || location.protocol === "https:") {
+        bases.push(_stripTrailingSlash(location.origin));
+      }
+
+      if (location.hostname === "localhost" || location.hostname === "127.0.0.1" || location.protocol === "file:") {
+        bases.push("http://localhost:8000");
+        bases.push("http://127.0.0.1:8000");
+        bases.push("http://localhost:8001");
+        bases.push("http://127.0.0.1:8001");
+      }
+
+      if (location.hostname === "extrapass.onrender.com") {
+        bases.push("https://extrapass-api.onrender.com");
+      }
+      if (location.hostname !== "extrapass-api.onrender.com") {
+        bases.push("https://extrapass-api.onrender.com");
+      }
+
+      return [...new Set(bases.filter(Boolean))];
+    }
+
+    async function parsePayload(res) {
+      const contentType = String(res.headers.get("content-type") || "").toLowerCase();
+      if (contentType.includes("application/json")) {
+        try {
+          return await res.json();
+        } catch (_) {
+          return {};
+        }
+      }
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (_) {
+        return { detail: text };
+      }
+    }
+
+    async function apiGet(path, searchParams) {
+      const candidates = getApiBaseCandidates();
+      let lastError = "No API base candidates available.";
+      const attempts = [];
+
+      for (const base of candidates) {
+        let requestUrl = "";
+        try {
+          const url = new URL(path, `${base}/`);
+          if (searchParams) {
+            for (const [k, v] of Object.entries(searchParams)) {
+              if (typeof v !== "undefined" && v !== null) {
+                url.searchParams.set(k, String(v));
+              }
+            }
+          }
+          requestUrl = url.toString();
+          const res = await fetch(requestUrl, { cache: "no-store" });
+          const data = await parsePayload(res);
+          if (!res.ok) {
+            lastError = data.detail || `HTTP ${res.status}`;
+            attempts.push(`${requestUrl} -> HTTP ${res.status}`);
+            continue;
+          }
+          resolvedApiBase = base;
+          return data;
+        } catch (err) {
+          lastError = err?.message || String(err);
+          attempts.push(`${requestUrl || `${base}${path}`} -> ${lastError}`);
+        }
+      }
+
+      throw new Error(`Could not reach API. ${lastError}${attempts.length ? ` Tried: ${attempts.join(" | ")}` : ""}`);
+    }
+
     async function loadSeasons() {
-      const res = await fetch("/api/winprob/model-seasons");
-      if (!res.ok) throw new Error("Could not load season models.");
-      const data = await res.json();
+      const data = await apiGet("/api/winprob/model-seasons", { phase: "regular" });
       const seasons = Array.isArray(data.seasons) ? data.seasons : [];
       if (!seasons.length) throw new Error("No season model files found.");
 
@@ -241,16 +324,14 @@
       button.disabled = true;
       button.textContent = "Working...";
       try {
-        const url = new URL("/api/winprob/hypothetical-forecast", location.origin);
-        url.searchParams.set("season", $("season").value);
-        url.searchParams.set("quarter", $("quarter").value);
-        url.searchParams.set("seconds_left", $("seconds_left").value);
-        url.searchParams.set("differential", $("differential").value);
-        url.searchParams.set("possession_numeric", $("possession_numeric").value);
-
-        const res = await fetch(url.toString());
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Forecast failed.");
+        const data = await apiGet("/api/winprob/hypothetical-forecast", {
+          season: $("season").value,
+          quarter: $("quarter").value,
+          seconds_left: $("seconds_left").value,
+          differential: $("differential").value,
+          possession_numeric: $("possession_numeric").value,
+          phase: "regular",
+        });
         lastPayload = data;
         renderResult(data);
       } catch (err) {

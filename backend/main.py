@@ -1,7 +1,26 @@
 import os
+from importlib.metadata import PackageNotFoundError, version as pkg_version
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+
+REQUIRED_SKLEARN_VERSION = "1.8.0"
+
+
+def _assert_runtime_dependencies() -> None:
+    try:
+        sklearn_version = pkg_version("scikit-learn")
+    except PackageNotFoundError as exc:
+        raise RuntimeError("scikit-learn is required and must be installed at version 1.8.0") from exc
+    if sklearn_version != REQUIRED_SKLEARN_VERSION:
+        raise RuntimeError(
+            f"scikit-learn=={REQUIRED_SKLEARN_VERSION} is required; found {sklearn_version}. "
+            "Install/activate the correct environment before starting the API."
+        )
+
+
+_assert_runtime_dependencies()
 
 load_dotenv()
 

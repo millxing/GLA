@@ -33,3 +33,43 @@
 2026-02-26 06:49:14 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-02-26))
 2026-02-26 06:49:14 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-02-26))
 2026-02-26 06:49:14 | FAILED | Daily update finished with interpretation failure (exit=2)
+2026-02-26 21:16:56 | INFO | Daily update started (season=2025-26 dry_run=1)
+2026-02-26 21:16:56 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-26 21:16:56 | FAILED | Parquet engine missing (install pyarrow in gla_admin)
+2026-02-26 21:17:46 | INFO | Daily update started (season=2025-26 dry_run=1)
+2026-02-26 21:17:46 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-26 21:17:46 | SUCCESS | Parquet engine available (pyarrow)
+2026-02-26 21:17:46 | INFO | PBP source target for this run: nbastatsv3
+2026-02-26 21:17:46 | SKIPPED | Season data update skipped due to dry run
+2026-02-26 21:17:46 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 21:18:04 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 21:18:04 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-02-26 21:18:04 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-02-26 21:18:04 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-26 21:18:04 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-26))
+2026-02-26 21:18:04 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-26))
+2026-02-26 21:18:04 | SKIPPED | Contribution regeneration skipped due to dry run
+2026-02-26 21:18:04 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-26))
+2026-02-26 21:18:05 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-26))
+2026-02-26 21:18:05 | SKIPPED | Generate LLM interpretations skipped due to dry run
+2026-02-26 21:18:05 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-02-26))
+2026-02-26 21:18:05 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-02-26))
+2026-02-26 21:18:05 | SUCCESS | Daily update finished successfully
+2026-02-26 21:22:42 | INFO | Daily update started (season=2025-26 dry_run=1)
+2026-02-26 21:22:42 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-26 21:22:42 | SUCCESS | Parquet engine available (pyarrow)
+2026-02-26 21:22:42 | INFO | PBP source target for this run: nbastatsv3
+2026-02-26 21:22:42 | SKIPPED | Season data update skipped due to dry run
+2026-02-26 21:22:42 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 21:22:44 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-26 21:22:44 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-02-26 21:22:44 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-02-26 21:22:45 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-26 21:22:45 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-26))
+2026-02-26 21:22:45 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-26))
+2026-02-26 21:22:45 | SKIPPED | Contribution regeneration skipped due to dry run
+2026-02-26 21:22:45 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-26))
+2026-02-26 21:22:45 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-26))
+2026-02-26 21:22:45 | SKIPPED | Generate LLM interpretations skipped (ENABLE_INTERPRETATIONS=0)
+2026-02-26 21:22:45 | SKIPPED | Commit and push interpretation updates skipped (ENABLE_INTERPRETATIONS=0)
+2026-02-26 21:22:45 | SUCCESS | Daily update finished successfully
