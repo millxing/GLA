@@ -14,6 +14,7 @@ DRY_RUN="${DRY_RUN:-0}"
 REPORTS_DIR="$PROJECT_DIR/reports"
 PBP_TARGET_SOURCE="nbastatsv3"
 PBP_SOURCE_FOR_STATES="nbastatsv3"
+ENABLE_INTERPRETATIONS="${ENABLE_INTERPRETATIONS:-0}"
 # --------------------------
 
 cd "$PROJECT_DIR"
@@ -229,33 +230,39 @@ run_step \
     "Commit and push contribution updates to GitHub (message: $CONTRIB_MSG)" \
     "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$CONTRIB_MSG" $([ "$DRY_RUN" = "1" ] && echo "--dry-run")
 
-echo "[run] Generating LLM interpretations for new games"
 INTERP_EXIT=0
-if [ "$DRY_RUN" = "1" ]; then
-    echo "[dry-run] Skipping interpretation generation"
-    report_line "SKIPPED" "Generate LLM interpretations skipped due to dry run"
-else
-    CURRENT_STEP="Generate LLM interpretations for $SEASON"
-    report_line "START" "$CURRENT_STEP"
-    if "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" generate-interpretations --season "$SEASON" --current --incremental --max-new 20; then
-        report_line "SUCCESS" "$CURRENT_STEP"
+if [ "$ENABLE_INTERPRETATIONS" = "1" ]; then
+    echo "[run] Generating LLM interpretations for new games"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "[dry-run] Skipping interpretation generation"
+        report_line "SKIPPED" "Generate LLM interpretations skipped due to dry run"
     else
-        INTERP_EXIT=$?
-        report_line "FAILED" "${CURRENT_STEP} failed (exit=${INTERP_EXIT})"
-        echo "[warn] Interpretation generation failed with exit code $INTERP_EXIT; continuing so contributions are already pushed."
+        CURRENT_STEP="Generate LLM interpretations for $SEASON"
+        report_line "START" "$CURRENT_STEP"
+        if "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" generate-interpretations --season "$SEASON" --current --incremental --max-new 20; then
+            report_line "SUCCESS" "$CURRENT_STEP"
+        else
+            INTERP_EXIT=$?
+            report_line "FAILED" "${CURRENT_STEP} failed (exit=${INTERP_EXIT})"
+            echo "[warn] Interpretation generation failed with exit code $INTERP_EXIT; continuing so contributions are already pushed."
+        fi
     fi
-fi
 
-echo "[run] Commit + push interpretation updates if needed"
-INTERP_MSG="Update ${SEASON} interpretations (${TODAY})"
-run_step \
-    "Commit and push interpretation updates to GitHub (message: $INTERP_MSG)" \
-    "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$INTERP_MSG" $([ "$DRY_RUN" = "1" ] && echo "--dry-run")
+    echo "[run] Commit + push interpretation updates if needed"
+    INTERP_MSG="Update ${SEASON} interpretations (${TODAY})"
+    run_step \
+        "Commit and push interpretation updates to GitHub (message: $INTERP_MSG)" \
+        "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$INTERP_MSG" $([ "$DRY_RUN" = "1" ] && echo "--dry-run")
 
-if [ "$INTERP_EXIT" -ne 0 ]; then
-    report_line "FAILED" "Daily update finished with interpretation failure (exit=${INTERP_EXIT})"
-    echo "[warn] Exiting with interpretation failure code: $INTERP_EXIT"
-    exit "$INTERP_EXIT"
+    if [ "$INTERP_EXIT" -ne 0 ]; then
+        report_line "FAILED" "Daily update finished with interpretation failure (exit=${INTERP_EXIT})"
+        echo "[warn] Exiting with interpretation failure code: $INTERP_EXIT"
+        exit "$INTERP_EXIT"
+    fi
+else
+    echo "[run] Interpretation generation disabled; skipping interpretation update steps"
+    report_line "SKIPPED" "Generate LLM interpretations skipped (ENABLE_INTERPRETATIONS=$ENABLE_INTERPRETATIONS)"
+    report_line "SKIPPED" "Commit and push interpretation updates skipped (ENABLE_INTERPRETATIONS=$ENABLE_INTERPRETATIONS)"
 fi
 
 report_line "SUCCESS" "Daily update finished successfully"
