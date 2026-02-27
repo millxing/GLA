@@ -79,6 +79,7 @@ class GameTimelineEvent(BaseModel):
     description: str = ""
     possession_after_side: Optional[str] = None
     possession_team_tricode: Optional[str] = None
+    home_win_prob: Optional[float] = None
     game_log_state: GameTimelineState
 
 

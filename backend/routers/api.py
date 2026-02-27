@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from typing import Optional, Dict, Any
 import subprocess
 import json
+import re
 from pathlib import Path
 import pyarrow.parquet as pq
 from config import get_available_seasons, ADMIN_SECRET_KEY
@@ -216,6 +217,41 @@ def _to_int_or_none(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _clock_to_seconds_left(clock_text: Optional[str], period: Optional[int]) -> Optional[int]:
+    if not period or period <= 0:
+        return None
+    match = re.match(r"^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$", str(clock_text or "").strip())
+    if not match:
+        return None
+
+    mins = float(match.group(1) or 0.0)
+    secs = float(match.group(2) or 0.0)
+    total = int(mins * 60.0 + secs)
+    max_seconds = 300 if period > 4 else 720
+    if total < 0:
+        return 0
+    if total > max_seconds:
+        return max_seconds
+    return total
+
+
+def _timeline_possession_numeric(event: dict[str, Any], home_team: str, road_team: str) -> int:
+    home_code = _sanitize_team_code(home_team)
+    road_code = _sanitize_team_code(road_team)
+    poss_team = _sanitize_team_code(event.get("possession_team_tricode"))
+    if poss_team == home_code:
+        return 1
+    if poss_team == road_code:
+        return -1
+
+    poss_side = str(event.get("possession_after_side") or "").strip().lower()
+    if poss_side == "home":
+        return 1
+    if poss_side == "road":
+        return -1
+    return 0
 
 
 def _get_git_commit() -> str:
@@ -524,41 +560,86 @@ async def get_game_timeline(
     if not isinstance(raw_events, list):
         raw_events = []
 
+    file_home, file_road = _teams_from_timeline_filename(timeline_path) if timeline_path else ("", "")
+    resolved_season = str(payload.get("season") or season)
+    resolved_phase = str(payload.get("phase") or phase or "regular")
+    resolved_home = str(payload.get("home_team") or home_team or file_home)
+    resolved_road = str(payload.get("road_team") or road_team or file_road)
+
     events: list[GameTimelineEvent] = []
+    wp_states: list[dict[str, Any]] = []
+    wp_event_positions: list[int] = []
     for event in raw_events:
         if not isinstance(event, dict):
             continue
         state = event.get("game_log_state")
         if not isinstance(state, dict):
             state = {}
+        period = _to_int_or_none(event.get("period"))
+        clock = str(event.get("clock") or "")
+        pts_home = _to_int_or_none(state.get("pts_home"))
+        pts_road = _to_int_or_none(state.get("pts_road"))
+        possession_numeric = _timeline_possession_numeric(
+            event=event,
+            home_team=resolved_home,
+            road_team=resolved_road,
+        )
 
         events.append(
             GameTimelineEvent(
                 event_index=_to_int_or_none(event.get("event_index")),
-                period=_to_int_or_none(event.get("period")),
-                clock=str(event.get("clock") or ""),
+                period=period,
+                clock=clock,
                 description=str(event.get("description") or ""),
                 possession_after_side=str(event.get("possession_after_side") or "") or None,
                 possession_team_tricode=str(event.get("possession_team_tricode") or "") or None,
                 game_log_state=GameTimelineState(
-                    pts_home=_to_int_or_none(state.get("pts_home")),
-                    pts_road=_to_int_or_none(state.get("pts_road")),
+                    pts_home=pts_home,
+                    pts_road=pts_road,
                 ),
             )
         )
 
-    file_home, file_road = _teams_from_timeline_filename(timeline_path) if timeline_path else ("", "")
+        seconds_left = _clock_to_seconds_left(clock, period)
+        if period and seconds_left is not None and pts_home is not None and pts_road is not None:
+            wp_states.append(
+                {
+                    "quarter": period,
+                    "seconds_left": seconds_left,
+                    "differential": pts_home - pts_road,
+                    "possession_numeric": possession_numeric,
+                }
+            )
+            wp_event_positions.append(len(events) - 1)
+
+    if wp_states:
+        from admin.winprob_models import DEFAULT_OUTPUT_ROOT, predict_home_winprob_batch
+
+        try:
+            wp_probs = predict_home_winprob_batch(
+                season=resolved_season,
+                output_root=str(DEFAULT_OUTPUT_ROOT),
+                phase=resolved_phase,
+                states=wp_states,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to compute timeline win probability: {exc}")
+
+        for event_idx, p_home in zip(wp_event_positions, wp_probs):
+            if p_home is not None:
+                events[event_idx].home_win_prob = float(p_home)
+
     validation = payload.get("validation")
     validation_match = validation.get("match") if isinstance(validation, dict) else None
 
     return GameTimelineResponse(
-        season=str(payload.get("season") or season),
-        phase=str(payload.get("phase") or phase),
+        season=resolved_season,
+        phase=resolved_phase,
         game_id=_normalize_game_id_for_timeline(str(payload.get("game_id") or game_id_norm)),
         game_date=str(payload.get("game_date") or "") or None,
         game_type=_normalize_game_type_for_timeline(payload.get("game_type") or game_type) or None,
-        home_team=str(payload.get("home_team") or home_team or file_home),
-        road_team=str(payload.get("road_team") or road_team or file_road),
+        home_team=resolved_home,
+        road_team=resolved_road,
         events=events,
         validation_match=validation_match,
     )

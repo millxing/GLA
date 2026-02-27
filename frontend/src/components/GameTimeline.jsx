@@ -8,6 +8,13 @@ function toIntOrNull(value) {
   return Math.trunc(num)
 }
 
+function toFloatOrNull(value) {
+  if (value === null || value === undefined || value === '') return null
+  const num = Number(value)
+  if (!Number.isFinite(num)) return null
+  return num
+}
+
 function periodLength(period) {
   return period > 4 ? 300 : 720
 }
@@ -71,6 +78,10 @@ function chartPointsFromEvents(events) {
 
     const xRaw = elapsedSeconds(period, secondsLeft)
     if (!Number.isFinite(xRaw)) return
+    const homeWinProbRaw = toFloatOrNull(event?.home_win_prob)
+    const homeWinProb = Number.isFinite(homeWinProbRaw)
+      ? Math.min(1, Math.max(0, homeWinProbRaw))
+      : null
 
     raw.push({
       xRaw,
@@ -78,6 +89,7 @@ function chartPointsFromEvents(events) {
       secondsLeft,
       home,
       road,
+      homeWinProb,
       eventIndex: toIntOrNull(event?.event_index) ?? idx + 1,
     })
   })
@@ -138,6 +150,7 @@ function chartPointsFromEvents(events) {
       home: p.home,
       road: p.road,
       diff: p.home - p.road,
+      homeWinProb: p.homeWinProb,
       eventIndex: p.eventIndex,
     })
   }
@@ -192,6 +205,11 @@ export default function GameTimeline({ timeline }) {
   const homeTeam = timeline?.home_team || 'Home'
   const roadTeam = timeline?.road_team || 'Road'
   const { points } = useMemo(() => chartPointsFromEvents(events), [events])
+  const wpPoints = useMemo(
+    () => points.filter((point) => Number.isFinite(point.homeWinProb)),
+    [points]
+  )
+  const displayedPoints = chartMode === 'wp' ? wpPoints : points
 
   const tableRows = useMemo(() => (
     events.map((event, idx) => {
@@ -204,6 +222,7 @@ export default function GameTimeline({ timeline }) {
       const possession = event?.possession_team_tricode ||
         (event?.possession_after_side === 'home' ? homeTeam
           : event?.possession_after_side === 'road' ? roadTeam : '')
+      const homeWinProb = toFloatOrNull(event?.home_win_prob)
       return {
         key: `${event?.event_index ?? idx}-${idx}`,
         eventIndex: toIntOrNull(event?.event_index),
@@ -213,6 +232,7 @@ export default function GameTimeline({ timeline }) {
         home,
         road,
         diff,
+        homeWinProb,
         possession,
       }
     })
@@ -232,7 +252,7 @@ export default function GameTimeline({ timeline }) {
     const { width, height, dpr } = resizeCanvasToDisplaySize(canvas)
     ctx.clearRect(0, 0, width, height)
 
-    if (!points.length) {
+    if (!displayedPoints.length) {
       chartMetaRef.current = null
       return
     }
@@ -267,6 +287,10 @@ export default function GameTimeline({ timeline }) {
         else yMax += 5
       }
       for (let y = yMin; y <= yMax; y += 5) yTicks.push(y)
+    } else if (chartMode === 'wp') {
+      yMin = 0
+      yMax = 100
+      for (let y = 0; y <= 100; y += 10) yTicks.push(y)
     } else {
       const values = points.flatMap((point) => [point.home, point.road])
       yMin = 0
@@ -347,7 +371,22 @@ export default function GameTimeline({ timeline }) {
         ctx.lineTo(left + plotW, y0)
         ctx.stroke()
       }
-      drawLine(ctx, points, '#0f766e', (point) => [px(point.x), py(point.diff)], dpr)
+      drawLine(ctx, displayedPoints, '#0f766e', (point) => [px(point.x), py(point.diff)], dpr)
+    } else if (chartMode === 'wp') {
+      const y50 = py(50)
+      ctx.strokeStyle = '#111'
+      ctx.lineWidth = 2 * dpr
+      ctx.beginPath()
+      ctx.moveTo(left, y50)
+      ctx.lineTo(left + plotW, y50)
+      ctx.stroke()
+      drawLine(
+        ctx,
+        displayedPoints,
+        '#1d4ed8',
+        (point) => [px(point.x), py(point.homeWinProb * 100)],
+        dpr
+      )
     } else {
       drawLine(ctx, points, '#1d4ed8', (point) => [px(point.x), py(point.home)], dpr)
       drawLine(ctx, points, '#dc2626', (point) => [px(point.x), py(point.road)], dpr)
@@ -356,7 +395,7 @@ export default function GameTimeline({ timeline }) {
     if (Number.isFinite(selectedEventIndex)) {
       let markerX = null
       let bestDistance = Number.POSITIVE_INFINITY
-      for (const point of points) {
+      for (const point of displayedPoints) {
         const distance = Math.abs(point.eventIndex - selectedEventIndex)
         if (distance < bestDistance) {
           bestDistance = distance
@@ -374,7 +413,7 @@ export default function GameTimeline({ timeline }) {
         ctx.stroke()
       }
     }
-  }, [chartMode, events, points, selectedEventIndex])
+  }, [chartMode, displayedPoints, events, points, selectedEventIndex])
 
   useEffect(() => {
     drawChart()
@@ -411,7 +450,7 @@ export default function GameTimeline({ timeline }) {
   const onChartClick = (event) => {
     const canvas = canvasRef.current
     const chartMeta = chartMetaRef.current
-    if (!canvas || !chartMeta || !points.length) return
+    if (!canvas || !chartMeta || !displayedPoints.length) return
 
     const rect = canvas.getBoundingClientRect()
     if (!rect.width || !rect.height) return
@@ -424,7 +463,7 @@ export default function GameTimeline({ timeline }) {
 
     let bestPoint = null
     let bestDistance = Number.POSITIVE_INFINITY
-    for (const point of points) {
+    for (const point of displayedPoints) {
       const distance = Math.abs(point.x - xValue)
       if (distance < bestDistance) {
         bestDistance = distance
@@ -456,21 +495,28 @@ export default function GameTimeline({ timeline }) {
               >
                 Differential
               </button>
+              <button
+                type="button"
+                className={chartMode === 'wp' ? 'active' : ''}
+                onClick={() => setChartMode('wp')}
+              >
+                Win Probability
+              </button>
             </div>
           </div>
         </div>
 
         <div className="timeline-chart-shell">
           <div className="timeline-chart-legend">
-            {points.length === 0 && 'No chartable events.'}
-            {points.length > 0 && chartMode === 'diff' && (
+            {displayedPoints.length === 0 && 'No chartable events.'}
+            {displayedPoints.length > 0 && chartMode === 'diff' && (
               <>
                 <span className="timeline-legend-home">{homeTeam}</span>
                 <span className="timeline-legend-separator"> - </span>
                 <span className="timeline-legend-road">{roadTeam}</span>
               </>
             )}
-            {points.length > 0 && chartMode === 'both' && (
+            {displayedPoints.length > 0 && chartMode === 'both' && (
               <>
                 <span className="legend-item timeline-legend-home">
                   <span className="legend-swatch"></span>
@@ -481,6 +527,12 @@ export default function GameTimeline({ timeline }) {
                   {roadTeam}
                 </span>
               </>
+            )}
+            {displayedPoints.length > 0 && chartMode === 'wp' && (
+              <span className="legend-item timeline-legend-home">
+                <span className="legend-swatch"></span>
+                Home WP ({homeTeam})
+              </span>
             )}
           </div>
           <canvas ref={canvasRef} onClick={onChartClick} />
@@ -499,6 +551,7 @@ export default function GameTimeline({ timeline }) {
                 <th className="num">{homeTeam}</th>
                 <th className="num">{roadTeam}</th>
                 <th className="num">Differential</th>
+                <th className="num">Home WP</th>
                 <th>Possession</th>
               </tr>
             </thead>
@@ -519,6 +572,7 @@ export default function GameTimeline({ timeline }) {
                   <td className="num">{Number.isFinite(row.home) ? row.home : ''}</td>
                   <td className="num">{Number.isFinite(row.road) ? row.road : ''}</td>
                   <td className="num">{Number.isFinite(row.diff) ? row.diff : ''}</td>
+                  <td className="num">{Number.isFinite(row.homeWinProb) ? `${(row.homeWinProb * 100).toFixed(1)}%` : ''}</td>
                   <td>{row.possession}</td>
                 </tr>
               ))}

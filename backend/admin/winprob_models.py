@@ -614,6 +614,67 @@ def _feature_row(
     )
 
 
+def predict_home_winprob_batch(
+    season: str,
+    output_root: str,
+    phase: str,
+    states: List[Dict[str, Any]],
+) -> List[Optional[float]]:
+    """Predict home win probability for multiple game states."""
+    if not states:
+        return []
+
+    _, _, models = _load_artifact_with_models(
+        output_root=output_root,
+        phase=str(phase or "regular"),
+        season=season,
+    )
+
+    rows: List[Dict[str, float]] = []
+    row_indices: List[int] = []
+    probs: List[Optional[float]] = [None] * len(states)
+
+    for idx, state in enumerate(states):
+        try:
+            quarter = int(state.get("quarter"))
+            seconds_left = float(state.get("seconds_left"))
+            differential = float(state.get("differential"))
+            possession_numeric = int(state.get("possession_numeric", 0))
+        except (TypeError, ValueError):
+            continue
+
+        if quarter <= 0:
+            continue
+
+        max_seconds = 300.0 if quarter > 4 else 720.0
+        seconds_left = min(max(seconds_left, 0.0), max_seconds)
+        possession_numeric = max(-1, min(1, possession_numeric))
+        full_q_left = 4 - quarter if quarter <= 4 else 0
+
+        rows.append(
+            {
+                "game_seconds_left": float(full_q_left * 720.0 + seconds_left),
+                "current_differential": float(differential),
+                "possession_numeric": float(possession_numeric),
+            }
+        )
+        row_indices.append(idx)
+
+    if not rows:
+        return probs
+
+    x = pd.DataFrame(rows, columns=FEATURE_COLUMNS).astype(float)
+    p_lr = _home_prob(models[LOGISTIC_NAME], x, symmetry_mode=SYMMETRY_MODE)
+    p_hgb = _home_prob(models[HGB_NAME], x, symmetry_mode=SYMMETRY_MODE)
+    p_rf = _home_prob(models[RF_NAME], x, symmetry_mode=SYMMETRY_MODE)
+    p_soft_vote = np.mean(np.column_stack([p_lr, p_hgb, p_rf]), axis=1)
+
+    for idx, p_home in zip(row_indices, p_soft_vote):
+        probs[idx] = float(np.clip(p_home, 0.0, 1.0))
+
+    return probs
+
+
 def predict_winprob(
     season: str,
     output_root: str,
