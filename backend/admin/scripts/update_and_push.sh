@@ -206,6 +206,57 @@ PY
     report_line "SUCCESS" "Verified timeline metrics JSON generated (season=$SEASON phase=$phase)"
 }
 
+verify_timeline_artifacts_synced() {
+    local phase="$1"
+    local season="$2"
+    local states_rel="PBPdata/game_states/$phase/$season/_states_${season}_${phase}.parquet"
+    local metrics_rel="PBPdata/game_states/$phase/$season/_timeline_metrics_${season}_${phase}.json"
+    local index_rel="PBPdata/game_states/$phase/$season/_index_${season}_${phase}.json"
+    local rel
+
+    for rel in "$states_rel" "$metrics_rel" "$index_rel"; do
+        if [ ! -f "$REPO_DIR/$rel" ]; then
+            echo "[error] Expected timeline artifact missing: $REPO_DIR/$rel"
+            return 1
+        fi
+    done
+
+    local dirty
+    dirty="$(git -C "$REPO_DIR" status --short -- "$states_rel" "$metrics_rel" "$index_rel")"
+    if [ -n "$dirty" ]; then
+        echo "[error] Timeline artifacts still have uncommitted changes after data commit:"
+        echo "$dirty"
+        return 1
+    fi
+
+    local upstream
+    set +e
+    upstream="$(git -C "$REPO_DIR" rev-parse --abbrev-ref --symbolic-full-name "@{upstream}" 2>/dev/null)"
+    local upstream_rc=$?
+    set -e
+
+    if [ "$upstream_rc" -eq 0 ] && [ -n "$upstream" ]; then
+        local ahead
+        local behind
+        ahead="$(git -C "$REPO_DIR" rev-list --count "${upstream}..HEAD")"
+        behind="$(git -C "$REPO_DIR" rev-list --count "HEAD..${upstream}")"
+        if [ "$ahead" -ne 0 ] || [ "$behind" -ne 0 ]; then
+            echo "[error] NBA_Data is not synced with $upstream (ahead=$ahead behind=$behind)"
+            return 1
+        fi
+    fi
+
+    local last_touch
+    set +e
+    last_touch="$(git -C "$REPO_DIR" log -n 1 --pretty=format:'%h %ad %s' --date=iso -- "$states_rel" "$metrics_rel" "$index_rel")"
+    set -e
+    if [ -n "$last_touch" ]; then
+        report_line "INFO" "Timeline artifacts verified clean/synced (season=$season phase=$phase last_touch=$last_touch)"
+    else
+        report_line "INFO" "Timeline artifacts verified clean/synced (season=$season phase=$phase)"
+    fi
+}
+
 # Load API keys from .env (for LLM interpretation generation)
 if [ -f "$PROJECT_DIR/backend/.env" ]; then
     source "$PROJECT_DIR/backend/.env"
@@ -309,6 +360,18 @@ echo "[run] Commit + push data updates if needed"
 run_step \
     "Commit and push data updates to GitHub (message: $MSG)" \
     "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$MSG" $([ "$DRY_RUN" = "1" ] && echo "--dry-run")
+
+if [ "$DRY_RUN" != "1" ] && [ "$PBP_EXIT" -eq 0 ]; then
+    run_step \
+        "Verify timeline artifacts are committed and pushed (regular) for $SEASON" \
+        verify_timeline_artifacts_synced regular "$SEASON"
+
+    if [ "$HAS_POSTSEASON" = "1" ]; then
+        run_step \
+            "Verify timeline artifacts are committed and pushed (playoffs) for $SEASON" \
+            verify_timeline_artifacts_synced playoffs "$SEASON"
+    fi
+fi
 
 echo "[run] Regenerating contributions for $SEASON"
 if [ "$DRY_RUN" = "1" ]; then
