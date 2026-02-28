@@ -194,6 +194,13 @@ function selectedClass(selectedEventIndex, eventIndex) {
   return Number.isFinite(selectedEventIndex) && selectedEventIndex === eventIndex ? 'selected' : ''
 }
 
+function formatPercentile(value) {
+  const numeric = toFloatOrNull(value)
+  if (!Number.isFinite(numeric)) return 'N/A'
+  const clipped = Math.max(0, Math.min(100, numeric))
+  return `${clipped.toFixed(1)}%`
+}
+
 export default function GameTimeline({ timeline }) {
   const [chartMode, setChartMode] = useState('both')
   const [selectedEventIndex, setSelectedEventIndex] = useState(null)
@@ -204,6 +211,8 @@ export default function GameTimeline({ timeline }) {
   const events = Array.isArray(timeline?.events) ? timeline.events : []
   const homeTeam = timeline?.home_team || 'Home'
   const roadTeam = timeline?.road_team || 'Road'
+  const excitementPercentile = timeline?.excitement_percentile
+  const comebackPercentile = timeline?.comeback_percentile
   const { points } = useMemo(() => chartPointsFromEvents(events), [events])
   const wpPoints = useMemo(
     () => points.filter((point) => Number.isFinite(point.homeWinProb)),
@@ -260,7 +269,7 @@ export default function GameTimeline({ timeline }) {
     const left = 56 * dpr
     const right = 18 * dpr
     const top = 18 * dpr
-    const bottom = 52 * dpr
+    const bottom = 34 * dpr
     const plotW = Math.max(1, width - left - right)
     const plotH = Math.max(1, height - top - bottom)
 
@@ -350,15 +359,15 @@ export default function GameTimeline({ timeline }) {
 
     ctx.strokeStyle = '#cfc9bf'
     ctx.fillStyle = '#666'
-    ctx.textAlign = 'left'
+    ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
     for (const tick of xTicks) {
       const x = px(tick.x)
       ctx.beginPath()
       ctx.moveTo(x, top + plotH)
-      ctx.lineTo(x, top + plotH + 6 * dpr)
+      ctx.lineTo(x, top + plotH + 5 * dpr)
       ctx.stroke()
-      ctx.fillText(tick.label, x - (12 * dpr), top + plotH + (18 * dpr))
+      ctx.fillText(tick.label, x, top + plotH + (15 * dpr))
     }
 
     if (chartMode === 'diff') {
@@ -502,6 +511,16 @@ export default function GameTimeline({ timeline }) {
               >
                 Win Probability
               </button>
+            </div>
+          </div>
+          <div className="timeline-factor-boxes" aria-label="Season timeline percentiles">
+            <div className="timeline-factor-box" aria-label="Excitement percentile">
+              <span className="timeline-factor-label">Excitement Percentile</span>
+              <span className="timeline-factor-value">{formatPercentile(excitementPercentile)}</span>
+            </div>
+            <div className="timeline-factor-box" aria-label="Comeback percentile">
+              <span className="timeline-factor-label">Comeback Percentile</span>
+              <span className="timeline-factor-value">{formatPercentile(comebackPercentile)}</span>
             </div>
           </div>
         </div>

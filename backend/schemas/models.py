@@ -91,6 +91,10 @@ class GameTimelineResponse(BaseModel):
     game_type: Optional[str] = None
     home_team: str
     road_team: str
+    excitement_factor: Optional[float] = None
+    comeback_factor: Optional[float] = None
+    excitement_percentile: Optional[float] = None
+    comeback_percentile: Optional[float] = None
     events: List[GameTimelineEvent]
     validation_match: Optional[bool] = None
 

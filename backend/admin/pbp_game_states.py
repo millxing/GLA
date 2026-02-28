@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import re
 import subprocess
 import tempfile
 import shutil
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -91,6 +93,8 @@ TURNOVER_COUNTER_RE = re.compile(r"T#(\d+)|\.T(\d+)\)", re.IGNORECASE)
 BLOCK_COUNTER_RE = re.compile(r"^(.*?)\s+BLOCK\s*\((\d+)\s+BLK\)", re.IGNORECASE)
 GAME_STATE_FILENAME_RE = re.compile(r"^(\d{4}-\d{2})_([A-Z0-9]+)_([A-Z0-9]+)_(\d{10})\.json$")
 STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
+TIMELINE_METRICS_FILENAME_TEMPLATE = "_timeline_metrics_{season}_{phase}.json"
+HOME_WIN_PROB_BY_EVENT_JSON_COLUMN = "home_win_prob_by_event_json"
 STATES_PARQUET_COLUMNS = [
     "season",
     "phase",
@@ -101,6 +105,7 @@ STATES_PARQUET_COLUMNS = [
     "game_type",
     "validation_match",
     "payload_json",
+    HOME_WIN_PROB_BY_EVENT_JSON_COLUMN,
 ]
 STATES_PARQUET_ROW_GROUP_SIZE = 1
 
@@ -241,6 +246,20 @@ def _build_states_parquet_path(states_dir: Path, season: str, phase: str) -> Pat
     return states_dir / STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)
 
 
+def _build_timeline_metrics_output_path(
+    repo_dir: Path,
+    season: str,
+    phase: str,
+    output_root: Optional[str],
+) -> Path:
+    if output_root:
+        root = Path(output_root)
+    else:
+        root = repo_dir / "PBPdata" / "game_states"
+    season_dir = root / phase / season
+    return season_dir / TIMELINE_METRICS_FILENAME_TEMPLATE.format(season=season, phase=phase)
+
+
 def _resolve_states_input_dir(repo_dir: Path, season: str, phase: str, input_root: Optional[str]) -> Path:
     if input_root:
         root = Path(input_root)
@@ -331,6 +350,125 @@ def _list_game_state_json_files(states_dir: Path, season: str) -> list[Path]:
     )
 
 
+def _clip_home_win_prob(value: float) -> float:
+    return float(min(1.0, max(0.0, value)))
+
+
+def _predict_home_winprob_batch_quiet(
+    season: str,
+    phase: str,
+    states: list[dict[str, Any]],
+) -> list[Optional[float]]:
+    from admin.winprob_models import DEFAULT_OUTPUT_ROOT, predict_home_winprob_batch
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`sklearn.utils.parallel.delayed` should be used with",
+            category=UserWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message=r"`sklearn.utils.parallel.Parallel` needs to be used in conjunction",
+            category=UserWarning,
+        )
+        return predict_home_winprob_batch(
+            season=season,
+            output_root=str(DEFAULT_OUTPUT_ROOT),
+            phase=phase,
+            states=states,
+        )
+
+
+def _compute_event_home_win_prob_values(
+    payload: dict[str, Any],
+    season: str,
+    phase: str,
+) -> list[Optional[float]]:
+    raw_events = payload.get("events")
+    if not isinstance(raw_events, list):
+        return []
+
+    home_team = _safe_str(payload.get("home_team")).strip().upper()
+    road_team = _safe_str(payload.get("road_team")).strip().upper()
+    resolved_season = _safe_str(payload.get("season") or season).strip() or season
+    raw_phase = _safe_str(payload.get("phase") or phase).strip().lower() or phase
+    try:
+        resolved_phase = _normalize_phase(raw_phase)
+    except Exception:
+        resolved_phase = _normalize_phase(phase)
+
+    probs_by_event: list[Optional[float]] = [None] * len(raw_events)
+    wp_states: list[dict[str, Any]] = []
+    wp_positions: list[int] = []
+
+    for idx, event in enumerate(raw_events):
+        if not isinstance(event, dict):
+            continue
+
+        existing_wp = _to_optional_float(event.get("home_win_prob"))
+        if existing_wp is not None:
+            probs_by_event[idx] = _clip_home_win_prob(existing_wp)
+            continue
+
+        period = _to_optional_int(event.get("period"))
+        seconds_left = _clock_to_seconds_left(event.get("clock"), period)
+        state = event.get("game_log_state")
+        if not isinstance(state, dict):
+            state = {}
+        pts_home = _to_optional_int(state.get("pts_home"))
+        pts_road = _to_optional_int(state.get("pts_road"))
+        possession_numeric = _timeline_possession_numeric(
+            event=event,
+            home_team=home_team,
+            road_team=road_team,
+        )
+        if period and seconds_left is not None and pts_home is not None and pts_road is not None:
+            wp_states.append(
+                {
+                    "quarter": period,
+                    "seconds_left": seconds_left,
+                    "differential": pts_home - pts_road,
+                    "possession_numeric": possession_numeric,
+                }
+            )
+            wp_positions.append(idx)
+
+    if wp_states:
+        wp_probs = _predict_home_winprob_batch_quiet(
+            season=resolved_season,
+            phase=resolved_phase,
+            states=wp_states,
+        )
+        for event_idx, prob in zip(wp_positions, wp_probs):
+            if prob is not None:
+                probs_by_event[event_idx] = _clip_home_win_prob(float(prob))
+
+    return probs_by_event
+
+
+def _attach_event_home_win_prob_to_payload(payload: dict[str, Any], probs_by_event: list[Optional[float]]) -> None:
+    raw_events = payload.get("events")
+    if not isinstance(raw_events, list):
+        return
+    for idx, prob in enumerate(probs_by_event):
+        if prob is None or idx >= len(raw_events):
+            continue
+        event = raw_events[idx]
+        if isinstance(event, dict):
+            event["home_win_prob"] = float(prob)
+
+
+def _build_home_win_prob_by_event_json(
+    payload: dict[str, Any],
+    season: str,
+    phase: str,
+) -> str:
+    probs_by_event = _compute_event_home_win_prob_values(payload=payload, season=season, phase=phase)
+    _attach_event_home_win_prob_to_payload(payload=payload, probs_by_event=probs_by_event)
+    return json.dumps(probs_by_event, ensure_ascii=True, separators=(",", ":"))
+
+
 def _pack_states_rows_from_json_files(json_files: list[Path], season: str, phase: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for game_file in json_files:
@@ -354,6 +492,11 @@ def _pack_states_rows_from_json_files(json_files: list[Path], season: str, phase
         game_type = _safe_str(payload.get("game_type")).strip()
         validation = payload.get("validation")
         validation_match = validation.get("match") if isinstance(validation, dict) else None
+        home_win_prob_by_event_json = _build_home_win_prob_by_event_json(
+            payload=payload,
+            season=season,
+            phase=phase,
+        )
         payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
         rows.append(
             {
@@ -366,6 +509,7 @@ def _pack_states_rows_from_json_files(json_files: list[Path], season: str, phase
                 "game_type": game_type,
                 "validation_match": validation_match,
                 "payload_json": payload_json,
+                HOME_WIN_PROB_BY_EVENT_JSON_COLUMN: home_win_prob_by_event_json,
             }
         )
     return rows
@@ -412,11 +556,55 @@ def pack_pbp_game_states(
     if not json_files:
         if parquet_path.exists():
             if overwrite:
-                _repack_states_parquet_in_place(parquet_path, compression=compression_arg)
+                try:
+                    existing_df = _load_states_parquet_df(parquet_path)
+                except Exception as exc:
+                    print(f"[pbp-pack] Failed to read existing parquet for overwrite: {parquet_path} ({exc})")
+                    return 1
+                if "payload_json" not in existing_df.columns:
+                    print(f"[pbp-pack] Missing payload_json column in: {parquet_path}")
+                    return 1
+
+                records = existing_df.to_dict(orient="records")
+                rewritten = 0
+                for record in records:
+                    raw_payload = record.get("payload_json")
+                    payload: Optional[dict[str, Any]] = None
+                    if isinstance(raw_payload, str) and raw_payload.strip():
+                        try:
+                            parsed = json.loads(raw_payload)
+                        except Exception:
+                            parsed = None
+                        if isinstance(parsed, dict):
+                            payload = parsed
+
+                    if payload is not None:
+                        season_value = _safe_str(record.get("season") or season).strip() or season
+                        raw_phase = _safe_str(record.get("phase") or phase_norm).strip().lower() or phase_norm
+                        try:
+                            phase_value = _normalize_phase(raw_phase)
+                        except Exception:
+                            phase_value = phase_norm
+                        record[HOME_WIN_PROB_BY_EVENT_JSON_COLUMN] = _build_home_win_prob_by_event_json(
+                            payload=payload,
+                            season=season_value,
+                            phase=phase_value,
+                        )
+                        record["payload_json"] = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+                        rewritten += 1
+                    elif HOME_WIN_PROB_BY_EVENT_JSON_COLUMN not in record:
+                        record[HOME_WIN_PROB_BY_EVENT_JSON_COLUMN] = pd.NA
+
+                df = pd.DataFrame(records)
+                for col in STATES_PARQUET_COLUMNS:
+                    if col not in df.columns:
+                        df[col] = pd.NA
+                df = df[STATES_PARQUET_COLUMNS].copy()
+                _write_states_parquet(df, parquet_path, compression=compression_arg)
                 parquet_bytes = parquet_path.stat().st_size
                 print(
-                    f"[pbp-pack] Repacked existing parquet with row_group_size={STATES_PARQUET_ROW_GROUP_SIZE}: "
-                    f"{parquet_path} bytes={parquet_bytes}"
+                    f"[pbp-pack] Updated existing parquet with {HOME_WIN_PROB_BY_EVENT_JSON_COLUMN}: "
+                    f"{parquet_path} rows={len(df)} rewritten_payloads={rewritten} bytes={parquet_bytes}"
                 )
             else:
                 print(f"[pbp-pack] No JSON inputs; existing parquet kept: {parquet_path}")
@@ -467,6 +655,358 @@ def _build_winprob_output_path(repo_dir: Path, season: str, phase: str, output_r
     else:
         root = repo_dir / "PBPdata" / "winprob_base"
     return root / phase / f"stacked_{season}_winprob_base.csv"
+
+
+def _to_optional_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    if pd.isna(value):
+        return None
+    try:
+        result = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(result):
+        return None
+    return result
+
+
+def _sanitize_team_code(value: Any) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def _clock_to_seconds_left(clock_text: Any, period: Optional[int]) -> Optional[int]:
+    if period is None or period <= 0:
+        return None
+    seconds_float = _clock_to_seconds_remaining(clock_text)
+    if seconds_float is None:
+        return None
+    seconds = int(seconds_float)
+    max_seconds = 300 if period > 4 else 720
+    if seconds < 0:
+        return 0
+    if seconds > max_seconds:
+        return max_seconds
+    return seconds
+
+
+def _timeline_possession_numeric(event: dict[str, Any], home_team: str, road_team: str) -> int:
+    home_code = _sanitize_team_code(home_team)
+    road_code = _sanitize_team_code(road_team)
+    poss_team = _sanitize_team_code(event.get("possession_team_tricode"))
+    if poss_team == home_code:
+        return 1
+    if poss_team == road_code:
+        return -1
+
+    poss_side = str(event.get("possession_after_side") or "").strip().lower()
+    if poss_side == "home":
+        return 1
+    if poss_side == "road":
+        return -1
+    return 0
+
+
+def _timeline_possession_key(event: dict[str, Any], home_team: str, road_team: str) -> Optional[str]:
+    poss_side = str(event.get("possession_after_side") or "").strip().lower()
+    if poss_side == "home":
+        return "home"
+    if poss_side == "road":
+        return "road"
+
+    poss_team = _sanitize_team_code(event.get("possession_team_tricode"))
+    if not poss_team:
+        return None
+    if poss_team == _sanitize_team_code(home_team):
+        return "home"
+    if poss_team == _sanitize_team_code(road_team):
+        return "road"
+    return poss_team
+
+
+def _compute_excitement_from_events(
+    events: list[dict[str, Any]],
+    home_team: str,
+    road_team: str,
+) -> tuple[float, int]:
+    previous_possession: Optional[str] = None
+    previous_wp: Optional[float] = None
+    changes = 0
+    sum_abs_delta = 0.0
+
+    for event in events:
+        home_wp = _to_optional_float(event.get("home_win_prob"))
+        if home_wp is None:
+            continue
+        home_wp = min(1.0, max(0.0, home_wp))
+        possession_key = _timeline_possession_key(event, home_team=home_team, road_team=road_team)
+        if possession_key is None:
+            continue
+
+        if previous_possession is None or previous_wp is None:
+            previous_possession = possession_key
+            previous_wp = home_wp
+            continue
+
+        if possession_key != previous_possession:
+            sum_abs_delta += abs(home_wp - previous_wp)
+            changes += 1
+            previous_possession = possession_key
+            previous_wp = home_wp
+
+    if changes <= 0:
+        return 0.0, 0
+    return (sum_abs_delta / changes) * 100.0, changes
+
+
+def _extract_final_scores(payload: dict[str, Any], events: list[dict[str, Any]]) -> tuple[Optional[int], Optional[int]]:
+    final_state = payload.get("final_state")
+    if not isinstance(final_state, dict):
+        final_state = {}
+
+    pts_home = _to_optional_int(final_state.get("pts_home"))
+    pts_road = _to_optional_int(final_state.get("pts_road"))
+    if pts_home is not None and pts_road is not None:
+        return pts_home, pts_road
+
+    for event in reversed(events):
+        state = event.get("game_log_state")
+        if not isinstance(state, dict):
+            continue
+        event_home = _to_optional_int(state.get("pts_home"))
+        event_road = _to_optional_int(state.get("pts_road"))
+        if event_home is None or event_road is None:
+            continue
+        return event_home, event_road
+
+    return pts_home, pts_road
+
+
+def _compute_comeback_factor(
+    home_score: Optional[int],
+    road_score: Optional[int],
+    min_home_wp: Optional[float],
+    max_home_wp: Optional[float],
+) -> tuple[float, str]:
+    if home_score is None or road_score is None:
+        return 0.0, "unknown"
+    if min_home_wp is None or max_home_wp is None:
+        return 0.0, "unknown"
+
+    if home_score > road_score:
+        return min(1.0, max(0.0, 1.0 - min_home_wp)), "home"
+    if road_score > home_score:
+        return min(1.0, max(0.0, max_home_wp)), "road"
+    return 0.0, "tie"
+
+
+def _load_game_state_payloads(
+    input_dir: Path,
+    season: str,
+    phase: str,
+) -> tuple[list[dict[str, Any]], str]:
+    parquet_path = _build_states_parquet_path(input_dir, season, phase)
+    payloads: list[dict[str, Any]] = []
+    source_label = "json"
+
+    if parquet_path.exists():
+        states_df = _load_states_parquet_df(parquet_path, columns=["payload_json"])
+        payload_values = states_df.get("payload_json")
+        if payload_values is None:
+            raise ValueError(f"Missing payload_json column in: {parquet_path}")
+        for raw in payload_values.tolist():
+            if isinstance(raw, str) and raw.strip():
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    continue
+                if isinstance(payload, dict):
+                    payloads.append(payload)
+        source_label = "parquet"
+    else:
+        json_files = _list_game_state_json_files(input_dir, season)
+        if not json_files:
+            raise FileNotFoundError(f"No game-state files found in: {input_dir}")
+        for game_file in json_files:
+            with game_file.open("r", encoding="utf-8") as src:
+                payload = json.load(src)
+            if isinstance(payload, dict):
+                payloads.append(payload)
+
+    return payloads, source_label
+
+
+def build_timeline_metrics(
+    season: str,
+    repo_dir: Path,
+    phase: str = "regular",
+    input_root: Optional[str] = None,
+    output_root: Optional[str] = None,
+    overwrite: bool = False,
+) -> int:
+    phase_norm = _normalize_phase(phase)
+    input_dir = _resolve_states_input_dir(repo_dir, season, phase_norm, input_root=input_root)
+    if not input_dir.exists():
+        print(f"[pbp-metrics] Missing game-state input directory: {input_dir}")
+        return 1
+
+    output_path = _build_timeline_metrics_output_path(
+        repo_dir=repo_dir,
+        season=season,
+        phase=phase_norm,
+        output_root=output_root,
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists() and not overwrite:
+        print(f"[pbp-metrics] Output already exists (use --overwrite): {output_path}")
+        return 0
+
+    try:
+        payloads, source_label = _load_game_state_payloads(
+            input_dir=input_dir,
+            season=season,
+            phase=phase_norm,
+        )
+    except Exception as exc:
+        print(f"[pbp-metrics] Failed to load game-state payloads: {exc}")
+        return 1
+
+    if not payloads:
+        print(f"[pbp-metrics] No readable game-state payloads found in: {input_dir}")
+        return 1
+
+    rows: list[dict[str, Any]] = []
+    missing_wp_games = 0
+    for idx, payload in enumerate(payloads, start=1):
+        raw_events = payload.get("events")
+        if not isinstance(raw_events, list):
+            raw_events = []
+
+        game_id = _normalize_game_id(payload.get("game_id"))
+        home_team = _safe_str(payload.get("home_team")).strip().upper()
+        road_team = _safe_str(payload.get("road_team")).strip().upper()
+        game_date = _safe_str(payload.get("game_date")).strip()
+        game_type = _safe_str(payload.get("game_type")).strip()
+        resolved_season = _safe_str(payload.get("season") or season).strip() or season
+        resolved_phase = _normalize_phase(_safe_str(payload.get("phase") or phase_norm) or phase_norm)
+
+        events: list[dict[str, Any]] = []
+        wp_states: list[dict[str, Any]] = []
+        wp_positions: list[int] = []
+        for event in raw_events:
+            if not isinstance(event, dict):
+                continue
+            event_copy = dict(event)
+            home_wp = _to_optional_float(event_copy.get("home_win_prob"))
+            if home_wp is not None:
+                event_copy["home_win_prob"] = min(1.0, max(0.0, home_wp))
+            else:
+                period = _to_optional_int(event_copy.get("period"))
+                seconds_left = _clock_to_seconds_left(event_copy.get("clock"), period)
+
+                state = event_copy.get("game_log_state")
+                if not isinstance(state, dict):
+                    state = {}
+                pts_home = _to_optional_int(state.get("pts_home"))
+                pts_road = _to_optional_int(state.get("pts_road"))
+                possession_numeric = _timeline_possession_numeric(
+                    event=event_copy,
+                    home_team=home_team,
+                    road_team=road_team,
+                )
+                if period and seconds_left is not None and pts_home is not None and pts_road is not None:
+                    wp_states.append(
+                        {
+                            "quarter": period,
+                            "seconds_left": seconds_left,
+                            "differential": pts_home - pts_road,
+                            "possession_numeric": possession_numeric,
+                        }
+                    )
+                    wp_positions.append(len(events))
+
+            events.append(event_copy)
+
+        if wp_states:
+            try:
+                wp_probs = _predict_home_winprob_batch_quiet(
+                    season=resolved_season,
+                    phase=resolved_phase,
+                    states=wp_states,
+                )
+            except Exception as exc:
+                print(f"[pbp-metrics] Failed to compute home_win_prob for game_id={game_id}: {exc}")
+                return 1
+
+            for event_pos, home_wp in zip(wp_positions, wp_probs):
+                if 0 <= event_pos < len(events) and home_wp is not None:
+                    events[event_pos]["home_win_prob"] = float(home_wp)
+
+        wp_values = [
+            min(1.0, max(0.0, wp))
+            for wp in (_to_optional_float(event.get("home_win_prob")) for event in events)
+            if wp is not None
+        ]
+        min_home_wp = min(wp_values) if wp_values else None
+        max_home_wp = max(wp_values) if wp_values else None
+        if not wp_values:
+            missing_wp_games += 1
+
+        home_score, road_score = _extract_final_scores(payload=payload, events=events)
+        comeback_factor, winner = _compute_comeback_factor(
+            home_score=home_score,
+            road_score=road_score,
+            min_home_wp=min_home_wp,
+            max_home_wp=max_home_wp,
+        )
+        excitement_factor, possession_changes = _compute_excitement_from_events(
+            events=events,
+            home_team=home_team,
+            road_team=road_team,
+        )
+
+        rows.append(
+            {
+                "game_id": game_id,
+                "game_date": game_date,
+                "game_type": game_type,
+                "home_team": home_team,
+                "road_team": road_team,
+                "home_score": home_score,
+                "road_score": road_score,
+                "winner": winner,
+                "excitement_factor": excitement_factor,
+                "comeback_factor": comeback_factor,
+                "possession_changes": possession_changes,
+                "min_home_win_prob": min_home_wp,
+                "max_home_win_prob": max_home_wp,
+            }
+        )
+
+        if idx % 100 == 0:
+            print(f"[pbp-metrics] Processed games={idx}")
+
+    rows.sort(key=lambda r: (str(r.get("game_date") or ""), str(r.get("game_id") or "")))
+    output_payload = {
+        "season": season,
+        "phase": phase_norm,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "input_dir": str(input_dir),
+        "source": source_label,
+        "games_processed": len(rows),
+        "games_missing_win_prob": missing_wp_games,
+        "games": rows,
+    }
+    with output_path.open("w", encoding="utf-8") as f:
+        json.dump(output_payload, f, indent=2, ensure_ascii=True)
+
+    print(
+        f"[pbp-metrics] Wrote {output_path} "
+        f"games={len(rows)} source={source_label} missing_win_prob={missing_wp_games}"
+    )
+    return 0
 
 
 def _normalize_game_type(value: Any) -> str:

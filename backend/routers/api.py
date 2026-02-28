@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from typing import Optional, Dict, Any
+import math
 import subprocess
 import json
 import re
@@ -76,6 +77,8 @@ router = APIRouter(prefix="/api")
 WINPROB_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_wizard_app.html").resolve()
 WINPROB_HYPOTHETICAL_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_hypothetical_app.html").resolve()
 STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
+TIMELINE_METRICS_FILENAME_TEMPLATE = "_timeline_metrics_{season}_{phase}.json"
+HOME_WIN_PROB_BY_EVENT_JSON_COLUMN = "home_win_prob_by_event_json"
 LEGACY_PBP_GAME_STATES_ROOT = (PBP_LEGACY_GLA_ROOT / "game_states").resolve()
 
 PBP_GAME_STATES_ROOTS = [PBP_GAME_STATES_ROOT]
@@ -106,6 +109,11 @@ def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
 
 def _resolve_remote_timeline_parquet(season: str, phase: str) -> Optional[Path]:
     relative = f"game_states/{phase}/{season}/{STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)}"
+    return _download_remote_pbpdata_file(relative)
+
+
+def _resolve_remote_timeline_metrics(season: str, phase: str) -> Optional[Path]:
+    relative = f"game_states/{phase}/{season}/{TIMELINE_METRICS_FILENAME_TEMPLATE.format(season=season, phase=phase)}"
     return _download_remote_pbpdata_file(relative)
 
 
@@ -150,6 +158,10 @@ def _build_timeline_parquet_path(season_dir: Path, season: str, phase: str) -> P
     return season_dir / STATES_PARQUET_FILENAME_TEMPLATE.format(season=season, phase=phase)
 
 
+def _build_timeline_metrics_path(season_dir: Path, season: str, phase: str) -> Path:
+    return season_dir / TIMELINE_METRICS_FILENAME_TEMPLATE.format(season=season, phase=phase)
+
+
 def _find_timeline_json_file(
     season: str,
     game_id: str,
@@ -190,6 +202,90 @@ def _find_timeline_parquet_file(
     return None, None
 
 
+def _find_timeline_metrics_file(season: str, phase: str) -> Optional[Path]:
+    for season_dir in _timeline_season_dirs(phase, season):
+        metrics_path = _build_timeline_metrics_path(season_dir, season=season, phase=phase)
+        if metrics_path.exists():
+            return metrics_path
+
+    return _resolve_remote_timeline_metrics(season=season, phase=phase)
+
+
+def _safe_numeric(value: Any) -> Optional[float]:
+    try:
+        if value is None or value == "":
+            return None
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            return None
+        return numeric
+    except Exception:
+        return None
+
+
+def _percentile_rank(values: list[float], value: float) -> Optional[float]:
+    if not values:
+        return None
+    tol = 1e-12
+    lower = sum(1 for v in values if v < (value - tol))
+    equal = sum(1 for v in values if abs(v - value) <= tol)
+    percentile = ((lower + (0.5 * equal)) / len(values)) * 100.0
+    return max(0.0, min(100.0, float(percentile)))
+
+
+def _load_timeline_metrics_for_game(season: str, phase: str, game_id: str) -> dict[str, Optional[float]]:
+    result: dict[str, Optional[float]] = {
+        "excitement_factor": None,
+        "comeback_factor": None,
+        "excitement_percentile": None,
+        "comeback_percentile": None,
+    }
+    metrics_path = _find_timeline_metrics_file(season=season, phase=phase)
+    if metrics_path is None:
+        return result
+
+    try:
+        payload = json.loads(metrics_path.read_text(encoding="utf-8"))
+    except Exception:
+        return result
+    if not isinstance(payload, dict):
+        return result
+
+    games = payload.get("games")
+    if not isinstance(games, list):
+        return result
+
+    excitement_values: list[float] = []
+    comeback_values: list[float] = []
+    target_row: Optional[dict[str, Any]] = None
+
+    for row in games:
+        if not isinstance(row, dict):
+            continue
+        excitement = _safe_numeric(row.get("excitement_factor"))
+        comeback = _safe_numeric(row.get("comeback_factor"))
+        if excitement is not None:
+            excitement_values.append(excitement)
+        if comeback is not None:
+            comeback_values.append(comeback)
+
+        if _normalize_game_id_for_timeline(str(row.get("game_id") or "")) == game_id and target_row is None:
+            target_row = row
+
+    if target_row is None:
+        return result
+
+    target_excitement = _safe_numeric(target_row.get("excitement_factor"))
+    target_comeback = _safe_numeric(target_row.get("comeback_factor"))
+    result["excitement_factor"] = target_excitement
+    result["comeback_factor"] = target_comeback
+    if target_excitement is not None:
+        result["excitement_percentile"] = _percentile_rank(excitement_values, target_excitement)
+    if target_comeback is not None:
+        result["comeback_percentile"] = _percentile_rank(comeback_values, target_comeback)
+    return result
+
+
 def _timeline_payload_from_parquet(
     parquet_path: Path,
     game_id: str,
@@ -216,26 +312,88 @@ def _timeline_payload_from_parquet(
                 return parsed
         return None
 
+    def _parse_home_wp_series(raw: Any) -> Optional[list[Optional[float]]]:
+        values: Any = raw
+        if isinstance(raw, str):
+            text = raw.strip()
+            if not text:
+                return None
+            try:
+                values = json.loads(text)
+            except Exception:
+                return None
+        if not isinstance(values, list):
+            return None
+
+        normalized: list[Optional[float]] = []
+        for value in values:
+            try:
+                if value is None:
+                    normalized.append(None)
+                else:
+                    normalized.append(float(min(1.0, max(0.0, float(value)))))
+            except Exception:
+                normalized.append(None)
+        return normalized
+
+    def _apply_home_wp_series(payload: dict[str, Any], series: Optional[list[Optional[float]]]) -> dict[str, Any]:
+        if not series:
+            return payload
+        events = payload.get("events")
+        if not isinstance(events, list):
+            return payload
+
+        max_idx = min(len(events), len(series))
+        for idx in range(max_idx):
+            prob = series[idx]
+            if prob is None:
+                continue
+            event = events[idx]
+            if isinstance(event, dict):
+                event["home_win_prob"] = float(prob)
+        return payload
+
     # Primary path: push predicate down to parquet so only the matching game row is read.
-    table = pq.read_table(
-        parquet_path,
-        columns=["payload_json"],
-        filters=filters,
-        use_threads=False,
-    )
+    try:
+        table = pq.read_table(
+            parquet_path,
+            columns=["payload_json", HOME_WIN_PROB_BY_EVENT_JSON_COLUMN],
+            filters=filters,
+            use_threads=False,
+        )
+    except Exception:
+        table = pq.read_table(
+            parquet_path,
+            columns=["payload_json"],
+            filters=filters,
+            use_threads=False,
+        )
     if table.num_rows > 0 and "payload_json" in table.column_names:
         payload = _parse_payload(table.column("payload_json")[0].as_py())
         if payload is not None:
-            return payload
+            series = _parse_home_wp_series(
+                table.column(HOME_WIN_PROB_BY_EVENT_JSON_COLUMN)[0].as_py()
+                if HOME_WIN_PROB_BY_EVENT_JSON_COLUMN in table.column_names
+                else None
+            )
+            return _apply_home_wp_series(payload, series)
 
     # Fallback: if strict home/road filter missed, retry by game_id only.
     if home_code or road_code:
-        fallback = pq.read_table(
-            parquet_path,
-            columns=["home_team", "road_team", "payload_json"],
-            filters=[("game_id", "==", game_id)],
-            use_threads=False,
-        )
+        try:
+            fallback = pq.read_table(
+                parquet_path,
+                columns=["home_team", "road_team", "payload_json", HOME_WIN_PROB_BY_EVENT_JSON_COLUMN],
+                filters=[("game_id", "==", game_id)],
+                use_threads=False,
+            )
+        except Exception:
+            fallback = pq.read_table(
+                parquet_path,
+                columns=["home_team", "road_team", "payload_json"],
+                filters=[("game_id", "==", game_id)],
+                use_threads=False,
+            )
         if fallback.num_rows > 0:
             cols = {name: fallback.column(name) for name in fallback.column_names}
             for i in range(fallback.num_rows):
@@ -247,10 +405,20 @@ def _timeline_payload_from_parquet(
                     continue
                 payload = _parse_payload(cols.get("payload_json")[i].as_py() if "payload_json" in cols else None)
                 if payload is not None:
-                    return payload
+                    series = _parse_home_wp_series(
+                        cols.get(HOME_WIN_PROB_BY_EVENT_JSON_COLUMN)[i].as_py()
+                        if HOME_WIN_PROB_BY_EVENT_JSON_COLUMN in cols
+                        else None
+                    )
+                    return _apply_home_wp_series(payload, series)
             payload = _parse_payload(cols.get("payload_json")[0].as_py() if "payload_json" in cols else None)
             if payload is not None:
-                return payload
+                series = _parse_home_wp_series(
+                    cols.get(HOME_WIN_PROB_BY_EVENT_JSON_COLUMN)[0].as_py()
+                    if HOME_WIN_PROB_BY_EVENT_JSON_COLUMN in cols
+                    else None
+                )
+                return _apply_home_wp_series(payload, series)
 
     return None
 
@@ -268,6 +436,16 @@ def _to_int_or_none(value: Any) -> Optional[int]:
         if value is None or value == "":
             return None
         return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float_or_none(value: Any) -> Optional[float]:
+    try:
+        if value is None or value == "":
+            return None
+        result = float(value)
+        return float(min(1.0, max(0.0, result)))
     except (TypeError, ValueError):
         return None
 
@@ -663,6 +841,7 @@ async def get_game_timeline(
                 description=str(event.get("description") or ""),
                 possession_after_side=str(event.get("possession_after_side") or "") or None,
                 possession_team_tricode=str(event.get("possession_team_tricode") or "") or None,
+                home_win_prob=_to_float_or_none(event.get("home_win_prob")),
                 game_log_state=GameTimelineState(
                     pts_home=pts_home,
                     pts_road=pts_road,
@@ -671,7 +850,13 @@ async def get_game_timeline(
         )
 
         seconds_left = _clock_to_seconds_left(clock, period)
-        if period and seconds_left is not None and pts_home is not None and pts_road is not None:
+        if (
+            events[-1].home_win_prob is None
+            and period
+            and seconds_left is not None
+            and pts_home is not None
+            and pts_road is not None
+        ):
             wp_states.append(
                 {
                     "quarter": period,
@@ -709,14 +894,25 @@ async def get_game_timeline(
     validation = payload.get("validation")
     validation_match = validation.get("match") if isinstance(validation, dict) else None
 
+    resolved_game_id = _normalize_game_id_for_timeline(str(payload.get("game_id") or game_id_norm))
+    metrics = _load_timeline_metrics_for_game(
+        season=resolved_season,
+        phase=resolved_phase,
+        game_id=resolved_game_id,
+    )
+
     return GameTimelineResponse(
         season=resolved_season,
         phase=resolved_phase,
-        game_id=_normalize_game_id_for_timeline(str(payload.get("game_id") or game_id_norm)),
+        game_id=resolved_game_id,
         game_date=str(payload.get("game_date") or "") or None,
         game_type=_normalize_game_type_for_timeline(payload.get("game_type") or game_type) or None,
         home_team=resolved_home,
         road_team=resolved_road,
+        excitement_factor=metrics["excitement_factor"],
+        comeback_factor=metrics["comeback_factor"],
+        excitement_percentile=metrics["excitement_percentile"],
+        comeback_percentile=metrics["comeback_percentile"],
         events=events,
         validation_match=validation_match,
     )

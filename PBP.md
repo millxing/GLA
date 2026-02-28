@@ -17,6 +17,7 @@ This document defines the canonical Play-By-Play (PBP) data layout and operation
   - `scikit-learn==1.8.0`
 - Scheduler preflight validates python path, nba_api, scikit-learn, and parquet engine before running updates.
 - `.venv` and `.venv311` are no longer canonical for scheduled/admin PBP workflows.
+- Win-probability batch prediction wrappers filter known non-fatal sklearn parallel `UserWarning` messages; this does not change WP outputs.
 
 ## PBPdata Layout
 Under `/Users/robschoen/Dropbox/CC/NBA_Data/PBPdata`:
@@ -30,7 +31,10 @@ Under `/Users/robschoen/Dropbox/CC/NBA_Data/PBPdata`:
   - `cdnnba/playoffs/cdnnba_po_YYYY.csv`
   - `manifest.csv`
 - Processed:
-  - `game_states/<phase>/<season>/...`
+  - `game_states/<phase>/<season>/_states_<season>_<phase>.parquet`
+    - Includes `payload_json` and `home_win_prob_by_event_json`.
+    - `payload_json` event objects include cached `home_win_prob` values.
+  - `game_states/<phase>/<season>/_timeline_metrics_<season>_<phase>.json`
   - `winprob_models/wpm_<season>.json`
   - `winprob_base/<phase>/stacked_<season>_winprob_base.csv`
 - One-off backfill staging:
@@ -100,6 +104,18 @@ Pack game states to parquet and remove per-game JSON:
   --delete-json
 ```
 
+Build timeline excitement/comeback metrics:
+```bash
+/opt/miniconda3/envs/gla_admin/bin/python backend/admin/cli.py \
+  --repo-dir /Users/robschoen/Dropbox/CC/NBA_Data \
+  build-pbp-timeline-metrics \
+  --season 2025-26 \
+  --phase regular \
+  --input-root /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states \
+  --output-root /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states \
+  --overwrite
+```
+
 Build winprob base:
 ```bash
 /opt/miniconda3/envs/gla_admin/bin/python backend/admin/cli.py \
@@ -122,9 +138,28 @@ Build/rebuild winprob model artifacts:
 
 ## Scheduler Behavior
 - Daily launch target is 6:00 AM local via LaunchAgent.
-- Scheduler updates raw PBP, rebuilds regular/playoff timeline states, packs parquet, updates index files, and commits through NBA_Data `commit-and-push`.
+- Scheduler updates raw PBP, rebuilds regular/playoff timeline states, packs parquet, builds per-game timeline metrics, updates index files, and commits through NBA_Data `commit-and-push`.
 - Timeline artifacts now write to:
   - `/Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states`
+- Daily scheduler guardrails:
+  - Packed game-state parquet must include `home_win_prob_by_event_json`.
+  - Timeline metrics JSON must be written for each processed phase:
+    - `/Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states/<phase>/<season>/_timeline_metrics_<season>_<phase>.json`
+
+## Timeline Metric Definitions
+- Event WP:
+  - Home win probability is computed for each event and cached both in:
+    - Per-event payload: `events[*].home_win_prob`
+    - Packed parquet column: `home_win_prob_by_event_json`
+- Excitement factor:
+  - Interval unit is change of possession (not fixed clock intervals).
+  - For each possession change, compute `abs(current_home_wp - previous_home_wp)`.
+  - Metric is `100 * average(abs_delta_over_possession_changes)`.
+  - If no valid possession changes exist, value is `0.0`.
+- Comeback factor:
+  - If home team wins: `1 - min(home_win_prob)`.
+  - If road team wins: `max(home_win_prob)` (home's peak WP before losing).
+  - If winner/WP is unavailable (or tie): `0.0`.
 
 ## Guardrails
 - Keep schemas aligned with canonical `api_pbpv3` columns and `manifest.csv` updates.

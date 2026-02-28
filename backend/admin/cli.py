@@ -2197,6 +2197,62 @@ def pack_pbp_game_states_cmd(
     print(f"[pbp-pack] Done: {total_jobs} season/phase pack jobs")
     return 0
 
+
+def build_pbp_timeline_metrics_cmd(
+    season: str,
+    repo_dir: Path,
+    phase: str = "regular",
+    input_root: Optional[str] = None,
+    output_root: Optional[str] = None,
+    overwrite: bool = False,
+) -> int:
+    from admin.pbp_game_states import build_timeline_metrics
+
+    phase_norm = str(phase or "regular").strip().lower()
+    if phase_norm not in {"regular", "playoffs", "both"}:
+        raise ValueError("Invalid phase. Expected regular, playoffs, or both.")
+    phases = ["regular", "playoffs"] if phase_norm == "both" else [phase_norm]
+
+    season_norm = str(season or "").strip().lower()
+    if season_norm == "all":
+        season_set: set[str] = set()
+        for p in phases:
+            season_set.update(_discover_state_seasons(repo_dir=repo_dir, input_root=input_root, phase=p))
+        seasons = sorted(season_set, key=_season_start_year_from_str)
+    else:
+        seasons = [season]
+
+    if not seasons:
+        print("[pbp-metrics] No seasons found to process.")
+        return 1
+
+    total_jobs = len(seasons) * len(phases)
+    failures = 0
+    completed = 0
+
+    for p in phases:
+        for s in seasons:
+            completed += 1
+            print(f"[pbp-metrics] [{completed}/{total_jobs}] season={s} phase={p}")
+            rc = build_timeline_metrics(
+                season=s,
+                repo_dir=repo_dir,
+                phase=p,
+                input_root=input_root,
+                output_root=output_root,
+                overwrite=overwrite,
+            )
+            if rc != 0:
+                failures += 1
+
+    if failures:
+        print(f"[pbp-metrics] Finished with failures: {failures}/{total_jobs}")
+        return 1
+
+    print(f"[pbp-metrics] Done: {total_jobs} season/phase metric jobs")
+    return 0
+
+
 def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int:
     start = time.time()
     try:
@@ -3218,6 +3274,51 @@ Output defaults to:
         help="Delete per-game JSON files after successful pack",
     )
 
+    p_timeline_metrics = sub.add_parser(
+        "build-pbp-timeline-metrics",
+        help="Build per-game excitement/comeback metrics from game-state timelines",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py build-pbp-timeline-metrics --season 2025-26 --phase regular
+  python admin/cli.py build-pbp-timeline-metrics --season all --phase both --overwrite
+  python admin/cli.py build-pbp-timeline-metrics --season 2024-25 --input-root /path/to/game_states
+
+Reads from:
+  <repo-dir>/PBPdata/game_states/<phase>/<season>
+and writes:
+  <repo-dir>/PBPdata/game_states/<phase>/<season>/_timeline_metrics_<season>_<phase>.json
+""",
+    )
+    p_timeline_metrics.add_argument("--season", required=True, help="Season like 2025-26, or 'all'")
+    p_timeline_metrics.add_argument(
+        "--phase",
+        choices=["regular", "playoffs", "both"],
+        default="regular",
+        help="Which phase to process (default: regular)",
+    )
+    p_timeline_metrics.add_argument(
+        "--input-root",
+        default=None,
+        help=(
+            "Optional game-state root. Accepted shapes: "
+            "<root>/<phase>/<season> or <root>/<season> or <root>."
+        ),
+    )
+    p_timeline_metrics.add_argument(
+        "--output-root",
+        default=None,
+        help=(
+            "Optional output root. Files are written to: "
+            "<output-root>/<phase>/<season>/_timeline_metrics_<season>_<phase>.json"
+        ),
+    )
+    p_timeline_metrics.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing metrics JSON if present",
+    )
+
     p_winprob_base = sub.add_parser(
         "build-pbp-winprob-base",
         help="Build stacked win-probability baseline CSV from packed game states or JSON files",
@@ -3471,6 +3572,16 @@ def main(argv: Optional[list[str]] = None) -> int:
             compression=args.compression,
             overwrite=args.overwrite,
             delete_json=args.delete_json,
+        )
+
+    if args.command == "build-pbp-timeline-metrics":
+        return build_pbp_timeline_metrics_cmd(
+            season=args.season,
+            repo_dir=repo_dir,
+            phase=args.phase,
+            input_root=args.input_root,
+            output_root=args.output_root,
+            overwrite=args.overwrite,
         )
 
     if args.command == "build-pbp-winprob-base":

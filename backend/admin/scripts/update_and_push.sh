@@ -97,9 +97,10 @@ report_line "INFO" "PBP source target for this run: $PBP_TARGET_SOURCE"
 run_build_states() {
     local phase="$1"
     local rc=0
+    local packed_parquet="$PBP_ANALYZE_STATES_ROOT/$phase/$SEASON/_states_${SEASON}_${phase}.parquet"
 
     if [ "$DRY_RUN" = "1" ]; then
-        echo "[dry-run] Would build-pbp-game-states, pack parquet, and refresh pbp_analyze index for phase=$phase"
+        echo "[dry-run] Would build-pbp-game-states, pack parquet (with event WP column), verify schema, and refresh pbp_analyze index for phase=$phase"
         return 0
     fi
 
@@ -132,10 +133,77 @@ run_build_states() {
         --overwrite \
         --delete-json
 
+    # Daily guardrail: packed timeline parquet must include event-level WP cache column.
+    "$ENV_PYTHON" - <<PY
+from pathlib import Path
+import pyarrow.parquet as pq
+
+parquet_path = Path(r"$packed_parquet")
+required_col = "home_win_prob_by_event_json"
+
+if not parquet_path.exists():
+    raise SystemExit(f"[error] Packed game-states parquet missing: {parquet_path}")
+
+schema = pq.ParquetFile(parquet_path).schema_arrow
+if required_col not in schema.names:
+    raise SystemExit(f"[error] Missing required column '{required_col}' in {parquet_path}")
+
+print(f"[ok] Verified {required_col} in {parquet_path}")
+PY
+
+    report_line "SUCCESS" "Verified packed game-states parquet includes home_win_prob_by_event_json (season=$SEASON phase=$phase)"
+
     "$ENV_PYTHON" "$PBP_INDEX_SCRIPT" \
         --states-root "$PBP_ANALYZE_STATES_ROOT" \
         --season "$SEASON" \
         --phase "$phase"
+}
+
+run_build_timeline_metrics() {
+    local phase="$1"
+    local metrics_json="$PBP_ANALYZE_STATES_ROOT/$phase/$SEASON/_timeline_metrics_${SEASON}_${phase}.json"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "[dry-run] Would build-pbp-timeline-metrics and verify output for phase=$phase"
+        return 0
+    fi
+
+    "$ENV_PYTHON" -m backend.admin.cli \
+        --repo-dir "$REPO_DIR" \
+        build-pbp-timeline-metrics \
+        --season "$SEASON" \
+        --phase "$phase" \
+        --input-root "$PBP_ANALYZE_STATES_ROOT" \
+        --output-root "$PBP_ANALYZE_STATES_ROOT" \
+        --overwrite
+
+    "$ENV_PYTHON" - <<PY
+from pathlib import Path
+import json
+
+metrics_path = Path(r"$metrics_json")
+
+if not metrics_path.exists():
+    raise SystemExit(f"[error] Timeline metrics output missing: {metrics_path}")
+
+with metrics_path.open("r", encoding="utf-8") as src:
+    payload = json.load(src)
+
+games = payload.get("games")
+if not isinstance(games, list):
+    raise SystemExit(f"[error] Invalid timeline metrics payload (games missing/list) in {metrics_path}")
+
+required_fields = {"game_id", "excitement_factor", "comeback_factor", "possession_changes"}
+missing = required_fields.difference(payload["games"][0].keys()) if games else set()
+if missing:
+    raise SystemExit(
+        f"[error] Timeline metrics payload missing required fields {sorted(missing)} in {metrics_path}"
+    )
+
+print(f"[ok] Verified timeline metrics: {metrics_path} games={len(games)}")
+PY
+
+    report_line "SUCCESS" "Verified timeline metrics JSON generated (season=$SEASON phase=$phase)"
 }
 
 # Load API keys from .env (for LLM interpretation generation)
@@ -182,8 +250,14 @@ if [ "$PBP_EXIT" -eq 0 ]; then
     report_line "START" "$CURRENT_STEP"
     run_build_states regular
     report_line "SUCCESS" "$CURRENT_STEP"
+
+    CURRENT_STEP="Build PBP timeline metrics (regular) for $SEASON"
+    report_line "START" "$CURRENT_STEP"
+    run_build_timeline_metrics regular
+    report_line "SUCCESS" "$CURRENT_STEP"
 else
     report_line "SKIPPED" "Build PBP Analyze game states (regular) skipped because raw PBP update failed"
+    report_line "SKIPPED" "Build PBP timeline metrics (regular) skipped because raw PBP update failed"
 fi
 
 # Build playoff game_states only when postseason games exist in team_game_logs.
@@ -210,11 +284,18 @@ if [ "$HAS_POSTSEASON" = "1" ] && [ "$PBP_EXIT" -eq 0 ]; then
     report_line "START" "$CURRENT_STEP"
     run_build_states playoffs
     report_line "SUCCESS" "$CURRENT_STEP"
+
+    CURRENT_STEP="Build PBP timeline metrics (playoffs) for $SEASON"
+    report_line "START" "$CURRENT_STEP"
+    run_build_timeline_metrics playoffs
+    report_line "SUCCESS" "$CURRENT_STEP"
 elif [ "$HAS_POSTSEASON" = "1" ]; then
     report_line "SKIPPED" "Build PBP Analyze game states (playoffs) skipped because raw PBP update failed"
+    report_line "SKIPPED" "Build PBP timeline metrics (playoffs) skipped because raw PBP update failed"
 else
     echo "[run] No playoff/play-in games found for $SEASON yet; skipping playoff game-state build"
     report_line "SKIPPED" "Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for $SEASON"
+    report_line "SKIPPED" "Build PBP timeline metrics (playoffs) skipped; no playoff/play-in games for $SEASON"
 fi
 
 if [ "$PBP_EXIT" -ne 0 ]; then
