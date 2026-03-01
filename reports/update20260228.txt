@@ -1,0 +1,50 @@
+2026-02-28 06:00:05 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-02-28 06:00:05 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-02-28 06:00:05 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-28 06:00:05 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-02-28 06:00:05 | SUCCESS | Parquet engine available (pyarrow)
+2026-02-28 06:00:05 | INFO | PBP source target for this run: nbastatsv3
+2026-02-28 06:00:05 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-28 06:00:49 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-02-28 06:00:49 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-28 06:00:53 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-28 06:00:53 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-02-28 06:04:46 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=regular)
+2026-02-28 06:04:46 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-02-28 06:04:46 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-02-28 06:04:56 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=regular)
+2026-02-28 06:04:56 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-02-28 06:05:00 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-28 06:05:00 | SKIPPED | Build PBP timeline metrics (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-28 06:05:00 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-28))
+2026-02-28 06:05:29 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-28))
+2026-02-28 06:05:29 | START | Regenerate contributions for 2025-26
+2026-02-28 06:05:50 | SUCCESS | Regenerate contributions for 2025-26
+2026-02-28 06:05:50 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-28))
+2026-02-28 06:06:03 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-28))
+2026-02-28 06:06:03 | SKIPPED | Generate LLM interpretations skipped (ENABLE_INTERPRETATIONS=0)
+2026-02-28 06:06:03 | SKIPPED | Commit and push interpretation updates skipped (ENABLE_INTERPRETATIONS=0)
+2026-02-28 06:06:03 | SUCCESS | Daily update finished successfully
+2026-02-28 07:42:44 | INFO | Daily update started (season=2025-26 dry_run=1)
+2026-02-28 07:42:44 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-02-28 07:42:44 | SUCCESS | nba_api version verified (1.11.4)
+2026-02-28 07:42:44 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-02-28 07:42:44 | SUCCESS | Parquet engine available (pyarrow)
+2026-02-28 07:42:44 | INFO | PBP source target for this run: nbastatsv3
+2026-02-28 07:42:44 | SKIPPED | Season data update skipped due to dry run
+2026-02-28 07:42:44 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-28 07:42:47 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-02-28 07:42:47 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-02-28 07:42:47 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-02-28 07:42:47 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-02-28 07:42:47 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-02-28 07:42:47 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-28 07:42:47 | SKIPPED | Build PBP timeline metrics (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-02-28 07:42:47 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-28))
+2026-02-28 07:42:48 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-02-28))
+2026-02-28 07:42:48 | SKIPPED | Contribution regeneration skipped due to dry run
+2026-02-28 07:42:48 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-28))
+2026-02-28 07:42:48 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-02-28))
+2026-02-28 07:42:48 | SKIPPED | Generate LLM interpretations skipped (ENABLE_INTERPRETATIONS=0)
+2026-02-28 07:42:48 | SKIPPED | Commit and push interpretation updates skipped (ENABLE_INTERPRETATIONS=0)
+2026-02-28 07:42:48 | SUCCESS | Daily update finished successfully

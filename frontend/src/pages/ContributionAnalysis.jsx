@@ -28,6 +28,10 @@ const DATE_RANGE_OPTIONS = [
   { value: 'last_20_games', label: 'Last 20 games' },
   { value: 'custom', label: 'Custom Date Range' },
 ]
+const DATA_SCOPE_OPTIONS = [
+  { value: 'all', label: 'All Data' },
+  { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
+]
 
 const GLOSSARY_ITEMS = [
   { term: 'Net Rating', definition: 'Offensive Rating minus Defensive Rating. Measures overall point differential per 100 possessions.' },
@@ -73,6 +77,7 @@ function ContributionAnalysis() {
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '2025-26')
+  const [selectedDataScope, setSelectedDataScope] = usePersistedState('contribution_datascope', 'all')
   const [selectedTeam, setSelectedTeam] = usePersistedState('contribution_team', 'BOS')
   const [dateRangeType, setDateRangeType] = usePersistedState('contribution_daterange', 'season')
   const [customStartDate, setCustomStartDate] = useState('')
@@ -110,6 +115,12 @@ function ContributionAnalysis() {
     }
   }, [dateRangeType, setDateRangeType])
 
+  useEffect(() => {
+    if (!DATA_SCOPE_OPTIONS.some((opt) => opt.value === selectedDataScope)) {
+      setSelectedDataScope('all')
+    }
+  }, [selectedDataScope, setSelectedDataScope])
+
   // Load teams and season bounds when season changes
   useEffect(() => {
     let isCurrent = true
@@ -121,8 +132,8 @@ function ContributionAnalysis() {
       if (isCurrent) setData(null)
       try {
         const [teamsRes, summaryRes] = await Promise.all([
-          getTeams(selectedSeason),
-          getLeagueSummary(selectedSeason, null, null, false),
+          getTeams(selectedSeason, selectedDataScope),
+          getLeagueSummary(selectedSeason, null, null, false, null, selectedDataScope),
         ])
         if (!isCurrent) return
 
@@ -147,7 +158,7 @@ function ContributionAnalysis() {
     }
     loadTeamsAndBounds()
     return () => { isCurrent = false }
-  }, [selectedSeason])
+  }, [selectedSeason, selectedDataScope])
 
   // Populate custom date fields when switching to custom and bounds are available
   useEffect(() => {
@@ -341,7 +352,8 @@ function ContributionAnalysis() {
           apiLastNGames,
           apiStartDate,
           apiEndDate,
-          apiExcludePlayoffs
+          apiExcludePlayoffs,
+          selectedDataScope
         )
         if (isCurrent) setData(res)
       } catch (err) {
@@ -352,7 +364,7 @@ function ContributionAnalysis() {
     }
     loadAnalysis()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedTeam, dateRangeType, customStartDate, customEndDate, apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs])
+  }, [selectedSeason, selectedDataScope, selectedTeam, dateRangeType, customStartDate, customEndDate, apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs])
 
   // Prepare main chart data
   const mainChartData = useMemo(() => {
@@ -440,6 +452,19 @@ function ContributionAnalysis() {
               <option value="">Select team...</option>
               {teams.map((team) => (
                 <option key={team} value={team}>{team}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Data Scope</label>
+            <select
+              className="form-select"
+              value={selectedDataScope}
+              onChange={(e) => setSelectedDataScope(e.target.value)}
+            >
+              {DATA_SCOPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
           </div>
@@ -552,15 +577,18 @@ function ContributionAnalysis() {
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
                     data={mainChartData}
-                    margin={{ top: 5, right: 50, left: 10, bottom: 0 }}
+                    margin={{ top: 5, right: 50, left: 10, bottom: 8 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
                     <XAxis
                       dataKey="name"
-                      tick={{ fill: 'var(--color-text)', fontSize: 14 }}
-                      textAnchor="middle"
-                      height={40}
-                      interval={0}
+                      tick={{ fill: 'var(--color-text)', fontSize: 12 }}
+                      angle={-28}
+                      textAnchor="end"
+                      tickMargin={8}
+                      height={72}
+                      interval="preserveStartEnd"
+                      minTickGap={12}
                     />
                     <YAxis
                       domain={mainChartYAxis.domain}

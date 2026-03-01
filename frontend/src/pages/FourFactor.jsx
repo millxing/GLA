@@ -34,11 +34,17 @@ const toCityName = (abbr) => TEAM_CITIES[abbr] || abbr
 // Temporary kill-switch for LLM summaries without removing implementation code.
 const AI_SUMMARIES_ENABLED = false
 const AI_SUMMARY_MAINTENANCE_MESSAGE = 'AI game summaries closed for renovations'
+const DATA_SCOPE_OPTIONS = [
+  { value: 'all', label: 'All Game' },
+  { value: 'garbage_filtered', label: 'Garbage Time Excluded' },
+  { value: 'clutch', label: 'Clutch Time' },
+]
 
 function FourFactor() {
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('fourfactor_season', '')
+  const [selectedDataScope, setSelectedDataScope] = usePersistedState('fourfactor_datascope', 'all')
   const [selectedGame, setSelectedGame] = useState('')
   const [factorType, setFactorType] = usePersistedState('fourfactor_factortype', 'eight_factors')
   const [analysisView, setAnalysisView] = usePersistedState('fourfactor_analysisview', 'factor')
@@ -52,6 +58,8 @@ function FourFactor() {
   const [timelineData, setTimelineData] = useState(null)
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState(null)
+  const [scopeNotice, setScopeNotice] = useState('')
+  const [scopeMinutesByScope, setScopeMinutesByScope] = useState({})
 
   useEffect(() => {
     let isCurrent = true
@@ -83,7 +91,7 @@ function FourFactor() {
         setSelectedGame('')
       }
       try {
-        const gamesRes = await getGames(selectedSeason)
+        const gamesRes = await getGames(selectedSeason, 'all')
         if (!isCurrent) return
         setGames(gamesRes.games)
         // Default to most recent game (first in list, sorted by date descending)
@@ -107,19 +115,80 @@ function FourFactor() {
     async function loadDecomposition() {
       if (!selectedSeason || !selectedGame) return
       setLoading(true)
-      if (isCurrent) setError(null)
+      if (isCurrent) {
+        setError(null)
+        setScopeNotice('')
+        setDecomposition(null)
+      }
       try {
-        const data = await getDecomposition(selectedSeason, selectedGame, factorType)
+        const data = await getDecomposition(selectedSeason, selectedGame, factorType, selectedDataScope)
         if (isCurrent) setDecomposition(data)
       } catch (err) {
-        if (isCurrent) setError(err.message)
+        if (!isCurrent) return
+        const isScopedMissing =
+          selectedDataScope !== 'all' &&
+          (err.message === 'Game not found in contributions' || err.message === 'Contributions not found for season')
+        if (isScopedMissing) {
+          const scopeLabel = DATA_SCOPE_OPTIONS.find((opt) => opt.value === selectedDataScope)?.label || 'selected scope'
+          setScopeNotice(`No ${scopeLabel.toLowerCase()} data for this game.`)
+          setError(null)
+        } else {
+          setError(err.message)
+        }
       } finally {
         if (isCurrent) setLoading(false)
       }
     }
     loadDecomposition()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedGame, factorType])
+  }, [selectedSeason, selectedGame, factorType, selectedDataScope])
+
+  useEffect(() => {
+    let isCurrent = true
+
+    async function loadScopeMinutes() {
+      if (!selectedSeason || !selectedGame) {
+        if (isCurrent) setScopeMinutesByScope({})
+        return
+      }
+
+      if (isCurrent) setScopeMinutesByScope({})
+
+      const parseScopeMinutes = (data) => {
+        const roadMinutes = Number(data?.road_ratings?.minutes)
+        if (Number.isFinite(roadMinutes) && roadMinutes >= 0) {
+          return roadMinutes / 5
+        }
+        const poss = Number(data?.road_ratings?.possessions)
+        const pace = Number(data?.road_ratings?.pace)
+        if (Number.isFinite(poss) && poss >= 0 && Number.isFinite(pace) && pace > 0) {
+          return (poss * 48) / pace
+        }
+        return null
+      }
+
+      const entries = await Promise.all(
+        DATA_SCOPE_OPTIONS.map(async (option) => {
+          try {
+            const data = await getDecomposition(selectedSeason, selectedGame, 'eight_factors', option.value)
+            return [option.value, parseScopeMinutes(data)]
+          } catch (err) {
+            const msg = err?.message || ''
+            const notFound =
+              msg === 'Game not found in contributions' || msg === 'Contributions not found for season'
+            return [option.value, notFound ? 0 : null]
+          }
+        })
+      )
+
+      if (isCurrent) {
+        setScopeMinutesByScope(Object.fromEntries(entries))
+      }
+    }
+
+    loadScopeMinutes()
+    return () => { isCurrent = false }
+  }, [selectedSeason, selectedGame])
 
   useEffect(() => {
     let isCurrent = true
@@ -375,6 +444,15 @@ function FourFactor() {
     return typeMap[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   }
 
+  const formatScopeMinutesLabel = (scopeValue) => {
+    const minutes = scopeMinutesByScope[scopeValue]
+    if (minutes === null || minutes === undefined || Number.isNaN(minutes)) {
+      return '-- min'
+    }
+    const rounded = Math.round(minutes * 10) / 10
+    return Number.isInteger(rounded) ? `${rounded} min` : `${rounded.toFixed(1)} min`
+  }
+
   return (
     <div className="four-factor container">
       <h1 className="page-title">Game Analysis</h1>
@@ -436,91 +514,93 @@ function FourFactor() {
         </div>
       )}
 
-      {decomposition && !loading && !initializing && (
+      {!loading && !initializing && selectedGame && (
         <div className="results">
-          <div className="game-header card">
-            <div className="game-header-content">
-              <div className="matchup-left">
-                <div className="team road-team">
-                  <span className="team-abbr">{toCityName(decomposition.road_team)}</span>
-                  <span className="team-score">{decomposition.road_pts}</span>
+          {decomposition && (
+            <div className="game-header card">
+              <div className="game-header-content">
+                <div className="matchup-left">
+                  <div className="team road-team">
+                    <span className="team-abbr">{toCityName(decomposition.road_team)}</span>
+                    <span className="team-score">{decomposition.road_pts}</span>
+                  </div>
+                  <div className="at-symbol">@</div>
+                  <div className="team home-team">
+                    <span className="team-abbr">{toCityName(decomposition.home_team)}</span>
+                    <span className="team-score">{decomposition.home_pts}</span>
+                  </div>
                 </div>
-                <div className="at-symbol">@</div>
-                <div className="team home-team">
-                  <span className="team-abbr">{toCityName(decomposition.home_team)}</span>
-                  <span className="team-score">{decomposition.home_pts}</span>
-                </div>
-              </div>
-              {decomposition.linescore && (
-                <div className="linescore-center">
-                  <table className="linescore-table">
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th>Q1</th>
-                        <th>Q2</th>
-                        <th>Q3</th>
-                        <th>Q4</th>
-                        {decomposition.is_overtime && <th>OT</th>}
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td className="team-cell">{decomposition.road_team}</td>
-                        <td>{decomposition.linescore.road.q1}</td>
-                        <td>{decomposition.linescore.road.q2}</td>
-                        <td>{decomposition.linescore.road.q3}</td>
-                        <td>{decomposition.linescore.road.q4}</td>
-                        {decomposition.is_overtime && <td>{decomposition.linescore.road.ot}</td>}
-                        <td className="total-cell">{decomposition.road_pts}</td>
-                      </tr>
-                      <tr>
-                        <td className="team-cell">{decomposition.home_team}</td>
-                        <td>{decomposition.linescore.home.q1}</td>
-                        <td>{decomposition.linescore.home.q2}</td>
-                        <td>{decomposition.linescore.home.q3}</td>
-                        <td>{decomposition.linescore.home.q4}</td>
-                        {decomposition.is_overtime && <td>{decomposition.linescore.home.ot}</td>}
-                        <td className="total-cell">{decomposition.home_pts}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                  {decomposition.is_overtime && decomposition.overtime_count > 0 && (
-                    <span className="ot-indicator">
-                      {decomposition.overtime_count === 1 ? 'OT' : `${decomposition.overtime_count}OT`}
-                    </span>
-                  )}
-                </div>
-              )}
-              <div className="game-info-right">
-                <div className="game-info-details">
-                  <div className="game-date">{decomposition.game_date}</div>
-                  {decomposition.game_type && (
-                    <div className="game-type">{formatGameType(decomposition.game_type)}</div>
-                  )}
-                </div>
-                <div className="external-links">
-                  <a
-                    href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="external-link"
-                  >
-                    BBRef Box Score
-                  </a>
-                  <a
-                    href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="external-link"
-                  >
-                    NBA.com Box Score
-                  </a>
+                {decomposition.linescore && (
+                  <div className="linescore-center">
+                    <table className="linescore-table">
+                      <thead>
+                        <tr>
+                          <th></th>
+                          <th>Q1</th>
+                          <th>Q2</th>
+                          <th>Q3</th>
+                          <th>Q4</th>
+                          {decomposition.is_overtime && <th>OT</th>}
+                          <th>Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td className="team-cell">{decomposition.road_team}</td>
+                          <td>{decomposition.linescore.road.q1}</td>
+                          <td>{decomposition.linescore.road.q2}</td>
+                          <td>{decomposition.linescore.road.q3}</td>
+                          <td>{decomposition.linescore.road.q4}</td>
+                          {decomposition.is_overtime && <td>{decomposition.linescore.road.ot}</td>}
+                          <td className="total-cell">{decomposition.road_pts}</td>
+                        </tr>
+                        <tr>
+                          <td className="team-cell">{decomposition.home_team}</td>
+                          <td>{decomposition.linescore.home.q1}</td>
+                          <td>{decomposition.linescore.home.q2}</td>
+                          <td>{decomposition.linescore.home.q3}</td>
+                          <td>{decomposition.linescore.home.q4}</td>
+                          {decomposition.is_overtime && <td>{decomposition.linescore.home.ot}</td>}
+                          <td className="total-cell">{decomposition.home_pts}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    {decomposition.is_overtime && decomposition.overtime_count > 0 && (
+                      <span className="ot-indicator">
+                        {decomposition.overtime_count === 1 ? 'OT' : `${decomposition.overtime_count}OT`}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="game-info-right">
+                  <div className="game-info-details">
+                    <div className="game-date">{decomposition.game_date}</div>
+                    {decomposition.game_type && (
+                      <div className="game-type">{formatGameType(decomposition.game_type)}</div>
+                    )}
+                  </div>
+                  <div className="external-links">
+                    <a
+                      href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="external-link"
+                    >
+                      BBRef Box Score
+                    </a>
+                    <a
+                      href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="external-link"
+                    >
+                      NBA.com Box Score
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div className="analysis-view-toggle-card card">
             <div className="analysis-view-toggle" role="group" aria-label="Game analysis view">
@@ -543,7 +623,31 @@ function FourFactor() {
 
           {analysisView === 'factor' ? (
             <>
+              <div className="data-scope-toggle-card card">
+                <div className="data-scope-header">
+                  <h2 className="card-title">Factor Analysis View</h2>
+                </div>
+                <div className="data-scope-toggle" role="group" aria-label="Factor analysis data scope">
+                  {DATA_SCOPE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={selectedDataScope === option.value ? 'active' : ''}
+                      onClick={() => setSelectedDataScope(option.value)}
+                    >
+                      {option.label} ({formatScopeMinutesLabel(option.value)})
+                    </button>
+                  ))}
+                </div>
+              </div>
 
+              {scopeNotice && (
+                <div className="scope-notice card">
+                  {scopeNotice}
+                </div>
+              )}
+
+              {decomposition && (
           <div className="analysis-grid">
             <div className="factors-table card">
               <h2 className="card-title">Factor Comparison</h2>
@@ -637,7 +741,10 @@ function FourFactor() {
               </table>
             </div>
           </div>
+              )}
 
+          {decomposition && (
+            <>
           <div className="contributions-chart card">
             <div className="chart-header">
               <h2 className="card-title">Factor Contributions to Rating Differential</h2>
@@ -838,6 +945,8 @@ function FourFactor() {
               </div>
             )}
           </div>
+            </>
+          )}
             </>
           ) : (
             <div className="timeline-content">

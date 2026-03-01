@@ -212,6 +212,55 @@
   color: #fff;
 }
 
+.data-scope-toggle-card {
+  padding: var(--spacing-sm);
+}
+
+.data-scope-header {
+  margin-bottom: var(--spacing-sm);
+}
+
+.data-scope-header .card-title {
+  margin-bottom: 0;
+}
+
+.data-scope-toggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+  background: var(--color-background-alt);
+}
+
+.data-scope-toggle button {
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.data-scope-toggle button + button {
+  border-left: 1px solid var(--color-border);
+}
+
+.data-scope-toggle button:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.data-scope-toggle button.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.scope-notice {
+  color: var(--color-text-secondary);
+}
+
 .timeline-content {
   display: flex;
   flex-direction: column;
@@ -548,5 +597,9 @@
   .chart-axis-labels {
     margin: var(--spacing-xs) var(--spacing-md) 0 var(--spacing-md);
     font-size: 0.875rem;
+  }
+
+  .data-scope-toggle {
+    grid-template-columns: 1fr;
   }
 }

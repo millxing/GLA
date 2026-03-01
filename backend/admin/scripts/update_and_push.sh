@@ -353,6 +353,16 @@ if [ "$PBP_EXIT" -ne 0 ]; then
     report_line "SKIPPED" "PBP timeline commit via NBA_Data skipped because raw PBP update failed"
 fi
 
+echo "[run] Building situational game logs for $SEASON"
+if [ "$DRY_RUN" = "1" ]; then
+    echo "[dry-run] Skipping situational game-log build"
+    report_line "SKIPPED" "Situational game-log build skipped due to dry run"
+else
+    run_step \
+        "Build situational game logs (garbage_filtered + clutch) for $SEASON" \
+        "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/build_situational_gamelogs.py" --season "$SEASON" --repo-dir "$REPO_DIR" --incremental --scope-state-mode pre
+fi
+
 # Commit/push data updates immediately (before interpretations)
 TODAY="$(date +%Y-%m-%d)"
 MSG="Update ${SEASON} data (${TODAY})"
@@ -373,14 +383,20 @@ if [ "$DRY_RUN" != "1" ] && [ "$PBP_EXIT" -eq 0 ]; then
     fi
 fi
 
-echo "[run] Regenerating contributions for $SEASON"
+echo "[run] Regenerating contributions for $SEASON (all scopes)"
 if [ "$DRY_RUN" = "1" ]; then
     echo "[dry-run] Skipping contribution regeneration"
     report_line "SKIPPED" "Contribution regeneration skipped due to dry run"
 else
     run_step \
-        "Regenerate contributions for $SEASON" \
-        "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/generate_contributions.py" --season "$SEASON" --repo-dir "$REPO_DIR"
+        "Regenerate contributions (scope=all) for $SEASON" \
+        "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/generate_contributions.py" --season "$SEASON" --repo-dir "$REPO_DIR" --data-scope all --incremental
+    run_step \
+        "Regenerate contributions (scope=garbage_filtered) for $SEASON" \
+        "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/generate_contributions.py" --season "$SEASON" --repo-dir "$REPO_DIR" --data-scope garbage_filtered --incremental
+    run_step \
+        "Regenerate contributions (scope=clutch) for $SEASON" \
+        "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/generate_contributions.py" --season "$SEASON" --repo-dir "$REPO_DIR" --data-scope clutch --incremental
 fi
 
 echo "[run] Commit + push contribution updates if needed"

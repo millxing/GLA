@@ -22,19 +22,22 @@ export async function getSeasons() {
   return fetchApi('/api/seasons')
 }
 
-export async function getGames(season) {
-  return fetchApi(`/api/games?season=${encodeURIComponent(season)}`)
+export async function getGames(season, dataScope = 'all') {
+  const params = new URLSearchParams({ season, data_scope: dataScope })
+  return fetchApi(`/api/games?${params}`)
 }
 
-export async function getTeams(season) {
-  return fetchApi(`/api/teams?season=${encodeURIComponent(season)}`)
+export async function getTeams(season, dataScope = 'all') {
+  const params = new URLSearchParams({ season, data_scope: dataScope })
+  return fetchApi(`/api/teams?${params}`)
 }
 
-export async function getDecomposition(season, gameId, factorType) {
+export async function getDecomposition(season, gameId, factorType, dataScope = 'all') {
   const params = new URLSearchParams({
     season,
     game_id: gameId,
     factor_type: factorType,
+    data_scope: dataScope,
   })
   return fetchApi(`/api/decomposition?${params}`)
 }
@@ -55,9 +58,10 @@ export async function getLeagueSummary(
   startDate,
   endDate,
   excludePlayoffs = false,
-  lastNGames = null
+  lastNGames = null,
+  dataScope = 'all'
 ) {
-  const params = new URLSearchParams({ season })
+  const params = new URLSearchParams({ season, data_scope: dataScope })
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
   if (lastNGames) params.append('last_n_games', lastNGames)
@@ -65,8 +69,8 @@ export async function getLeagueSummary(
   return fetchApi(`/api/league-summary?${params}`)
 }
 
-export async function getTrends(season, team, stat) {
-  const params = new URLSearchParams({ season, team, stat })
+export async function getTrends(season, team, stat, dataScope = 'all') {
+  const params = new URLSearchParams({ season, team, stat, data_scope: dataScope })
   return fetchApi(`/api/trends?${params}`)
 }
 
@@ -77,12 +81,14 @@ export async function getContributionAnalysis(
   lastNGames = null,
   startDate = null,
   endDate = null,
-  excludePlayoffs = false
+  excludePlayoffs = false,
+  dataScope = 'all'
 ) {
   const params = new URLSearchParams({
     season,
     team,
     date_range_type: dateRangeType,
+    data_scope: dataScope,
   })
   if (lastNGames) params.append('last_n_games', lastNGames)
   if (startDate) params.append('start_date', startDate)
@@ -96,9 +102,10 @@ export async function getLeagueTopContributors(
   startDate = null,
   endDate = null,
   excludePlayoffs = false,
-  lastNGames = null
+  lastNGames = null,
+  dataScope = 'all'
 ) {
-  const params = new URLSearchParams({ season })
+  const params = new URLSearchParams({ season, data_scope: dataScope })
   if (startDate) params.append('start_date', startDate)
   if (endDate) params.append('end_date', endDate)
   if (lastNGames) params.append('last_n_games', lastNGames)

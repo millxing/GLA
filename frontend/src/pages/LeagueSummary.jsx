@@ -28,12 +28,45 @@ const FOUR_FACTOR_COLUMNS = [
   { key: 'pace', label: 'Pace', labelLine2: '', sortable: true, higherBetter: null },
 ]
 
+const FOUR_FACTOR_SCOPED_COLUMNS = [
+  { key: 'team', label: 'Team', labelLine2: '', sortable: true },
+  { key: 'scope_games', label: 'G', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'scope_time_pct', label: '% of Time', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'efg_pct', label: 'eFG%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'ball_handling', label: 'BH', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'oreb_pct', label: 'OREB%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'ft_rate', label: 'FT Rate', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'opp_efg_pct', label: 'eFG%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_ball_handling', label: 'BH', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_oreb_pct', label: 'OREB%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_ft_rate', label: 'FT Rate', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'pace', label: 'Pace', labelLine2: '', sortable: true, higherBetter: null },
+]
+
 const SOS_COLUMNS = [
   { key: 'team', label: 'Team', labelLine2: '', sortable: true },
   { key: 'games', label: 'GP', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'wins', label: 'W', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'losses', label: 'L', labelLine2: '', sortable: true, higherBetter: false },
   { key: 'win_pct', label: 'PCT', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'sos', label: 'SOS', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_sos', label: 'Off SOS', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_sos', label: 'Def SOS', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'adj_net_rating', label: 'Adj NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'adj_off_rating', label: 'Adj ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'adj_def_rating', label: 'Adj DRtg', labelLine2: '', sortable: true, higherBetter: false },
+]
+
+const SOS_SCOPED_COLUMNS = [
+  { key: 'team', label: 'Team', labelLine2: '', sortable: true },
+  { key: 'scope_games', label: 'G', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'scope_time_pct', label: '% of Time', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
@@ -52,6 +85,8 @@ const SECTION_START_COLUMNS = {
 
 const GLOSSARY_ITEMS = [
   { term: 'GP', definition: 'Games Played' },
+  { term: 'G', definition: 'Games containing the selected situational segment (garbage time or clutch time).' },
+  { term: '% of Time', definition: 'Share of total game time spent in the selected situational segment.' },
   { term: 'W', definition: 'Wins' },
   { term: 'L', definition: 'Losses' },
   { term: 'ORtg', definition: 'Offensive Rating - Points scored per 100 possessions' },
@@ -84,6 +119,14 @@ const DATE_RANGE_OPTIONS = [
   { value: 'last_20_games', label: 'Last 20 games' },
   { value: 'custom', label: 'Custom Date Range' },
 ]
+const DATA_SCOPE_OPTIONS = [
+  { value: 'all', label: 'All Data' },
+  { value: 'garbage_filtered', label: 'Non-Garbage Time' },
+  { value: 'garbage_time', label: 'Garbage Time' },
+  { value: 'clutch', label: 'Clutch Time' },
+  { value: 'non_clutch_time', label: 'Non-Clutch Time' },
+]
+const DERIVED_SCOPE_VALUES = new Set(['garbage_time', 'non_clutch_time'])
 
 const EFFICIENCY_CHART_MARGIN = { top: 20, right: 56, bottom: 54, left: 56 }
 const TEAM_NAME_BY_ABBR = {
@@ -236,6 +279,7 @@ function EfficiencyTooltip({ active, payload }) {
 function LeagueSummary() {
   const [seasons, setSeasons] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('leaguesummary_season', '')
+  const [selectedDataScope, setSelectedDataScope] = usePersistedState('leaguesummary_datascope', 'all')
   const [dateRangePreset, setDateRangePreset] = usePersistedState('leaguesummary_daterange', 'season')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -249,6 +293,8 @@ function LeagueSummary() {
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
   const [topContributors, setTopContributors] = useState(null)
   const [contributorsLoading, setContributorsLoading] = useState(false)
+  const [topContributorsNote, setTopContributorsNote] = useState('')
+  const isCustomDateRangeVisible = dateRangePreset === 'custom'
 
   useEffect(() => {
     async function loadInitialData() {
@@ -273,7 +319,10 @@ function LeagueSummary() {
     setCustomStartDate('')
     setCustomEndDate('')
     setSeasonBounds({ first: '', last: '' })
-  }, [selectedSeason])
+    setData(null)
+    setTopContributors(null)
+    setTopContributorsNote('')
+  }, [selectedSeason, selectedDataScope])
 
   // Keep persisted date preset valid when option list changes
   useEffect(() => {
@@ -369,7 +418,7 @@ function LeagueSummary() {
       setError(null)
       try {
         // Load without date filters to get season bounds
-        const res = await getLeagueSummary(selectedSeason, null, null)
+        const res = await getLeagueSummary(selectedSeason, null, null, false, null, selectedDataScope)
         if (isCurrent && res.first_game_date && res.last_game_date) {
           setSeasonBounds({ first: res.first_game_date, last: res.last_game_date })
           setCustomStartDate(res.first_game_date)
@@ -384,7 +433,7 @@ function LeagueSummary() {
     }
     loadSeasonBounds()
     return () => { isCurrent = false }
-  }, [selectedSeason])
+  }, [selectedSeason, selectedDataScope])
 
   // Load data with calculated date range
   useEffect(() => {
@@ -400,7 +449,8 @@ function LeagueSummary() {
           startDate,
           endDate,
           excludePlayoffs,
-          lastNGames
+          lastNGames,
+          selectedDataScope
         )
         if (isCurrent) {
           setData(res)
@@ -414,22 +464,30 @@ function LeagueSummary() {
     }
     loadData()
     return () => { isCurrent = false }
-  }, [selectedSeason, startDate, endDate, lastNGames, excludePlayoffs])
+  }, [selectedSeason, startDate, endDate, lastNGames, excludePlayoffs, selectedDataScope])
 
   // Load top contributors when date range changes
   useEffect(() => {
     if (!selectedSeason) return
     if (!lastNGames && (!startDate || !endDate)) return
+    if (DERIVED_SCOPE_VALUES.has(selectedDataScope)) {
+      setTopContributors(null)
+      setTopContributorsNote('Top contributors are currently unavailable for Garbage Time and Non-Clutch Time views.')
+      setContributorsLoading(false)
+      return
+    }
     let isCurrent = true
     async function loadTopContributors() {
       setContributorsLoading(true)
+      setTopContributorsNote('')
       try {
         const res = await getLeagueTopContributors(
           selectedSeason,
           startDate,
           endDate,
           excludePlayoffs,
-          lastNGames
+          lastNGames,
+          selectedDataScope
         )
         if (isCurrent) {
           setTopContributors(res)
@@ -438,6 +496,7 @@ function LeagueSummary() {
         // Silently fail for contributors - don't show error to user
         if (isCurrent) {
           setTopContributors(null)
+          setTopContributorsNote('')
         }
       } finally {
         if (isCurrent) setContributorsLoading(false)
@@ -445,12 +504,16 @@ function LeagueSummary() {
     }
     loadTopContributors()
     return () => { isCurrent = false }
-  }, [selectedSeason, startDate, endDate, lastNGames, excludePlayoffs])
+  }, [selectedSeason, startDate, endDate, lastNGames, excludePlayoffs, selectedDataScope])
 
-  const activeColumns = useMemo(
-    () => (tableView === VIEW_SOS_ADJUSTMENTS ? SOS_COLUMNS : FOUR_FACTOR_COLUMNS),
-    [tableView]
-  )
+  const isScopedSummary = selectedDataScope !== 'all'
+
+  const activeColumns = useMemo(() => {
+    if (tableView === VIEW_SOS_ADJUSTMENTS) {
+      return isScopedSummary ? SOS_SCOPED_COLUMNS : SOS_COLUMNS
+    }
+    return isScopedSummary ? FOUR_FACTOR_SCOPED_COLUMNS : FOUR_FACTOR_COLUMNS
+  }, [tableView, isScopedSummary])
 
   useEffect(() => {
     const defaultSortByView =
@@ -534,19 +597,22 @@ function LeagueSummary() {
   }
 
   const isHeaderCenteredValueColumn = (columnKey) => {
-    return ['games', 'wins', 'losses', 'win_pct'].includes(columnKey)
+    return ['games', 'wins', 'losses', 'win_pct', 'scope_games', 'scope_time_pct'].includes(columnKey)
   }
 
   const formatValue = (value, column) => {
     if (value === null || value === undefined) return '-'
     if (column === 'team') return value
     if (typeof value === 'number') {
+      if (column === 'scope_time_pct') {
+        return `${value.toFixed(1)}%`
+      }
       if (column === 'win_pct') {
         const pct = value / 100
         return pct >= 1 ? '1.000' : pct.toFixed(3).replace(/^0/, '')
       }
       // For GP, W, L: show integer if whole number, otherwise 1 decimal
-      if (['games', 'wins', 'losses'].includes(column)) {
+      if (['games', 'wins', 'losses', 'scope_games'].includes(column)) {
         return Number.isInteger(value) ? value : value.toFixed(1)
       }
       return value.toFixed(1)
@@ -768,6 +834,19 @@ function LeagueSummary() {
             </select>
           </div>
 
+          <div className="form-group">
+            <label className="form-label">Data Scope</label>
+            <select
+              className="form-select"
+              value={selectedDataScope}
+              onChange={(e) => setSelectedDataScope(e.target.value)}
+            >
+              {DATA_SCOPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="form-group date-range-control">
             <label className="form-label">Date Range</label>
             <select
@@ -781,7 +860,7 @@ function LeagueSummary() {
             </select>
           </div>
 
-          {dateRangePreset === 'custom' && (
+          {isCustomDateRangeVisible && (
             <>
               <div className="form-group custom-date-control">
                 <label className="form-label">Start Date</label>
@@ -824,7 +903,7 @@ function LeagueSummary() {
                 className={`view-toggle-btn ${tableView === VIEW_SOS_ADJUSTMENTS ? 'active' : ''}`}
                 onClick={() => setTableView(VIEW_SOS_ADJUSTMENTS)}
               >
-                Show Strength of Schedule
+                {isCustomDateRangeVisible ? 'Show SOS' : 'Show Strength of Schedule'}
               </button>
             </div>
           </div>
@@ -855,7 +934,7 @@ function LeagueSummary() {
                   {activeColumns.map((col) => (
                     <th
                       key={col.key}
-                      className={`stat-header ${col.sortable ? 'sortable' : ''} ${sortColumn === col.key ? 'sorted' : ''} ${isSectionStart(col.key) ? 'section-divider' : ''}`}
+                      className={`stat-header ${col.sortable ? 'sortable' : ''} ${sortColumn === col.key ? 'sorted' : ''} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-header' : ''}`}
                       onClick={() => col.sortable && handleSort(col.key)}
                     >
                       <div className="header-content">
@@ -883,7 +962,7 @@ function LeagueSummary() {
                       <td
                         key={col.key}
                         style={col.key !== 'team' ? { backgroundColor: getCellColor(col.key, team[col.key]) } : {}}
-                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''}`}
+                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-col' : ''}`}
                       >
                         {col.key === 'team' ? (
                           formatValue(team[col.key], col.key)
@@ -903,7 +982,7 @@ function LeagueSummary() {
                     {activeColumns.map((col) => (
                       <td
                         key={col.key}
-                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''}`}
+                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-col' : ''}`}
                       >
                         {col.key === 'team' ? (
                           formatValue(leagueAverages[col.key], col.key)
@@ -1049,6 +1128,12 @@ function LeagueSummary() {
                   </table>
                 </div>
               </div>
+            </div>
+          )}
+
+          {topContributorsNote && !contributorsLoading && (
+            <div className="contributors-loading">
+              {topContributorsNote}
             </div>
           )}
 

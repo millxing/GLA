@@ -67,11 +67,16 @@ const GLOSSARY_ITEMS = [
 const WIN_BAR_COLOR = '#bbf7d0'
 const LOSS_BAR_COLOR = '#fecaca'
 const BAR_OUTLINE_COLOR = '#6b7280'
+const DATA_SCOPE_OPTIONS = [
+  { value: 'all', label: 'All Data' },
+  { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
+]
 
 function Trends() {
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('trends_season', '')
+  const [selectedDataScope, setSelectedDataScope] = usePersistedState('trends_datascope', 'all')
   const [selectedTeam, setSelectedTeam] = usePersistedState('trends_team', '')
   const [selectedStat, setSelectedStat] = usePersistedState('trends_stat', 'net_rating')
   const [data, setData] = useState(null)
@@ -79,6 +84,12 @@ function Trends() {
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+
+  useEffect(() => {
+    if (!DATA_SCOPE_OPTIONS.some((option) => option.value === selectedDataScope)) {
+      setSelectedDataScope('all')
+    }
+  }, [selectedDataScope, setSelectedDataScope])
 
   useEffect(() => {
     let isCurrent = true
@@ -107,7 +118,7 @@ function Trends() {
       setInitializing(true)
       if (isCurrent) setData(null)
       try {
-        const res = await getTeams(selectedSeason)
+        const res = await getTeams(selectedSeason, selectedDataScope)
         if (!isCurrent) return
         setTeams(res.teams)
         // Keep persisted team if valid, otherwise default to BOS or first team
@@ -125,7 +136,7 @@ function Trends() {
     }
     loadTeams()
     return () => { isCurrent = false }
-  }, [selectedSeason])
+  }, [selectedSeason, selectedDataScope])
 
   useEffect(() => {
     let isCurrent = true
@@ -134,7 +145,7 @@ function Trends() {
       setLoading(true)
       if (isCurrent) setError(null)
       try {
-        const res = await getTrends(selectedSeason, selectedTeam, selectedStat)
+        const res = await getTrends(selectedSeason, selectedTeam, selectedStat, selectedDataScope)
         if (isCurrent) setData(res)
       } catch (err) {
         if (isCurrent) setError(err.message)
@@ -144,7 +155,7 @@ function Trends() {
     }
     loadTrends()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedTeam, selectedStat])
+  }, [selectedSeason, selectedTeam, selectedStat, selectedDataScope])
 
   // Prepare chart data with x-axis labels
   const chartData = useMemo(() => {
@@ -250,6 +261,19 @@ function Trends() {
               <option value="">Select team...</option>
               {teams.map((team) => (
                 <option key={team} value={team}>{team}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Data Scope</label>
+            <select
+              className="form-select"
+              value={selectedDataScope}
+              onChange={(e) => setSelectedDataScope(e.target.value)}
+            >
+              {DATA_SCOPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
           </div>

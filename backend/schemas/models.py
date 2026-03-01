@@ -131,6 +131,8 @@ class TeamStats(BaseModel):
     adj_net_rating: float
     adj_off_rating: float
     adj_def_rating: float
+    scope_games: Optional[int] = None
+    scope_time_pct: Optional[float] = None
 
 class LeagueSummaryResponse(BaseModel):
     teams: List[TeamStats]

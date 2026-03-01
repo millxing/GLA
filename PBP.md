@@ -161,6 +161,52 @@ Build/rebuild winprob model artifacts:
   - If road team wins: `max(home_win_prob)` (home's peak WP before losing).
   - If winner/WP is unavailable (or tie): `0.0`.
 
+## Situational Filters (Garbage-Time Filtered + Clutch)
+- Scope intent:
+  - In addition to full-game (`all`) stats/contributions, maintain two persisted alternates:
+    - `garbage_filtered`: excludes garbage-time events.
+    - `clutch`: includes only clutch events.
+- Event classification source of truth:
+  - Classification thresholds use timeline payload state (`events[*]`) only.
+  - Threshold inputs are:
+    - Win probability: `events[*].home_win_prob`.
+    - Score differential: `events[*].game_log_state.pts_home - events[*].game_log_state.pts_road`.
+    - Period/clock: `events[*].period`, `events[*].clock`.
+  - Attribution mode is switchable in the builder:
+    - `pre` (default): attribute each event to the prior event's classified state.
+    - `post`: attribute each event to its own resulting classified state.
+- Garbage-time event definition (final):
+  - `period >= 3` (second half and OT), and
+  - `home_win_prob < 0.10` or `home_win_prob > 0.90`, and
+  - `abs(point_differential) > 5`.
+- Clutch event definition:
+  - `abs(point_differential) <= 5`, and
+  - `period >= 4` (4th quarter or OT), and
+  - `seconds_left_in_period < 300`.
+- Boundary behavior:
+  - Garbage uses strict inequalities on win probability (`< 0.10`, `> 0.90`).
+  - Clutch uses `<= 5` differential and strict `< 300` seconds.
+  - Because garbage requires `abs(diff) > 5` and clutch requires `abs(diff) <= 5`, they are mutually exclusive by construction.
+- Persistence requirement:
+  - Filtered stats/contributions must be stored as durable artifacts in `NBA_Data` and reused by API/UI.
+  - Recompute scope should be incremental (new game IDs only), not full historical reruns, during daily updates.
+- Scoped advanced minutes + pace:
+  - In `box_score_advanced_<scope>_<season>.csv`, `minutes_home` and `minutes_road` represent in-scope elapsed time (team player-minutes), not full-game 240/265 minutes.
+  - Minutes are derived from event timeline elapsed windows using the selected builder attribution mode (`--scope-state-mode pre|post`).
+  - If timeline elapsed cannot be resolved, builder falls back to possession-ratio scaling from full-game advanced minutes.
+  - This ensures pace in scoped contributions uses scoped possessions over scoped minutes.
+- Persisted artifact names (season-scoped):
+  - `team_game_logs_garbage_filtered_<season>.csv`
+  - `team_game_logs_clutch_<season>.csv`
+  - `box_score_advanced_garbage_filtered_<season>.csv`
+  - `box_score_advanced_clutch_<season>.csv`
+  - `contributions/contributions_garbage_filtered_<season>.json`
+  - `contributions/contributions_clutch_<season>.json`
+- Builder command (incremental):
+  - `/opt/miniconda3/envs/gla_admin/bin/python backend/admin/build_situational_gamelogs.py --season <season> --repo-dir /Users/robschoen/Dropbox/CC/NBA_Data --incremental --scope-state-mode pre`
+- API/UX contract (data scope):
+  - Use data-scope values `all`, `garbage_filtered`, and `clutch` for backend endpoint selection and frontend module toggles.
+
 ## Guardrails
 - Keep schemas aligned with canonical `api_pbpv3` columns and `manifest.csv` updates.
 - Do not add ad hoc derived analytics columns into raw source files.

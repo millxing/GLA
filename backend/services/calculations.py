@@ -290,27 +290,13 @@ def compute_league_aggregates(
     exclude_playoffs: bool = False,
     last_n_games: Optional[int] = None,
 ) -> pd.DataFrame:
-    filtered_df = df.copy()
-
-    if start_date:
-        filtered_df = filtered_df[filtered_df["game_date"] >= pd.to_datetime(start_date)]
-    if end_date:
-        filtered_df = filtered_df[filtered_df["game_date"] <= pd.to_datetime(end_date)]
-    # NBA Cup final never counts in league stats (always excluded)
-    filtered_df = filtered_df[filtered_df["game_type"] != "nba_cup_final"]
-
-    if exclude_playoffs:
-        # Exclude playoffs and play-in games
-        # Note: nba_cup_semi IS included as it counts toward regular season stats
-        filtered_df = filtered_df[~filtered_df["game_type"].isin(["playoffs", "play_in"])]
-
-    # Last N games is applied per team (different teams can span different date windows)
-    if last_n_games is not None and last_n_games > 0:
-        filtered_df = (
-            filtered_df.sort_values("game_date")
-            .groupby("team", group_keys=False)
-            .tail(last_n_games)
-        )
+    filtered_df = _apply_league_filters(
+        df=df,
+        start_date=start_date,
+        end_date=end_date,
+        exclude_playoffs=exclude_playoffs,
+        last_n_games=last_n_games,
+    )
 
     agg_cols = {
         "fgm": "sum",
@@ -341,6 +327,10 @@ def compute_league_aggregates(
         agg_cols["actual_poss"] = "sum"
     if "opp_actual_poss" in filtered_df.columns:
         agg_cols["opp_actual_poss"] = "sum"
+    if "actual_minutes" in filtered_df.columns:
+        agg_cols["actual_minutes"] = "sum"
+    if "opp_actual_minutes" in filtered_df.columns:
+        agg_cols["opp_actual_minutes"] = "sum"
 
     team_stats = filtered_df.groupby("team").agg(agg_cols).reset_index()
     team_stats = team_stats.rename(columns={"game_id": "games"})
@@ -395,10 +385,19 @@ def compute_league_aggregates(
     team_stats["losses"] = team_stats["games"] - team_stats["wins"]
     team_stats["win_pct"] = (team_stats["wins"] / team_stats["games"] * 100).where(team_stats["games"] > 0, 0).round(1)
 
-    # Pace = average possessions per game (both teams combined / 2)
-    team_stats["pace"] = (
-        (team_stats["possessions"] + team_stats["opp_possessions"]) / 2 / team_stats["games"].replace(0, pd.NA)
-    ).fillna(0).round(1)
+    # Pace = avg possessions * (48 / actual game minutes), where minutes are scoped
+    # for garbage/clutch datasets and full-game minutes for all-data datasets.
+    avg_possessions = (team_stats["possessions"] + team_stats["opp_possessions"]) / 2
+    if {"actual_minutes", "opp_actual_minutes"}.issubset(team_stats.columns):
+        team_mins = pd.to_numeric(team_stats["actual_minutes"], errors="coerce")
+        opp_mins = pd.to_numeric(team_stats["opp_actual_minutes"], errors="coerce")
+        total_game_minutes = (team_mins + opp_mins) / 10.0  # convert summed team-minutes to game-minutes
+        pace_from_minutes = avg_possessions * 48 / total_game_minutes.where(total_game_minutes > 0, pd.NA)
+        team_stats["pace"] = pace_from_minutes.fillna(0).round(1)
+    else:
+        team_stats["pace"] = (
+            avg_possessions / team_stats["games"].replace(0, pd.NA)
+        ).fillna(0).round(1)
 
     # Strength of Schedule (SOS): average opponent ratings over games played.
     # This is game-weighted (teams faced more often have greater influence).
@@ -442,6 +441,109 @@ def compute_league_aggregates(
     team_stats = team_stats.drop(columns=["opp_avg_off_rating", "opp_avg_def_rating"], errors="ignore")
 
     return team_stats
+
+
+def _apply_league_filters(
+    df: pd.DataFrame,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    exclude_playoffs: bool = False,
+    last_n_games: Optional[int] = None,
+) -> pd.DataFrame:
+    filtered_df = df.copy()
+
+    if start_date:
+        filtered_df = filtered_df[filtered_df["game_date"] >= pd.to_datetime(start_date)]
+    if end_date:
+        filtered_df = filtered_df[filtered_df["game_date"] <= pd.to_datetime(end_date)]
+    # NBA Cup final never counts in league stats (always excluded)
+    filtered_df = filtered_df[filtered_df["game_type"] != "nba_cup_final"]
+
+    if exclude_playoffs:
+        # Exclude playoffs and play-in games
+        # Note: nba_cup_semi IS included as it counts toward regular season stats
+        filtered_df = filtered_df[~filtered_df["game_type"].isin(["playoffs", "play_in"])]
+
+    # Last N games is applied per team (different teams can span different date windows)
+    if last_n_games is not None and last_n_games > 0:
+        filtered_df = (
+            filtered_df.sort_values("game_date")
+            .groupby("team", group_keys=False)
+            .tail(last_n_games)
+        )
+    return filtered_df
+
+def compute_scope_time_metrics(
+    all_df: pd.DataFrame,
+    scoped_df: pd.DataFrame,
+    data_scope: str,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    exclude_playoffs: bool = False,
+    last_n_games: Optional[int] = None,
+) -> pd.DataFrame:
+    """Compute per-team scope coverage metrics for League Summary scoped views.
+
+    Returns columns:
+      - team
+      - scope_games: number of games that contain the scoped segment
+      - scope_time_pct: percent of total game time in the scoped segment
+    """
+    if str(data_scope or "all").strip().lower() == "all":
+        return pd.DataFrame(columns=["team", "scope_games", "scope_time_pct"])
+
+    base = _apply_league_filters(
+        df=all_df,
+        start_date=start_date,
+        end_date=end_date,
+        exclude_playoffs=exclude_playoffs,
+        last_n_games=last_n_games,
+    )
+    scoped = _apply_league_filters(
+        df=scoped_df,
+        start_date=start_date,
+        end_date=end_date,
+        exclude_playoffs=exclude_playoffs,
+        last_n_games=last_n_games,
+    )
+    if base.empty:
+        return pd.DataFrame(columns=["team", "scope_games", "scope_time_pct"])
+
+    base_work = base[["team", "game_id", "actual_minutes"]].copy()
+    scoped_work = scoped[["team", "game_id", "actual_minutes"]].copy() if not scoped.empty else pd.DataFrame(
+        columns=["team", "game_id", "actual_minutes"]
+    )
+
+    for frame in (base_work, scoped_work):
+        frame["game_id"] = (
+            frame["game_id"]
+            .astype(str)
+            .str.strip()
+            .str.replace(r"\.0$", "", regex=True)
+            .str.zfill(10)
+        )
+        frame["actual_minutes"] = pd.to_numeric(frame["actual_minutes"], errors="coerce").fillna(0.0)
+
+    merged = base_work.merge(
+        scoped_work.rename(columns={"actual_minutes": "scope_minutes"}),
+        on=["team", "game_id"],
+        how="left",
+    )
+    merged["scope_minutes"] = pd.to_numeric(merged["scope_minutes"], errors="coerce").fillna(0.0)
+    merged["all_minutes"] = pd.to_numeric(merged["actual_minutes"], errors="coerce").fillna(0.0)
+
+    merged["segment_minutes"] = merged["scope_minutes"].clip(lower=0.0)
+
+    summary = merged.groupby("team", as_index=False).agg(
+        scope_games=("segment_minutes", lambda s: int((pd.to_numeric(s, errors="coerce").fillna(0.0) > 0).sum())),
+        all_minutes=("all_minutes", "sum"),
+        segment_minutes=("segment_minutes", "sum"),
+    )
+    summary["scope_time_pct"] = (
+        summary["segment_minutes"] / summary["all_minutes"].replace(0, pd.NA) * 100
+    ).fillna(0.0).round(1)
+
+    return summary[["team", "scope_games", "scope_time_pct"]]
 
 def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     """Compute a stat value for each row in the dataframe."""
@@ -507,7 +609,13 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     elif stat == "opp_fg3a_rate":
         return (df["opp_fg3a"] / df["opp_fga"] * 100).round(1)
     elif stat == "pace":
-        return ((poss + opp_poss) / 2).fillna(0).round(1)
+        avg_poss = (poss + opp_poss) / 2
+        if {"actual_minutes", "opp_actual_minutes"}.issubset(df.columns):
+            team_mins = pd.to_numeric(df["actual_minutes"], errors="coerce")
+            opp_mins = pd.to_numeric(df["opp_actual_minutes"], errors="coerce")
+            game_mins = (team_mins + opp_mins) / 10.0  # team-minutes -> game-minutes
+            return (avg_poss * 48 / game_mins.where(game_mins > 0, pd.NA)).fillna(0).round(1)
+        return avg_poss.fillna(0).round(1)
     else:
         return pd.Series([0] * len(df), index=df.index)
 

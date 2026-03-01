@@ -6,6 +6,7 @@ import subprocess
 import json
 import re
 import sys
+import pandas as pd
 from importlib.metadata import version as pkg_version
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
@@ -28,9 +29,11 @@ from services.data_loader import (
     get_games_list,
     get_teams_list,
     load_contributions,
+    normalize_data_scope,
 )
 from services.calculations import (
     compute_league_aggregates,
+    compute_scope_time_metrics,
     compute_trend_series,
     compute_league_average,
     compute_contribution_analysis,
@@ -81,9 +84,126 @@ TIMELINE_METRICS_FILENAME_TEMPLATE = "_timeline_metrics_{season}_{phase}.json"
 HOME_WIN_PROB_BY_EVENT_JSON_COLUMN = "home_win_prob_by_event_json"
 LEGACY_PBP_GAME_STATES_ROOT = (PBP_LEGACY_GLA_ROOT / "game_states").resolve()
 
+LEAGUE_SUMMARY_SCOPE_ALIASES = {
+    "all": "all",
+    "non_garbage_time": "garbage_filtered",
+    "non_garbage": "garbage_filtered",
+    "garbage_filtered": "garbage_filtered",
+    "garbage_time": "garbage_time",
+    "garbage": "garbage_time",
+    "clutch": "clutch",
+    "clutch_time": "clutch",
+    "non_clutch_time": "non_clutch_time",
+    "non_clutch": "non_clutch_time",
+}
+LEAGUE_SUMMARY_VALID_SCOPES = {"all", "garbage_filtered", "garbage_time", "clutch", "non_clutch_time"}
+
 PBP_GAME_STATES_ROOTS = [PBP_GAME_STATES_ROOT]
 if PBP_ENABLE_LEGACY_GLA_FALLBACK and LEGACY_PBP_GAME_STATES_ROOT != PBP_GAME_STATES_ROOT:
     PBP_GAME_STATES_ROOTS.append(LEGACY_PBP_GAME_STATES_ROOT)
+
+
+def _normalize_league_summary_scope(value: Optional[str]) -> str:
+    text = str(value or "all").strip().lower().replace("-", "_").replace(" ", "_")
+    normalized = LEAGUE_SUMMARY_SCOPE_ALIASES.get(text, text)
+    if normalized not in LEAGUE_SUMMARY_VALID_SCOPES:
+        raise ValueError(
+            f"Invalid league summary data_scope: {value!r}. "
+            f"Expected one of: {', '.join(sorted(LEAGUE_SUMMARY_VALID_SCOPES))}"
+        )
+    return normalized
+
+
+def _normalize_scope_key_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["game_id"] = (
+        out["game_id"]
+        .astype(str)
+        .str.strip()
+        .str.replace(r"\.0$", "", regex=True)
+        .str.zfill(10)
+    )
+    out["team"] = out["team"].astype(str).str.strip()
+    out["home_away"] = out["home_away"].astype(str).str.strip().str.lower()
+    return out
+
+
+def _should_clip_scope_delta(column: str) -> bool:
+    if "plus_minus" in column:
+        return False
+    base_count_stats = {"fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "oreb", "dreb", "reb", "ast", "stl", "blk", "tov", "pf", "pts"}
+    if column in base_count_stats:
+        return True
+    if column.startswith("opp_") and column[4:] in base_count_stats:
+        return True
+    if column in {"actual_poss", "opp_actual_poss", "actual_minutes", "opp_actual_minutes"}:
+        return True
+    return False
+
+
+def _derive_scope_complement_df(all_df: pd.DataFrame, included_df: pd.DataFrame) -> pd.DataFrame:
+    """Return segment dataframe computed as all_df - included_df at team/game row level."""
+    if all_df is None or all_df.empty:
+        return pd.DataFrame(columns=(all_df.columns if all_df is not None else []))
+
+    base = _normalize_scope_key_columns(all_df)
+    if included_df is None or included_df.empty:
+        return base
+
+    inc = _normalize_scope_key_columns(included_df)
+    key_cols = ["game_id", "team", "home_away"]
+    numeric_cols = [
+        c for c in base.columns
+        if c in inc.columns and c not in key_cols and pd.api.types.is_numeric_dtype(base[c])
+    ]
+    if not numeric_cols:
+        return base
+
+    inc_numeric = inc[key_cols + numeric_cols].copy().rename(columns={c: f"__inc_{c}" for c in numeric_cols})
+    merged = base.merge(inc_numeric, on=key_cols, how="left")
+
+    for col in numeric_cols:
+        left = pd.to_numeric(merged[col], errors="coerce").fillna(0.0)
+        right = pd.to_numeric(merged[f"__inc_{col}"], errors="coerce").fillna(0.0)
+        delta = left - right
+        if _should_clip_scope_delta(col):
+            delta = delta.clip(lower=0.0)
+        merged[col] = delta
+
+    merged = merged.drop(columns=[f"__inc_{c}" for c in numeric_cols], errors="ignore")
+    return merged[all_df.columns]
+
+
+async def _resolve_league_summary_scope_df(season: str, scope: str) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+    """Resolve selected League Summary scope into a normalized dataframe and the all-data baseline."""
+    all_df = await get_normalized_data_with_possessions(season, data_scope="all")
+    if all_df is None:
+        return None, None
+
+    if scope == "all":
+        return all_df, all_df
+
+    if scope == "garbage_filtered":
+        scoped = await get_normalized_data_with_possessions(season, data_scope="garbage_filtered")
+        return scoped, all_df
+
+    if scope == "clutch":
+        scoped = await get_normalized_data_with_possessions(season, data_scope="clutch")
+        return scoped, all_df
+
+    if scope == "garbage_time":
+        non_garbage_df = await get_normalized_data_with_possessions(season, data_scope="garbage_filtered")
+        if non_garbage_df is None:
+            return None, all_df
+        return _derive_scope_complement_df(all_df, non_garbage_df), all_df
+
+    if scope == "non_clutch_time":
+        clutch_df = await get_normalized_data_with_possessions(season, data_scope="clutch")
+        if clutch_df is None:
+            return None, all_df
+        return _derive_scope_complement_df(all_df, clutch_df), all_df
+
+    return None, all_df
 
 
 def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
@@ -736,16 +856,32 @@ async def get_seasons():
     return SeasonResponse(seasons=seasons)
 
 @router.get("/games", response_model=GamesResponse)
-async def get_games(season: str = Query(..., description="Season in format YYYY-YY")):
-    games = await get_games_list(season)
+async def get_games(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
+):
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    games = await get_games_list(season, data_scope=scope)
     if not games:
         return GamesResponse(games=[])
     game_items = [GameItem(**g) for g in games]
     return GamesResponse(games=game_items)
 
 @router.get("/teams", response_model=TeamsResponse)
-async def get_teams(season: str = Query(..., description="Season in format YYYY-YY")):
-    teams = await get_teams_list(season)
+async def get_teams(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
+):
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    teams = await get_teams_list(season, data_scope=scope)
     return TeamsResponse(teams=teams)
 
 
@@ -924,9 +1060,15 @@ async def get_decomposition(
     game_id: str = Query(..., description="Game ID"),
     model_id: Optional[str] = Query(None, description="Deprecated, ignored"),
     factor_type: str = Query("eight_factors", description="Factor type: eight_factors (default)"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
     # Load pre-calculated contributions for the season
-    contrib_data = await load_contributions(season)
+    contrib_data = await load_contributions(season, data_scope=scope)
     if contrib_data is None:
         raise HTTPException(status_code=404, detail="Contributions not found for season")
 
@@ -980,6 +1122,26 @@ async def get_decomposition(
 
     home_ratings = {RATING_KEYS[i]: home_ratings_list[i]["value"] for i in range(4)}
     road_ratings = {RATING_KEYS[i]: road_ratings_list[i]["value"] for i in range(4)}
+
+    # Attach scoped minutes/possessions when available so the UI can show
+    # segment duration and compute pace context for each data scope.
+    if ls:
+        home_ls = ls.get("home", {})
+        road_ls = ls.get("road", {})
+
+        home_minutes = _safe_numeric(home_ls.get("Minutes"))
+        road_minutes = _safe_numeric(road_ls.get("Minutes"))
+        home_possessions = _safe_numeric(home_ls.get("Possessions"))
+        road_possessions = _safe_numeric(road_ls.get("Possessions"))
+
+        if home_minutes is not None:
+            home_ratings["minutes"] = float(home_minutes)
+        if road_minutes is not None:
+            road_ratings["minutes"] = float(road_minutes)
+        if home_possessions is not None:
+            home_ratings["possessions"] = float(home_possessions)
+        if road_possessions is not None:
+            road_ratings["possessions"] = float(road_possessions)
 
     # League averages from model metadata
     league_avgs = dict(model_info.get("league_averages", {}))
@@ -1105,14 +1267,24 @@ async def get_league_summary(
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     exclude_playoffs: bool = Query(True, description="Exclude playoff, play-in, and NBA Cup final games"),
     last_n_games: Optional[int] = Query(None, description="Use each team's last N games"),
+    data_scope: str = Query(
+        "all",
+        description="Data scope: all, garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time",
+    ),
 ):
-    df = await get_normalized_data_with_possessions(season)
+    try:
+        scope = _normalize_league_summary_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    df, all_df = await _resolve_league_summary_scope_df(season=season, scope=scope)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
     # Get date bounds for the season
-    first_game_date = df["game_date"].min().strftime("%Y-%m-%d") if len(df) > 0 else None
-    last_game_date = df["game_date"].max().strftime("%Y-%m-%d") if len(df) > 0 else None
+    bounds_df = all_df if all_df is not None else df
+    first_game_date = bounds_df["game_date"].min().strftime("%Y-%m-%d") if len(bounds_df) > 0 else None
+    last_game_date = bounds_df["game_date"].max().strftime("%Y-%m-%d") if len(bounds_df) > 0 else None
 
     team_stats_df = compute_league_aggregates(
         df=df,
@@ -1121,9 +1293,23 @@ async def get_league_summary(
         exclude_playoffs=exclude_playoffs,
         last_n_games=last_n_games,
     )
+    if scope != "all" and all_df is not None:
+        scope_metrics_df = compute_scope_time_metrics(
+            all_df=all_df,
+            scoped_df=df,
+            data_scope=scope,
+            start_date=start_date,
+            end_date=end_date,
+            exclude_playoffs=exclude_playoffs,
+            last_n_games=last_n_games,
+        )
+        if not scope_metrics_df.empty:
+            team_stats_df = team_stats_df.merge(scope_metrics_df, on="team", how="left")
 
     teams = []
     for _, row in team_stats_df.iterrows():
+        scope_games_num = _safe_numeric(row.get("scope_games"))
+        scope_time_pct_num = _safe_numeric(row.get("scope_time_pct"))
         teams.append(TeamStats(
             team=row["team"],
             games=int(row["games"]),
@@ -1156,6 +1342,8 @@ async def get_league_summary(
             adj_net_rating=float(row["adj_net_rating"]),
             adj_off_rating=float(row["adj_off_rating"]),
             adj_def_rating=float(row["adj_def_rating"]),
+            scope_games=int(round(scope_games_num)) if scope_games_num is not None else None,
+            scope_time_pct=float(scope_time_pct_num) if scope_time_pct_num is not None else None,
         ))
 
     numeric_cols = [
@@ -1164,6 +1352,7 @@ async def get_league_summary(
         "ft_rate", "off_rating", "def_rating", "net_rating",
         "opp_efg_pct", "opp_tov_pct", "opp_ft_rate", "pace",
         "sos", "off_sos", "def_sos", "adj_net_rating", "adj_off_rating", "adj_def_rating",
+        "scope_time_pct",
     ]
     league_averages = {}
     for col in numeric_cols:
@@ -1183,8 +1372,14 @@ async def get_trends(
     team: str = Query(..., description="Team abbreviation"),
     stat: str = Query(..., description="Statistic to plot"),
     exclude_non_regular: bool = Query(False, description="Exclude playoffs, play-in, and NBA Cup final from trends"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
-    df = await get_normalized_data_with_possessions(season)
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    df = await get_normalized_data_with_possessions(season, data_scope=scope)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
@@ -1238,12 +1433,18 @@ async def get_contribution_analysis(
     start_date: Optional[str] = Query(None, description="Start date for custom type (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date for custom type (YYYY-MM-DD)"),
     exclude_playoffs: bool = Query(False, description="Exclude playoff and play-in games"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
     """Analyze a team's net rating decomposition over a period using contribution JSON."""
     del model_id  # Explicitly ignored for backwards compatibility.
 
     # Load season data
-    df = await get_normalized_data_with_possessions(season)
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    df = await get_normalized_data_with_possessions(season, data_scope=scope)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
@@ -1252,7 +1453,7 @@ async def get_contribution_analysis(
         raise HTTPException(status_code=404, detail="Team not found in this season")
 
     # Load pre-calculated per-game contributions
-    contrib_data = await load_contributions(season)
+    contrib_data = await load_contributions(season, data_scope=scope)
     if contrib_data is None:
         raise HTTPException(status_code=404, detail="Contributions not found for season")
 
@@ -1340,17 +1541,39 @@ async def get_league_top_contributors(
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
     exclude_playoffs: bool = Query(False, description="Exclude playoff and play-in games"),
     last_n_games: Optional[int] = Query(None, description="Use each team's last N games"),
+    data_scope: str = Query(
+        "all",
+        description="Data scope: all, garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time",
+    ),
 ):
     """Get top positive and negative contributors to net rating across all teams."""
     response_model_id = model_id or "json_contributions"
 
     # Load season data
-    df = await get_normalized_data_with_possessions(season)
+    try:
+        scope = _normalize_league_summary_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Derived League Summary scopes do not yet have persisted contribution JSON artifacts.
+    if scope in {"garbage_time", "non_clutch_time"}:
+        return LeagueTopContributorsResponse(
+            season=season,
+            start_date="",
+            end_date="",
+            model_id=response_model_id,
+            top_positive=[],
+            top_negative=[],
+            league_averages={},
+            coefficients={},
+        )
+
+    df = await get_normalized_data_with_possessions(season, data_scope=scope)
     if df is None:
         raise HTTPException(status_code=404, detail="Season data not found")
 
     # Load pre-calculated per-game contributions
-    contrib_data = await load_contributions(season)
+    contrib_data = await load_contributions(season, data_scope=scope)
     if contrib_data is None:
         raise HTTPException(status_code=404, detail="Contributions not found for season")
 

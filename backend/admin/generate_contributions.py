@@ -91,6 +91,69 @@ FACTOR_PERCENTILE_COLS = [
 ]
 
 PRIOR_SEASONS_FOR_TRAINING = 7
+VALID_DATA_SCOPES = {"all", "garbage_filtered", "clutch"}
+
+
+def _normalize_data_scope(value: Optional[str]) -> str:
+    text = str(value or "all").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "all": "all",
+        "garbage": "garbage_filtered",
+        "garbage_filtered": "garbage_filtered",
+        "garbage_filter": "garbage_filtered",
+        "garbage_time": "garbage_filtered",
+        "garbage_time_filtered": "garbage_filtered",
+        "clutch": "clutch",
+    }
+    normalized = aliases.get(text, text)
+    if normalized not in VALID_DATA_SCOPES:
+        raise ValueError(
+            f"Invalid data scope: {value!r}. "
+            f"Expected one of: {', '.join(sorted(VALID_DATA_SCOPES))}"
+        )
+    return normalized
+
+
+def _scoped_game_logs_filename(season: str, data_scope: str) -> str:
+    if data_scope == "all":
+        return _season_to_filename(season)
+    return f"team_game_logs_{data_scope}_{season}.csv"
+
+
+def _scoped_advanced_filename(season: str, data_scope: str) -> str:
+    if data_scope == "all":
+        return _advanced_filename(season)
+    return f"box_score_advanced_{data_scope}_{season}.csv"
+
+
+def _scoped_contributions_filename(season: str, data_scope: str) -> str:
+    if data_scope == "all":
+        return f"contributions_{season}.json"
+    return f"contributions_{data_scope}_{season}.json"
+
+
+def _normalize_contrib_game_id(game_id: Any) -> str:
+    """Normalize game IDs to canonical 10-digit strings."""
+    if game_id is None:
+        return ""
+    text = str(game_id).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if not digits:
+        return text
+    return digits.zfill(10)
+
+
+def _num_or_zero(value: Any) -> float:
+    num = pd.to_numeric(value, errors="coerce")
+    if pd.isna(num):
+        return 0.0
+    return float(num)
+
+
+def _int_or_zero(value: Any) -> int:
+    return int(round(_num_or_zero(value)))
 
 
 def _gamelogs_to_teamrows(game_df: pd.DataFrame, adv_df: pd.DataFrame = None) -> pd.DataFrame:
@@ -344,13 +407,17 @@ def get_prior_seasons(season: str, max_prior: int = PRIOR_SEASONS_FOR_TRAINING) 
     return prior
 
 
-def load_season_data(season: str, repo_dir: Path) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
+def load_season_data(
+    season: str,
+    repo_dir: Path,
+    data_scope: str = "all",
+) -> tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     """Load game logs, advanced stats, and linescores for a season.
 
     Returns (game_df, adv_df, linescore_df) — any may be None if file missing.
     """
-    game_path = repo_dir / _season_to_filename(season)
-    adv_path = repo_dir / _advanced_filename(season)
+    game_path = repo_dir / _scoped_game_logs_filename(season=season, data_scope=data_scope)
+    adv_path = repo_dir / _scoped_advanced_filename(season=season, data_scope=data_scope)
     ls_path = repo_dir / _linescore_filename(season)
 
     game_df = None
@@ -498,8 +565,8 @@ def decompose_game(
 
     for coef_key, col_name, display_name in FACTOR_INFO:
         coef = model_coefficients.get(coef_key, 0.0)
-        home_val = float(home_row.get(col_name, 0) or 0)
-        road_val = float(road_row.get(col_name, 0) or 0)
+        home_val = _num_or_zero(home_row.get(col_name, 0))
+        road_val = _num_or_zero(road_row.get(col_name, 0))
         avg_val = league_avgs.get(col_name, 0.0)
 
         # Contributions (0-1 scale, no division by 100 needed)
@@ -527,12 +594,12 @@ def decompose_game(
         })
 
     # ---- Ratings ----
-    home_off = float(home_row.get("OFF_RATING", 0) or 0)
-    home_def = float(home_row.get("DEF_RATING", 0) or 0)
-    home_net = float(home_row.get("NET_RATING", 0) or 0)
-    road_off = float(road_row.get("OFF_RATING", 0) or 0)
-    road_def = float(road_row.get("DEF_RATING", 0) or 0)
-    road_net = float(road_row.get("NET_RATING", 0) or 0)
+    home_off = _num_or_zero(home_row.get("OFF_RATING", 0))
+    home_def = _num_or_zero(home_row.get("DEF_RATING", 0))
+    home_net = _num_or_zero(home_row.get("NET_RATING", 0))
+    road_off = _num_or_zero(road_row.get("OFF_RATING", 0))
+    road_def = _num_or_zero(road_row.get("DEF_RATING", 0))
+    road_net = _num_or_zero(road_row.get("NET_RATING", 0))
 
     # Pace from precomputed column (actual_poss * 48/game_minutes, or NA if no minutes)
     home_pace = home_row.get("PACE")
@@ -593,22 +660,22 @@ def decompose_game(
 
         linescore = {
             "road": {
-                "Q1": int(linescore_row.get("pts_qtr1_road", 0) or 0),
-                "Q2": int(linescore_row.get("pts_qtr2_road", 0) or 0),
-                "Q3": int(linescore_row.get("pts_qtr3_road", 0) or 0),
-                "Q4": int(linescore_row.get("pts_qtr4_road", 0) or 0),
-                "OT": int(linescore_row.get("pts_ot_total_road", 0) or 0),
-                "Total": int(linescore_row.get("pts_road", 0) or 0),
+                "Q1": _int_or_zero(linescore_row.get("pts_qtr1_road", 0)),
+                "Q2": _int_or_zero(linescore_row.get("pts_qtr2_road", 0)),
+                "Q3": _int_or_zero(linescore_row.get("pts_qtr3_road", 0)),
+                "Q4": _int_or_zero(linescore_row.get("pts_qtr4_road", 0)),
+                "OT": _int_or_zero(linescore_row.get("pts_ot_total_road", 0)),
+                "Total": _int_or_zero(linescore_row.get("pts_road", 0)),
                 "Minutes": road_minutes,
                 "Possessions": road_possessions,
             },
             "home": {
-                "Q1": int(linescore_row.get("pts_qtr1_home", 0) or 0),
-                "Q2": int(linescore_row.get("pts_qtr2_home", 0) or 0),
-                "Q3": int(linescore_row.get("pts_qtr3_home", 0) or 0),
-                "Q4": int(linescore_row.get("pts_qtr4_home", 0) or 0),
-                "OT": int(linescore_row.get("pts_ot_total_home", 0) or 0),
-                "Total": int(linescore_row.get("pts_home", 0) or 0),
+                "Q1": _int_or_zero(linescore_row.get("pts_qtr1_home", 0)),
+                "Q2": _int_or_zero(linescore_row.get("pts_qtr2_home", 0)),
+                "Q3": _int_or_zero(linescore_row.get("pts_qtr3_home", 0)),
+                "Q4": _int_or_zero(linescore_row.get("pts_qtr4_home", 0)),
+                "OT": _int_or_zero(linescore_row.get("pts_ot_total_home", 0)),
+                "Total": _int_or_zero(linescore_row.get("pts_home", 0)),
                 "Minutes": home_minutes,
                 "Possessions": home_possessions,
             },
@@ -624,29 +691,45 @@ def decompose_game(
     }
 
 
-def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
+def process_season(
+    season: str,
+    repo_dir: Path,
+    data_scope: str = "all",
+    existing_game_ids: Optional[set[str]] = None,
+    model_data_scope: Optional[str] = None,
+) -> List[Dict[str, Any]]:
     """Process a single season: rolling model training + game decomposition.
 
     Returns list of game records sorted by game date.
     """
     prior_seasons = get_prior_seasons(season)
+    effective_model_scope = _normalize_data_scope(model_data_scope or data_scope)
     is_first_season = int(season.split("-")[0]) == SEASON_START_YEAR
 
+    scope_label = data_scope
     print(f"\n{'='*60}")
     if is_first_season:
-        print(f"Processing {season} (in-sample exception: full season training)")
+        print(f"Processing {season} [{scope_label}] (in-sample exception: full season training)")
     elif prior_seasons:
-        print(f"Processing {season} (prior seasons: {', '.join(prior_seasons)})")
+        print(f"Processing {season} [{scope_label}] (prior seasons: {', '.join(prior_seasons)})")
     else:
-        print(f"Processing {season} (no prior seasons available)")
+        print(f"Processing {season} [{scope_label}] (no prior seasons available)")
     print(f"{'='*60}")
+    if effective_model_scope != data_scope:
+        print(f"Model scope: {effective_model_scope} (training) | Data scope: {data_scope} (decomposition)")
 
     # ---- Load data ----
     game_dfs = []
     adv_dfs = []
+    model_game_dfs = []
+    model_adv_dfs = []
 
     for prior_season in prior_seasons:
-        prior_game, prior_adv, _ = load_season_data(prior_season, repo_dir)
+        prior_game, prior_adv, _ = load_season_data(
+            prior_season,
+            repo_dir,
+            data_scope=data_scope,
+        )
         if prior_game is not None:
             prior_game = prior_game.copy()
             prior_game["_season_tag"] = prior_season
@@ -654,9 +737,26 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
         if prior_adv is not None:
             adv_dfs.append(prior_adv)
 
-    curr_game, curr_adv, curr_ls = load_season_data(season, repo_dir)
+        if effective_model_scope != data_scope:
+            model_prior_game, model_prior_adv, _ = load_season_data(
+                prior_season,
+                repo_dir,
+                data_scope=effective_model_scope,
+            )
+            if model_prior_game is not None:
+                model_prior_game = model_prior_game.copy()
+                model_prior_game["_season_tag"] = prior_season
+                model_game_dfs.append(model_prior_game)
+            if model_prior_adv is not None:
+                model_adv_dfs.append(model_prior_adv)
+
+    curr_game, curr_adv, curr_ls = load_season_data(
+        season,
+        repo_dir,
+        data_scope=data_scope,
+    )
     if curr_game is None:
-        print(f"  [skip] No game data for {season}")
+        print(f"  [skip] No game data for {season} ({scope_label})")
         return []
 
     curr_game = curr_game.copy()
@@ -664,6 +764,26 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
     game_dfs.append(curr_game)
     if curr_adv is not None:
         adv_dfs.append(curr_adv)
+
+    model_curr_game = curr_game
+    model_curr_adv = curr_adv
+    if effective_model_scope != data_scope:
+        model_curr_game, model_curr_adv, _ = load_season_data(
+            season,
+            repo_dir,
+            data_scope=effective_model_scope,
+        )
+        if model_curr_game is None:
+            print(f"  [skip] No model-scope game data for {season} ({effective_model_scope})")
+            return []
+        model_curr_game = model_curr_game.copy()
+        model_curr_game["_season_tag"] = season
+        model_game_dfs.append(model_curr_game)
+        if model_curr_adv is not None:
+            model_adv_dfs.append(model_curr_adv)
+    else:
+        model_game_dfs = game_dfs
+        model_adv_dfs = adv_dfs
 
     if not game_dfs:
         print(f"  [skip] No data loaded for {season}")
@@ -729,13 +849,56 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
     prior_rows = team_df[team_df["_season_tag"] != season] if prior_seasons else pd.DataFrame()
     current_rows = team_df[team_df["_season_tag"] == season]
 
-    print(f"  Prior season rows: {len(prior_rows)}")
-    print(f"  Current season rows: {len(current_rows)}")
+    model_team_df = team_df
+    model_prior_rows = prior_rows
+    model_current_rows = current_rows
+    if effective_model_scope != data_scope:
+        model_combined_game = pd.concat(model_game_dfs, ignore_index=True)
+        model_season_tags = model_combined_game[["game_id", "_season_tag"]].drop_duplicates()
+        model_team_df = precompute_team_rows(model_game_dfs, model_adv_dfs)
+        model_team_df = model_team_df.dropna(subset=["NET_RATING"])
+        model_team_df["GAME_ID"] = model_team_df["GAME_ID"].astype(str)
+        model_season_tags["game_id"] = model_season_tags["game_id"].astype(str)
+        model_team_df = model_team_df.merge(
+            model_season_tags.rename(columns={"game_id": "GAME_ID"}),
+            on="GAME_ID",
+            how="left",
+        )
+        model_prior_rows = model_team_df[model_team_df["_season_tag"] != season] if prior_seasons else pd.DataFrame()
+        model_current_rows = model_team_df[model_team_df["_season_tag"] == season]
+        model_current_rows = model_current_rows.copy()
+        model_current_rows["GAME_DATE"] = pd.to_datetime(model_current_rows["GAME_DATE"], errors="coerce")
+
+    print(f"  Data-scope prior rows: {len(prior_rows)}")
+    print(f"  Data-scope current rows: {len(current_rows)}")
+    print(f"  Model-scope prior rows: {len(model_prior_rows)}")
+    print(f"  Model-scope current rows: {len(model_current_rows)}")
 
     # ---- Get unique game dates in current season ----
     current_rows = current_rows.copy()
     current_rows["GAME_DATE"] = pd.to_datetime(current_rows["GAME_DATE"], errors="coerce")
     game_dates = sorted(current_rows["GAME_DATE"].dropna().unique())
+
+    normalized_existing_ids: set[str] = {
+        _normalize_contrib_game_id(gid) for gid in (existing_game_ids or set())
+    }
+    pending_game_ids: Optional[set[str]] = None
+    if normalized_existing_ids:
+        home_game_ids = {
+            _normalize_contrib_game_id(gid)
+            for gid in current_rows[current_rows["IS_HOME"] == True]["GAME_ID"].astype(str).tolist()
+        }
+        pending_game_ids = {gid for gid in home_game_ids if gid and gid not in normalized_existing_ids}
+        if not pending_game_ids:
+            print("  No new games to process (incremental mode).")
+            return []
+
+        pending_dates = current_rows[
+            current_rows["GAME_ID"].astype(str).map(_normalize_contrib_game_id).isin(pending_game_ids)
+        ]["GAME_DATE"].dropna()
+        if not pending_dates.empty:
+            min_pending_date = pending_dates.min()
+            game_dates = [d for d in game_dates if pd.notna(d) and d >= min_pending_date]
 
     print(f"  Game dates to process: {len(game_dates)}")
 
@@ -746,11 +909,11 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
 
         # 2000-01 exception: use full current season in-sample.
         if is_first_season:
-            training_df = current_rows.copy()
+            training_df = model_current_rows.copy()
         else:
             # Out-of-sample: up to 7 prior seasons + current season before this game date.
-            current_before = current_rows[current_rows["GAME_DATE"] < game_date]
-            training_df = pd.concat([prior_rows, current_before], ignore_index=True)
+            current_before = model_current_rows[model_current_rows["GAME_DATE"] < game_date]
+            training_df = pd.concat([model_prior_rows, current_before], ignore_index=True)
 
         # Need enough data to train
         training_clean = training_df.dropna(subset=FEATURE_COLS + ["NET_RATING"])
@@ -798,9 +961,16 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
         # Get games on this date
         date_games = current_rows[current_rows["GAME_DATE"] == game_date]
         home_games = date_games[date_games["IS_HOME"] == True]
+        if pending_game_ids is not None:
+            home_games = home_games[
+                home_games["GAME_ID"].astype(str).map(_normalize_contrib_game_id).isin(pending_game_ids)
+            ]
 
         for _, home_row in home_games.iterrows():
             game_id = str(home_row["GAME_ID"])
+            game_id_norm = _normalize_contrib_game_id(game_id)
+            if game_id_norm in normalized_existing_ids:
+                continue
 
             # Find matching road row
             road_matches = date_games[
@@ -851,6 +1021,7 @@ def process_season(season: str, repo_dir: Path) -> List[Dict[str, Any]]:
                 advanced_row=adv_row,
             )
             record["model"] = model_output
+            record["data_scope"] = data_scope
             all_records.append(record)
 
         if (i + 1) % 20 == 0 or i == len(game_dates) - 1:
@@ -876,10 +1047,22 @@ def main():
         default=None,
         help=f"Path to NBA_Data repository (default: {DEFAULT_REPO_DIR})",
     )
+    parser.add_argument(
+        "--data-scope",
+        type=str,
+        default="all",
+        help="Data scope: all, garbage_filtered, or clutch (default: all).",
+    )
+    parser.add_argument(
+        "--incremental",
+        action="store_true",
+        help="Append only new game IDs to an existing contribution JSON for this scope.",
+    )
     args = parser.parse_args()
 
     repo_dir = Path(args.repo_dir) if args.repo_dir else DEFAULT_REPO_DIR
     repo_dir = ensure_data_repo(repo_dir)
+    data_scope = _normalize_data_scope(args.data_scope)
 
     # Create contributions directory
     contributions_dir = repo_dir / "contributions"
@@ -892,6 +1075,8 @@ def main():
         seasons = get_available_seasons()
 
     print(f"Seasons to process: {len(seasons)}")
+    print(f"Data scope: {data_scope}")
+    print(f"Incremental: {args.incremental}")
     print(f"Output directory: {contributions_dir}")
 
     total_start = time.time()
@@ -899,28 +1084,73 @@ def main():
 
     for season in seasons:
         season_start = time.time()
+        output_path = contributions_dir / _scoped_contributions_filename(season=season, data_scope=data_scope)
 
-        records = process_season(season, repo_dir)
+        existing_records: List[Dict[str, Any]] = []
+        existing_game_ids: set[str] = set()
+        if args.incremental and output_path.exists():
+            try:
+                with open(output_path, "r", encoding="utf-8") as f:
+                    existing_payload = json.load(f)
+                existing_records = existing_payload.get("games", []) if isinstance(existing_payload, dict) else []
+                existing_game_ids = {
+                    _normalize_contrib_game_id(row.get("game_id"))
+                    for row in existing_records
+                    if isinstance(row, dict)
+                }
+            except Exception as exc:
+                print(f"  [warn] Failed to read existing {output_path.name}: {exc}")
+                existing_records = []
+                existing_game_ids = set()
 
-        if not records:
+        records = process_season(
+            season=season,
+            repo_dir=repo_dir,
+            data_scope=data_scope,
+            existing_game_ids=existing_game_ids if args.incremental else None,
+            model_data_scope=("all" if data_scope != "all" else data_scope),
+        )
+
+        combined_records: List[Dict[str, Any]]
+        if args.incremental and existing_records:
+            by_game_id: Dict[str, Dict[str, Any]] = {}
+            for row in existing_records:
+                if not isinstance(row, dict):
+                    continue
+                gid = _normalize_contrib_game_id(row.get("game_id"))
+                if gid:
+                    by_game_id[gid] = row
+            for row in records:
+                gid = _normalize_contrib_game_id(row.get("game_id"))
+                if gid:
+                    by_game_id[gid] = row
+            combined_records = list(by_game_id.values())
+        else:
+            combined_records = records
+
+        if not combined_records:
+            print(f"  [skip] No records to write for {season} ({data_scope})")
             continue
 
         # Sort by game date
-        records.sort(key=lambda r: r.get("game_info", {}).get("game_date", ""))
+        combined_records.sort(key=lambda r: r.get("game_info", {}).get("game_date", ""))
 
         output = {
             "season": season,
+            "data_scope": data_scope,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
-            "games": records,
+            "games": combined_records,
         }
 
-        output_path = contributions_dir / f"contributions_{season}.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output, f, indent=2)
 
         elapsed = time.time() - season_start
         total_games += len(records)
-        print(f"  Saved: {output_path.name} ({len(records)} games, {elapsed:.1f}s)")
+        print(
+            f"  Saved: {output_path.name} "
+            f"(new={len(records)}, total={len(combined_records)}, {elapsed:.1f}s)"
+        )
 
     total_elapsed = time.time() - total_start
     print(f"\nDone! {total_games} total games across {len(seasons)} seasons in {total_elapsed:.1f}s")

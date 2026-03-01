@@ -1,20 +1,85 @@
 import pandas as pd
 import httpx
 import json
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 from typing import Optional, List, Dict
-from config import DATA_BASE_URL, INTERPRETATIONS_BASE_URL, get_available_seasons
+from config import DATA_BASE_URL, INTERPRETATIONS_BASE_URL, NBA_DATA_REPO_DIR, get_available_seasons
 from services.cache import get_cache_key, get_cached, set_cached
 
 STAT_COLUMNS = [
     "fgm", "fga", "fg3m", "fg3a", "ftm", "fta",
     "oreb", "dreb", "tov", "pts", "plus_minus"
 ]
+VALID_DATA_SCOPES = {"all", "garbage_filtered", "clutch"}
+
+
+def normalize_data_scope(value: Optional[str]) -> str:
+    text = str(value or "all").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "all": "all",
+        "garbage": "garbage_filtered",
+        "garbage_filtered": "garbage_filtered",
+        "garbage_filter": "garbage_filtered",
+        "garbage_time": "garbage_filtered",
+        "garbage_time_filtered": "garbage_filtered",
+        "clutch": "clutch",
+    }
+    normalized = aliases.get(text, text)
+    if normalized not in VALID_DATA_SCOPES:
+        raise ValueError(
+            f"Invalid data_scope: {value!r}. "
+            f"Expected one of: {', '.join(sorted(VALID_DATA_SCOPES))}"
+        )
+    return normalized
+
+
+def _scoped_csv_name(prefix: str, season: str, data_scope: str) -> str:
+    if data_scope == "all":
+        return f"{prefix}_{season}.csv"
+    return f"{prefix}_{data_scope}_{season}.csv"
+
+
+def _scoped_contributions_name(season: str, data_scope: str) -> str:
+    if data_scope == "all":
+        return f"contributions_{season}.json"
+    return f"contributions_{data_scope}_{season}.json"
+
+
+def _resolve_local_path_from_url(url: str) -> Optional[Path]:
+    """Map canonical raw GitHub URLs to local NBA_Data files when present."""
+    try:
+        parsed = urlparse(url)
+        base = urlparse(DATA_BASE_URL)
+        if parsed.scheme != base.scheme or parsed.netloc != base.netloc:
+            return None
+
+        base_path = base.path.rstrip("/")
+        url_path = parsed.path
+        if not url_path.startswith(base_path + "/"):
+            return None
+
+        rel = unquote(url_path[len(base_path) + 1 :])
+        if not rel or rel.startswith("../"):
+            return None
+        return (NBA_DATA_REPO_DIR / rel).resolve()
+    except Exception:
+        return None
+
 
 async def fetch_csv(url: str) -> Optional[pd.DataFrame]:
     cache_key = get_cache_key("fetch_csv", url)
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
+    local_path = _resolve_local_path_from_url(url)
+    if local_path is not None and local_path.exists():
+        try:
+            df = pd.read_csv(local_path)
+            set_cached(cache_key, df)
+            return df
+        except Exception:
+            pass
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
@@ -31,6 +96,15 @@ async def fetch_json(url: str) -> Optional[dict]:
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
+    local_path = _resolve_local_path_from_url(url)
+    if local_path is not None and local_path.exists():
+        try:
+            with open(local_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            set_cached(cache_key, data)
+            return data
+        except Exception:
+            pass
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
@@ -41,20 +115,24 @@ async def fetch_json(url: str) -> Optional[dict]:
     except Exception:
         return None
 
-async def load_season_data(season: str) -> Optional[pd.DataFrame]:
-    url = f"{DATA_BASE_URL}/team_game_logs_{season}.csv"
+async def load_season_data(season: str, data_scope: str = "all") -> Optional[pd.DataFrame]:
+    scope = normalize_data_scope(data_scope)
+    url = f"{DATA_BASE_URL}/{_scoped_csv_name('team_game_logs', season, scope)}"
     return await fetch_csv(url)
 
 
-async def load_contributions(season: str) -> Optional[dict]:
+async def load_contributions(season: str, data_scope: str = "all") -> Optional[dict]:
     """Load pre-calculated contribution JSON for a season from GitHub."""
-    url = f"{DATA_BASE_URL}/contributions/contributions_{season}.json"
+    scope = normalize_data_scope(data_scope)
+    filename = _scoped_contributions_name(season, scope)
+    url = f"{DATA_BASE_URL}/contributions/{filename}"
     return await fetch_json(url)
 
 
-async def load_advanced_stats(season: str) -> Optional[pd.DataFrame]:
+async def load_advanced_stats(season: str, data_scope: str = "all") -> Optional[pd.DataFrame]:
     """Load box score advanced stats for a season (actual possessions, minutes)."""
-    url = f"{DATA_BASE_URL}/box_score_advanced_{season}.csv"
+    scope = normalize_data_scope(data_scope)
+    url = f"{DATA_BASE_URL}/{_scoped_csv_name('box_score_advanced', season, scope)}"
     return await fetch_csv(url)
 
 async def load_linescores(season: str) -> Optional[pd.DataFrame]:
@@ -95,8 +173,9 @@ def _normalize_game_id(game_id) -> str:
     return digits.zfill(10)
 
 
-def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
-    cache_key = get_cache_key("normalize_game_logs", season)
+def normalize_game_logs(df: pd.DataFrame, season: str, data_scope: str = "all") -> pd.DataFrame:
+    scope = normalize_data_scope(data_scope)
+    cache_key = get_cache_key("normalize_game_logs", season, scope)
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
@@ -154,32 +233,34 @@ def normalize_game_logs(df: pd.DataFrame, season: str) -> pd.DataFrame:
     set_cached(cache_key, normalized_df)
     return normalized_df
 
-async def get_normalized_season_data(season: str) -> Optional[pd.DataFrame]:
-    cache_key = get_cache_key("get_normalized_season_data", season)
+async def get_normalized_season_data(season: str, data_scope: str = "all") -> Optional[pd.DataFrame]:
+    scope = normalize_data_scope(data_scope)
+    cache_key = get_cache_key("get_normalized_season_data", season, scope)
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
 
-    raw_df = await load_season_data(season)
+    raw_df = await load_season_data(season, data_scope=scope)
     if raw_df is None:
         return None
 
-    normalized = normalize_game_logs(raw_df, season)
+    normalized = normalize_game_logs(raw_df, season, data_scope=scope)
     set_cached(cache_key, normalized)
     return normalized
 
-async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataFrame]:
+async def get_normalized_data_with_possessions(season: str, data_scope: str = "all") -> Optional[pd.DataFrame]:
     """Get normalized season data with actual possessions merged from advanced stats."""
-    cache_key = get_cache_key("get_normalized_data_with_possessions", season)
+    scope = normalize_data_scope(data_scope)
+    cache_key = get_cache_key("get_normalized_data_with_possessions", season, scope)
     cached = get_cached(cache_key)
     if cached is not None:
         return cached
 
-    df = await get_normalized_season_data(season)
+    df = await get_normalized_season_data(season, data_scope=scope)
     if df is None:
         return None
 
-    adv_df = await load_advanced_stats(season)
+    adv_df = await load_advanced_stats(season, data_scope=scope)
     if adv_df is None:
         # Fall back to data without actual possessions
         set_cached(cache_key, df)
@@ -192,12 +273,14 @@ async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataF
     df["game_id"] = df["game_id"].apply(_normalize_game_id)
     adv_df["game_id"] = adv_df["game_id"].apply(_normalize_game_id)
 
-    # Create a lookup dict for possessions by game_id
+    # Create a lookup dict for possessions/minutes by game_id
     poss_lookup = {}
     for _, row in adv_df.iterrows():
         gid = row["game_id"]
         poss_home = row.get("possessions_home")
         poss_road = row.get("possessions_road")
+        mins_home = row.get("minutes_home")
+        mins_road = row.get("minutes_road")
         if pd.notna(poss_home):
             poss_home = float(poss_home)
         else:
@@ -206,11 +289,26 @@ async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataF
             poss_road = float(poss_road)
         else:
             poss_road = None
-        poss_lookup[gid] = {"home": poss_home, "road": poss_road}
+        if pd.notna(mins_home):
+            mins_home = int(mins_home)
+        else:
+            mins_home = None
+        if pd.notna(mins_road):
+            mins_road = int(mins_road)
+        else:
+            mins_road = None
+        poss_lookup[gid] = {
+            "home": poss_home,
+            "road": poss_road,
+            "minutes_home": mins_home,
+            "minutes_road": mins_road,
+        }
 
-    # Add actual_poss and opp_actual_poss columns
+    # Add actual possession/minute columns
     actual_poss = []
     opp_actual_poss = []
+    actual_minutes = []
+    opp_actual_minutes = []
 
     for _, row in df.iterrows():
         gid = _normalize_game_id(row["game_id"])
@@ -220,18 +318,25 @@ async def get_normalized_data_with_possessions(season: str) -> Optional[pd.DataF
         if home_away == "home":
             actual_poss.append(poss_data.get("home"))
             opp_actual_poss.append(poss_data.get("road"))
+            actual_minutes.append(poss_data.get("minutes_home"))
+            opp_actual_minutes.append(poss_data.get("minutes_road"))
         else:
             actual_poss.append(poss_data.get("road"))
             opp_actual_poss.append(poss_data.get("home"))
+            actual_minutes.append(poss_data.get("minutes_road"))
+            opp_actual_minutes.append(poss_data.get("minutes_home"))
 
     df["actual_poss"] = actual_poss
     df["opp_actual_poss"] = opp_actual_poss
+    df["actual_minutes"] = actual_minutes
+    df["opp_actual_minutes"] = opp_actual_minutes
 
     set_cached(cache_key, df)
     return df
 
-async def get_games_list(season: str) -> list:
-    df = await get_normalized_season_data(season)
+async def get_games_list(season: str, data_scope: str = "all") -> list:
+    scope = normalize_data_scope(data_scope)
+    df = await get_normalized_season_data(season, data_scope=scope)
     if df is None:
         return []
 
@@ -255,16 +360,18 @@ async def get_games_list(season: str) -> list:
 
     return games
 
-async def get_teams_list(season: str) -> list:
-    df = await get_normalized_season_data(season)
+async def get_teams_list(season: str, data_scope: str = "all") -> list:
+    scope = normalize_data_scope(data_scope)
+    df = await get_normalized_season_data(season, data_scope=scope)
     if df is None:
         return []
 
     teams = sorted(df["team"].dropna().unique().tolist())
     return teams
 
-async def get_game_data(season: str, game_id: str) -> Optional[dict]:
-    df = await get_normalized_season_data(season)
+async def get_game_data(season: str, game_id: str, data_scope: str = "all") -> Optional[dict]:
+    scope = normalize_data_scope(data_scope)
+    df = await get_normalized_season_data(season, data_scope=scope)
     if df is None:
         return None
 
@@ -286,7 +393,7 @@ async def get_game_data(season: str, game_id: str) -> Optional[dict]:
     actual_minutes_home = None
     actual_minutes_road = None
 
-    adv_df = await load_advanced_stats(season)
+    adv_df = await load_advanced_stats(season, data_scope=scope)
     if adv_df is not None:
         adv_df = adv_df.copy()
         adv_df["game_id"] = adv_df["game_id"].apply(_normalize_game_id)

@@ -113,6 +113,13 @@
   text-align: center;
 }
 
+.summary-table th.time-pct-header,
+.summary-table td.time-pct-col {
+  width: 82px;
+  min-width: 82px;
+  max-width: 82px;
+}
+
 /* Team column gets more space */
 .summary-table th:nth-child(2),
 .summary-table td.team-cell {
@@ -203,6 +210,15 @@
   align-items: center;
   justify-content: flex-end;
   min-height: 2.5em;
+}
+
+.time-pct-header .header-content {
+  align-items: flex-start;
+}
+
+.time-pct-header .header-line1 {
+  text-align: left;
+  width: 100%;
 }
 
 .header-line2 {
@@ -659,6 +675,13 @@
     width: 55px;
     min-width: 55px;
     max-width: 55px;
+  }
+
+  .summary-table th.time-pct-header,
+  .summary-table td.time-pct-col {
+    width: 70px;
+    min-width: 70px;
+    max-width: 70px;
   }
 
   .league-summary .controls .form-row > .season-control {
