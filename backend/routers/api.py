@@ -306,20 +306,13 @@ def _find_timeline_json_file(
     return None, None
 
 
-def _find_timeline_parquet_file(
-    season: str,
-    game_type: Optional[str] = None,
-) -> tuple[Optional[Path], Optional[str]]:
-    for phase in _timeline_phase_candidates(game_type):
-        for season_dir in _timeline_season_dirs(phase, season):
-            parquet_path = _build_timeline_parquet_path(season_dir, season=season, phase=phase)
-            if parquet_path.exists():
-                return parquet_path, phase
+def _find_timeline_parquet_file(season: str, phase: str) -> Optional[Path]:
+    for season_dir in _timeline_season_dirs(phase, season):
+        parquet_path = _build_timeline_parquet_path(season_dir, season=season, phase=phase)
+        if parquet_path.exists():
+            return parquet_path
 
-        remote_parquet = _resolve_remote_timeline_parquet(season=season, phase=phase)
-        if remote_parquet is not None:
-            return remote_parquet, phase
-    return None, None
+    return _resolve_remote_timeline_parquet(season=season, phase=phase)
 
 
 def _find_timeline_metrics_file(season: str, phase: str) -> Optional[Path]:
@@ -901,21 +894,27 @@ async def get_game_timeline(
     timeline_path: Optional[Path] = None
     payload: Optional[dict[str, Any]] = None
 
-    parquet_path, parquet_phase = _find_timeline_parquet_file(
-        season=season,
-        game_type=game_type,
-    )
-    if parquet_path is not None and parquet_phase is not None:
-        phase = parquet_phase
+    parquet_errors: list[str] = []
+    for candidate_phase in _timeline_phase_candidates(game_type):
+        parquet_path = _find_timeline_parquet_file(season=season, phase=candidate_phase)
+        if parquet_path is None:
+            continue
+
         try:
-            payload = _timeline_payload_from_parquet(
+            candidate_payload = _timeline_payload_from_parquet(
                 parquet_path=parquet_path,
                 game_id=game_id_norm,
                 home_team=home_team,
                 road_team=road_team,
             )
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to read timeline parquet: {exc}")
+            parquet_errors.append(f"{candidate_phase}: {exc}")
+            continue
+
+        if candidate_payload is not None:
+            payload = candidate_payload
+            phase = candidate_phase
+            break
 
     if payload is None:
         timeline_path, phase = _find_timeline_json_file(
@@ -926,6 +925,11 @@ async def get_game_timeline(
             road_team=road_team,
         )
         if timeline_path is None or phase is None:
+            if parquet_errors:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to read timeline parquet: {' | '.join(parquet_errors)}",
+                )
             raise HTTPException(
                 status_code=404,
                 detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
