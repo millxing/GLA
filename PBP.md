@@ -175,21 +175,29 @@ Build/rebuild winprob model artifacts:
   - Attribution mode is switchable in the builder:
     - `pre` (default): attribute each event to the prior event's classified state.
     - `post`: attribute each event to its own resulting classified state.
-- Garbage-time event definition (final):
-  - `period >= 3` (second half and OT), and
-  - `home_win_prob < 0.10` or `home_win_prob > 0.90`, and
-  - `abs(point_differential) > 5`.
+- Garbage-time state definition (stateful latch):
+  - Enter garbage when all are true:
+    - `period >= 3` (second half and OT),
+    - `abs(point_differential) > 5`,
+    - `home_win_prob >= garbage_wp_on` or `home_win_prob <= (1 - garbage_wp_on)`,
+    - not in the final minute of the game (`period == final_period` and `seconds_left_in_period < 60`).
+  - Once active, garbage stays latched until:
+    - `(1 - garbage_wp_off) < home_win_prob < garbage_wp_off`.
+  - Defaults are `garbage_wp_on = 0.95` and `garbage_wp_off = 0.90`.
 - Clutch event definition:
   - `abs(point_differential) <= 5`, and
   - `period >= 4` (4th quarter or OT), and
   - `seconds_left_in_period < 300`.
 - Boundary behavior:
-  - Garbage uses strict inequalities on win probability (`< 0.10`, `> 0.90`).
+  - Garbage entry uses inclusive edge checks (`>= garbage_wp_on`, `<= 1-garbage_wp_on`).
+  - Garbage cannot newly enter during the final game minute; this gate affects entry only.
+  - Garbage exit uses a strict interior check (`(1-garbage_wp_off) < wp < garbage_wp_off`).
   - Clutch uses `<= 5` differential and strict `< 300` seconds.
   - Because garbage requires `abs(diff) > 5` and clutch requires `abs(diff) <= 5`, they are mutually exclusive by construction.
 - Persistence requirement:
   - Filtered stats/contributions must be stored as durable artifacts in `NBA_Data` and reused by API/UI.
   - Recompute scope should be incremental (new game IDs only), not full historical reruns, during daily updates.
+  - If garbage latch thresholds/logic change, run a non-incremental rebuild for situational CSVs and scoped contributions.
 - Scoped advanced minutes + pace:
   - In `box_score_advanced_<scope>_<season>.csv`, `minutes_home` and `minutes_road` represent in-scope elapsed time (team player-minutes), not full-game 240/265 minutes.
   - Minutes are derived from event timeline elapsed windows using the selected builder attribution mode (`--scope-state-mode pre|post`).
@@ -202,8 +210,11 @@ Build/rebuild winprob model artifacts:
   - `box_score_advanced_clutch_<season>.csv`
   - `contributions/contributions_garbage_filtered_<season>.json`
   - `contributions/contributions_clutch_<season>.json`
-- Builder command (incremental):
-  - `/opt/miniconda3/envs/gla_admin/bin/python backend/admin/build_situational_gamelogs.py --season <season> --repo-dir /Users/robschoen/Dropbox/CC/NBA_Data --incremental --scope-state-mode pre`
+- Builder commands:
+  - Incremental daily update:
+    - `/opt/miniconda3/envs/gla_admin/bin/python backend/admin/build_situational_gamelogs.py --season <season> --repo-dir /Users/robschoen/Dropbox/CC/NBA_Data --incremental --scope-state-mode pre --garbage-wp-on 0.95 --garbage-wp-off 0.90`
+  - Rule-change historical rebuild (non-incremental):
+    - `/opt/miniconda3/envs/gla_admin/bin/python backend/admin/build_situational_gamelogs.py --season <season> --repo-dir /Users/robschoen/Dropbox/CC/NBA_Data --scope-state-mode pre --garbage-wp-on 0.95 --garbage-wp-off 0.90`
 - API/UX contract (data scope):
   - Use data-scope values `all`, `garbage_filtered`, and `clutch` for backend endpoint selection and frontend module toggles.
 

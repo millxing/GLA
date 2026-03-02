@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './GameTimeline.css'
 
+const GARBAGE_WP_ON = 0.95
+const GARBAGE_WP_OFF = 0.90
+
 function toIntOrNull(value) {
   if (value === null || value === undefined || value === '') return null
   const num = Number(value)
@@ -147,6 +150,8 @@ function chartPointsFromEvents(events) {
 
     points.push({
       x,
+      period: p.period,
+      secondsLeft: p.secondsLeft,
       home: p.home,
       road: p.road,
       diff: p.home - p.road,
@@ -164,6 +169,98 @@ function chartPointsFromEvents(events) {
       timestampConflicts,
     },
   }
+}
+
+function isClutchPoint(point) {
+  if (!point) return null
+  const absDiff = Math.abs(point.diff)
+  const inClutch = (
+    Number.isFinite(point.period) &&
+    point.period >= 4 &&
+    Number.isFinite(point.secondsLeft) &&
+    point.secondsLeft < 300 &&
+    absDiff <= 5
+  )
+  return inClutch
+}
+
+function buildTimelineZoneSegments(points, xMax) {
+  if (!Array.isArray(points) || points.length === 0 || !Number.isFinite(xMax) || xMax <= 0) {
+    return []
+  }
+
+  const finalPeriod = points.reduce(
+    (acc, point) => (
+      Number.isFinite(point?.period) && point.period > acc ? point.period : acc
+    ),
+    0
+  )
+  const segments = []
+  const epsilon = 1e-6
+  let garbageActive = false
+
+  for (let i = 0; i < points.length; i += 1) {
+    const curr = points[i]
+    const next = points[i + 1]
+    const start = Math.max(0, curr.x)
+    const end = Math.min(xMax, Number.isFinite(next?.x) ? next.x : xMax)
+    if (end - start <= epsilon) continue
+
+    const absDiff = Math.abs(curr.diff)
+    const canEvaluateWp = Number.isFinite(curr.homeWinProb)
+
+    if (garbageActive) {
+      if (
+        canEvaluateWp &&
+        curr.homeWinProb > (1 - GARBAGE_WP_OFF) &&
+        curr.homeWinProb < GARBAGE_WP_OFF
+      ) {
+        garbageActive = false
+      }
+    } else {
+      const inFinalGameMinute = (
+        Number.isFinite(finalPeriod) &&
+        finalPeriod > 0 &&
+        curr.period === finalPeriod &&
+        Number.isFinite(curr.secondsLeft) &&
+        curr.secondsLeft < 60
+      )
+      const shouldEnterGarbage = (
+        Number.isFinite(curr.period) &&
+        curr.period >= 3 &&
+        absDiff > 5 &&
+        canEvaluateWp &&
+        !inFinalGameMinute &&
+        (curr.homeWinProb >= GARBAGE_WP_ON || curr.homeWinProb <= (1 - GARBAGE_WP_ON))
+      )
+      if (shouldEnterGarbage) {
+        garbageActive = true
+      }
+    }
+
+    const zone = isClutchPoint(curr) ? 'clutch' : (garbageActive ? 'garbage' : null)
+    if (!zone) continue
+
+    const prev = segments[segments.length - 1]
+    if (prev && prev.zone === zone && Math.abs(prev.end - start) <= epsilon) {
+      prev.end = end
+    } else {
+      segments.push({ zone, start, end })
+    }
+  }
+
+  return segments
+}
+
+function computeTimelineXMax(points, events) {
+  const periods = events
+    .map((event) => toIntOrNull(event?.period))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  const maxPeriod = periods.length ? Math.max(...periods) : 1
+  let fullDuration = 0
+  for (let p = 1; p <= maxPeriod; p += 1) fullDuration += periodLength(p)
+  const lastX = points.length ? points[points.length - 1].x : 0
+  return Math.max(lastX, fullDuration, 1)
 }
 
 function resizeCanvasToDisplaySize(canvas) {
@@ -214,6 +311,15 @@ export default function GameTimeline({ timeline }) {
   const excitementPercentile = timeline?.excitement_percentile
   const comebackPercentile = timeline?.comeback_percentile
   const { points } = useMemo(() => chartPointsFromEvents(events), [events])
+  const zoneLegendFlags = useMemo(() => {
+    if (!points.length) return { hasGarbage: false, hasClutch: false }
+    const xMax = computeTimelineXMax(points, events)
+    const segments = buildTimelineZoneSegments(points, xMax)
+    return {
+      hasGarbage: segments.some((segment) => segment.zone === 'garbage'),
+      hasClutch: segments.some((segment) => segment.zone === 'clutch'),
+    }
+  }, [events, points])
   const wpPoints = useMemo(
     () => points.filter((point) => Number.isFinite(point.homeWinProb)),
     [points]
@@ -273,13 +379,11 @@ export default function GameTimeline({ timeline }) {
     const plotW = Math.max(1, width - left - right)
     const plotH = Math.max(1, height - top - bottom)
 
+    const xMax = computeTimelineXMax(points, events)
     const periods = events
       .map((event) => toIntOrNull(event?.period))
       .filter((value) => Number.isFinite(value) && value > 0)
     const maxPeriod = periods.length ? Math.max(...periods) : 1
-    let fullDuration = 0
-    for (let p = 1; p <= maxPeriod; p += 1) fullDuration += periodLength(p)
-    const xMax = Math.max(points[points.length - 1].x, fullDuration, 1)
     const xTicks = buildPeriodTicks(maxPeriod)
 
     let yMin
@@ -311,6 +415,18 @@ export default function GameTimeline({ timeline }) {
     const ySpan = Math.max(1, yMax - yMin)
     const px = (x) => left + (x / xMax) * plotW
     const py = (y) => top + ((yMax - y) / ySpan) * plotH
+
+    const zoneSegments = buildTimelineZoneSegments(points, xMax)
+    for (const segment of zoneSegments) {
+      const x0 = px(segment.start)
+      const x1 = px(segment.end)
+      const widthPx = x1 - x0
+      if (widthPx <= 0) continue
+      ctx.fillStyle = segment.zone === 'garbage'
+        ? 'rgba(148, 163, 184, 0.22)'
+        : 'rgba(248, 113, 113, 0.20)'
+      ctx.fillRect(x0, top, widthPx, plotH)
+    }
 
     chartMetaRef.current = {
       left,
@@ -528,30 +644,49 @@ export default function GameTimeline({ timeline }) {
         <div className="timeline-chart-shell">
           <div className="timeline-chart-legend">
             {displayedPoints.length === 0 && 'No chartable events.'}
-            {displayedPoints.length > 0 && chartMode === 'diff' && (
+            {displayedPoints.length > 0 && (
               <>
-                <span className="timeline-legend-home">{homeTeam}</span>
-                <span className="timeline-legend-separator"> - </span>
-                <span className="timeline-legend-road">{roadTeam}</span>
+                {chartMode === 'diff' && (
+                  <>
+                    <span className="timeline-legend-home">{homeTeam}</span>
+                    <span className="timeline-legend-separator"> - </span>
+                    <span className="timeline-legend-road">{roadTeam}</span>
+                  </>
+                )}
+                {chartMode === 'both' && (
+                  <>
+                    <span className="legend-item timeline-legend-home">
+                      <span className="legend-swatch"></span>
+                      {homeTeam}
+                    </span>
+                    <span className="legend-item timeline-legend-road">
+                      <span className="legend-swatch"></span>
+                      {roadTeam}
+                    </span>
+                  </>
+                )}
+                {chartMode === 'wp' && (
+                  <span className="legend-item timeline-legend-home">
+                    <span className="legend-swatch"></span>
+                    Home WP ({homeTeam})
+                  </span>
+                )}
+                {(zoneLegendFlags.hasGarbage || zoneLegendFlags.hasClutch) && (
+                  <span className="timeline-legend-divider">|</span>
+                )}
+                {zoneLegendFlags.hasGarbage && (
+                  <span className="legend-item timeline-legend-garbage">
+                    <span className="legend-swatch"></span>
+                    Garbage Time
+                  </span>
+                )}
+                {zoneLegendFlags.hasClutch && (
+                  <span className="legend-item timeline-legend-clutch">
+                    <span className="legend-swatch"></span>
+                    Clutch Time
+                  </span>
+                )}
               </>
-            )}
-            {displayedPoints.length > 0 && chartMode === 'both' && (
-              <>
-                <span className="legend-item timeline-legend-home">
-                  <span className="legend-swatch"></span>
-                  {homeTeam}
-                </span>
-                <span className="legend-item timeline-legend-road">
-                  <span className="legend-swatch"></span>
-                  {roadTeam}
-                </span>
-              </>
-            )}
-            {displayedPoints.length > 0 && chartMode === 'wp' && (
-              <span className="legend-item timeline-legend-home">
-                <span className="legend-swatch"></span>
-                Home WP ({homeTeam})
-              </span>
             )}
           </div>
           <canvas ref={canvasRef} onClick={onChartClick} />

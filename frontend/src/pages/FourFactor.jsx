@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import { getSeasons, getGames, getDecomposition, getInterpretation, getGameTimeline } from '../api'
 import GameTimeline from '../components/GameTimeline'
@@ -38,13 +39,61 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'garbage_filtered', label: 'Garbage Time Excluded' },
   { value: 'clutch', label: 'Clutch Time' },
 ]
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+const getMonthKeyFromDate = (dateStr) => {
+  if (typeof dateStr !== 'string') return ''
+  const [year, month] = dateStr.split('-')
+  if (!year || !month) return ''
+  return `${year}-${month}`
+}
+
+const formatMonthLabel = (monthKey) => {
+  if (typeof monthKey !== 'string') return monthKey
+  const [year, month] = monthKey.split('-')
+  const monthIndex = Number(month) - 1
+  if (!year || !Number.isInteger(monthIndex) || monthIndex < 0 || monthIndex > 11) {
+    return monthKey
+  }
+  return `${MONTH_NAMES[monthIndex]} ${year}`
+}
+
+const formatGameOptionLabel = (game) => {
+  if (!game) return ''
+  const date = game.date || ''
+  const roadTeam = game.road_team || ''
+  const homeTeam = game.home_team || ''
+  const roadPts = Number.isFinite(game.road_pts) ? game.road_pts : '?'
+  const homePts = Number.isFinite(game.home_pts) ? game.home_pts : '?'
+  const gameTypeTagMap = {
+    play_in: 'Play-In',
+    nba_cup_final: 'NBA Cup Final',
+    playoffs: 'Playoff',
+  }
+  const gameTypeTag = gameTypeTagMap[game.game_type]
+  const overtimeSuffix = game.is_overtime ? ' (OT)' : ''
+  const gameTypeSuffix = gameTypeTag ? ` - ${gameTypeTag}` : ''
+  return `${date}: ${roadTeam} ${roadPts} @ ${homeTeam} ${homePts}${overtimeSuffix}${gameTypeSuffix}`
+}
+
+const normalizeGameId = (value) => {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  return /^\d+$/.test(text) ? text.padStart(10, '0') : text
+}
 
 function FourFactor() {
+  const location = useLocation()
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState('')
   const [selectedDataScope, setSelectedDataScope] = useState('all')
   const [selectedGame, setSelectedGame] = useState('')
+  const [pendingNavigationSelection, setPendingNavigationSelection] = useState(null)
   const [factorType, setFactorType] = useState('eight_factors')
   const [analysisView, setAnalysisView] = useState('factor')
   const [decomposition, setDecomposition] = useState(null)
@@ -81,24 +130,47 @@ function FourFactor() {
   }, [])
 
   useEffect(() => {
+    const navState = location.state
+    if (!navState || typeof navState !== 'object') return
+
+    const navGameIdRaw = navState.gameId
+    const navGameId = normalizeGameId(navGameIdRaw)
+    if (!navGameId) return
+
+    const navSeason = typeof navState.season === 'string' ? navState.season : ''
+    if (navSeason) {
+      setSelectedSeason(navSeason)
+    }
+    setPendingNavigationSelection({
+      season: navSeason,
+      gameId: navGameId,
+      gameDate: typeof navState.gameDate === 'string' ? navState.gameDate : '',
+      team: typeof navState.team === 'string' ? navState.team : '',
+      opponent: typeof navState.opponent === 'string' ? navState.opponent : '',
+      homeAway: typeof navState.homeAway === 'string' ? navState.homeAway : '',
+    })
+    setSelectedDataScope('all')
+    setAnalysisView('factor')
+  }, [location.key, location.state])
+
+  useEffect(() => {
     let isCurrent = true
     async function loadGames() {
       if (!selectedSeason) return
       setInitializing(true)
       if (isCurrent) {
         setDecomposition(null)
+        setSelectedMonth('')
         setSelectedGame('')
       }
       try {
         const gamesRes = await getGames(selectedSeason, 'all')
         if (!isCurrent) return
-        setGames(gamesRes.games)
-        // Default to most recent game (first in list, sorted by date descending)
-        if (gamesRes.games.length > 0) {
-          setSelectedGame(gamesRes.games[0].game_id)
-        } else {
-          setSelectedGame('')
-        }
+        const normalizedGames = (gamesRes.games || []).map((game) => ({
+          ...game,
+          game_id: normalizeGameId(game.game_id),
+        }))
+        setGames(normalizedGames)
       } catch (err) {
         if (isCurrent) setError(err.message)
       } finally {
@@ -108,6 +180,89 @@ function FourFactor() {
     loadGames()
     return () => { isCurrent = false }
   }, [selectedSeason])
+
+  const monthOptions = useMemo(() => {
+    const seen = new Set()
+    const options = []
+
+    games.forEach((game) => {
+      const monthKey = getMonthKeyFromDate(game.date)
+      if (!monthKey || seen.has(monthKey)) return
+      seen.add(monthKey)
+      options.push({ value: monthKey, label: formatMonthLabel(monthKey) })
+    })
+
+    return options
+  }, [games])
+
+  const filteredGames = useMemo(() => {
+    if (!selectedMonth) return []
+    return games.filter((game) => getMonthKeyFromDate(game.date) === selectedMonth)
+  }, [games, selectedMonth])
+
+  useEffect(() => {
+    if (!pendingNavigationSelection || games.length === 0) return
+    const seasonMismatch =
+      pendingNavigationSelection.season &&
+      pendingNavigationSelection.season !== selectedSeason &&
+      seasons.includes(pendingNavigationSelection.season)
+    if (seasonMismatch) return
+
+    let targetGame = games.find((game) => normalizeGameId(game.game_id) === pendingNavigationSelection.gameId)
+    if (!targetGame && pendingNavigationSelection.gameDate && pendingNavigationSelection.team && pendingNavigationSelection.opponent) {
+      const targetDate = pendingNavigationSelection.gameDate.slice(0, 10)
+      if (pendingNavigationSelection.homeAway === 'home') {
+        targetGame = games.find((game) =>
+          game.date === targetDate &&
+          game.home_team === pendingNavigationSelection.team &&
+          game.road_team === pendingNavigationSelection.opponent
+        )
+      } else if (pendingNavigationSelection.homeAway === 'road') {
+        targetGame = games.find((game) =>
+          game.date === targetDate &&
+          game.road_team === pendingNavigationSelection.team &&
+          game.home_team === pendingNavigationSelection.opponent
+        )
+      }
+    }
+    if (!targetGame) {
+      setPendingNavigationSelection(null)
+      return
+    }
+
+    const monthKey = getMonthKeyFromDate(targetGame.date)
+    if (monthKey) {
+      setSelectedMonth(monthKey)
+    }
+    setSelectedGame(targetGame.game_id)
+    setPendingNavigationSelection(null)
+  }, [games, pendingNavigationSelection, seasons, selectedSeason])
+
+  useEffect(() => {
+    if (monthOptions.length === 0) {
+      setSelectedMonth('')
+      return
+    }
+    setSelectedMonth((prev) => {
+      if (prev && monthOptions.some((option) => option.value === prev)) return prev
+      return monthOptions[0].value
+    })
+  }, [monthOptions])
+
+  useEffect(() => {
+    if (!selectedMonth) {
+      if (pendingNavigationSelection) return
+      setSelectedGame('')
+      return
+    }
+    setSelectedGame((prev) => {
+      if (prev) {
+        const matchedGame = filteredGames.find((game) => normalizeGameId(game.game_id) === normalizeGameId(prev))
+        if (matchedGame) return matchedGame.game_id
+      }
+      return filteredGames.length > 0 ? filteredGames[0].game_id : ''
+    })
+  }, [selectedMonth, filteredGames, pendingNavigationSelection])
 
   useEffect(() => {
     let isCurrent = true
@@ -466,7 +621,7 @@ function FourFactor() {
 
       <div className="controls card">
         <div className="form-row">
-          <div className="form-group">
+          <div className="form-group season-control">
             <label className="form-label">Season</label>
             <select
               className="form-select"
@@ -480,17 +635,32 @@ function FourFactor() {
             </select>
           </div>
 
-          <div className="form-group">
+          <div className="form-group month-control">
+            <label className="form-label">Month</label>
+            <select
+              className="form-select"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              disabled={!selectedSeason || monthOptions.length === 0}
+            >
+              <option value="">Select month...</option>
+              {monthOptions.map((month) => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group game-control">
             <label className="form-label">Game</label>
             <select
               className="form-select"
               value={selectedGame}
               onChange={(e) => setSelectedGame(e.target.value)}
-              disabled={!selectedSeason || games.length === 0}
+              disabled={!selectedSeason || !selectedMonth || filteredGames.length === 0}
             >
               <option value="">Select game...</option>
-              {games.map((game) => (
-                <option key={game.game_id} value={game.game_id}>{game.label}</option>
+              {filteredGames.map((game) => (
+                <option key={game.game_id} value={game.game_id}>{formatGameOptionLabel(game)}</option>
               ))}
             </select>
           </div>

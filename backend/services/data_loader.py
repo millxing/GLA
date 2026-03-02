@@ -340,6 +340,16 @@ async def get_games_list(season: str, data_scope: str = "all") -> list:
     if df is None:
         return []
 
+    overtime_lookup = {}
+    linescores_df = await load_linescores(season)
+    if linescores_df is not None:
+        linescores_df = linescores_df.copy()
+        linescores_df["game_id"] = linescores_df["game_id"].apply(_normalize_game_id)
+        for _, ls_row in linescores_df.iterrows():
+            home_ot_pts = int(ls_row.get("pts_ot_total_home", 0) or 0)
+            road_ot_pts = int(ls_row.get("pts_ot_total_road", 0) or 0)
+            overtime_lookup[ls_row["game_id"]] = home_ot_pts > 0 or road_ot_pts > 0
+
     games_df = df[df["home_away"] == "home"].copy()
     # Filter out rows with missing team data
     games_df = games_df.dropna(subset=["team", "opponent"])
@@ -347,14 +357,17 @@ async def get_games_list(season: str, data_scope: str = "all") -> list:
 
     games = []
     for _, row in games_df.iterrows():
+        game_id = str(row["game_id"]).zfill(10)
         date_str = row["game_date"].strftime("%Y-%m-%d") if pd.notna(row["game_date"]) else ""
         games.append({
-            "game_id": str(row["game_id"]).zfill(10),
+            "game_id": game_id,
             "date": date_str,
             "home_team": str(row["team"]),
             "road_team": str(row["opponent"]),
+            "game_type": str(row.get("game_type") or "regular_season"),
             "home_pts": int(row["pts"]) if pd.notna(row["pts"]) else 0,
             "road_pts": int(row["opp_pts"]) if pd.notna(row["opp_pts"]) else 0,
+            "is_overtime": overtime_lookup.get(game_id, False),
             "label": f"{date_str}: {row['opponent']} @ {row['team']}"
         })
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { getSeasons, getLeagueSummary, getLeagueTopContributors } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { ScatterChart, Scatter, XAxis, YAxis, ReferenceLine, ResponsiveContainer, LabelList, Tooltip } from 'recharts'
+import { useNavigate } from 'react-router-dom'
 import './LeagueSummary.css'
 
 const VIEW_FOUR_FACTORS = 'four_factors'
@@ -81,6 +82,57 @@ const SOS_SCOPED_COLUMNS = [
 const SECTION_START_COLUMNS = {
   [VIEW_FOUR_FACTORS]: new Set(['off_rating', 'efg_pct', 'opp_efg_pct', 'pace']),
   [VIEW_SOS_ADJUSTMENTS]: new Set(['net_rating', 'sos', 'adj_net_rating']),
+}
+
+const TRENDS_DIRECT_STAT_COLUMNS = new Set([
+  'net_rating',
+  'off_rating',
+  'def_rating',
+  'efg_pct',
+  'ball_handling',
+  'oreb_pct',
+  'ft_rate',
+  'opp_efg_pct',
+  'opp_ball_handling',
+  'opp_oreb_pct',
+  'opp_ft_rate',
+  'pace',
+])
+
+const TRENDS_FALLBACK_BY_COLUMN = {
+  team: 'net_rating',
+  games: 'net_rating',
+  wins: 'net_rating',
+  losses: 'net_rating',
+  win_pct: 'net_rating',
+  scope_games: 'net_rating',
+  scope_time_pct: 'net_rating',
+  sos: 'net_rating',
+  off_sos: 'off_rating',
+  def_sos: 'def_rating',
+  adj_net_rating: 'net_rating',
+  adj_off_rating: 'off_rating',
+  adj_def_rating: 'def_rating',
+}
+
+const TRENDS_STAT_LABELS = {
+  net_rating: 'Net Rating',
+  off_rating: 'Offensive Rating',
+  def_rating: 'Defensive Rating',
+  efg_pct: 'Effective FG%',
+  ball_handling: 'Ball Handling',
+  oreb_pct: 'Offensive Rebound %',
+  ft_rate: 'Free Throw Rate',
+  opp_efg_pct: 'Opp Effective FG%',
+  opp_ball_handling: 'Opp Ball Handling',
+  opp_oreb_pct: 'Opp Offensive Rebound %',
+  opp_ft_rate: 'Opp Free Throw Rate',
+  pace: 'Pace',
+}
+
+const resolveTrendStatForColumn = (columnKey) => {
+  if (TRENDS_DIRECT_STAT_COLUMNS.has(columnKey)) return columnKey
+  return TRENDS_FALLBACK_BY_COLUMN[columnKey] || 'net_rating'
 }
 
 const GLOSSARY_ITEMS = [
@@ -277,6 +329,7 @@ function EfficiencyTooltip({ active, payload }) {
 }
 
 function LeagueSummary() {
+  const navigate = useNavigate()
   const [seasons, setSeasons] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('leaguesummary_season', '')
   const [selectedDataScope, setSelectedDataScope] = usePersistedState('leaguesummary_datascope', 'all')
@@ -594,6 +647,27 @@ function LeagueSummary() {
 
   const isSectionStart = (columnKey) => {
     return SECTION_START_COLUMNS[tableView]?.has(columnKey) || false
+  }
+
+  const handleOpenTrendFromCell = (teamAbbr, columnKey) => {
+    if (!teamAbbr || !selectedSeason) return
+    const stat = resolveTrendStatForColumn(columnKey)
+    const trendsScope = selectedDataScope === 'garbage_filtered' ? 'garbage_filtered' : 'all'
+    navigate('/trends', {
+      state: {
+        season: selectedSeason,
+        team: teamAbbr,
+        stat,
+        dataScope: trendsScope,
+      },
+    })
+  }
+
+  const handleCellKeyDown = (event, teamAbbr, columnKey) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleOpenTrendFromCell(teamAbbr, columnKey)
+    }
   }
 
   const isHeaderCenteredValueColumn = (columnKey) => {
@@ -955,24 +1029,45 @@ function LeagueSummary() {
               <tbody>
                 {sortedTeams.map((team, index) => (
                   <tr key={team.team}>
-                    <td className="rank-col">
+                    <td
+                      className="rank-col trend-link-cell"
+                      role="button"
+                      tabIndex={0}
+                      title={`Click to open Statistical Trends: ${team.team} Net Rating`}
+                      onClick={() => handleOpenTrendFromCell(team.team, 'net_rating')}
+                      onKeyDown={(event) => handleCellKeyDown(event, team.team, 'net_rating')}
+                    >
                       <span className="rank-value">{index + 1}</span>
                     </td>
-                    {activeColumns.map((col) => (
-                      <td
-                        key={col.key}
-                        style={col.key !== 'team' ? { backgroundColor: getCellColor(col.key, team[col.key]) } : {}}
-                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-col' : ''}`}
-                      >
-                        {col.key === 'team' ? (
-                          formatValue(team[col.key], col.key)
-                        ) : (
-                          <span className={`ls-stat-value ${isHeaderCenteredValueColumn(col.key) ? 'ls-stat-value--center' : ''}`}>
-                            {formatValue(team[col.key], col.key)}
-                          </span>
-                        )}
-                      </td>
-                    ))}
+                    {activeColumns.map((col) => {
+                      const trendStat = resolveTrendStatForColumn(col.key)
+                      const trendLabel = TRENDS_STAT_LABELS[trendStat] || 'Net Rating'
+                      const fromLabel = col.labelLine2 ? `${col.labelLine2} ${col.label}` : col.label
+                      const title = TRENDS_DIRECT_STAT_COLUMNS.has(col.key)
+                        ? `Click to open Statistical Trends: ${team.team} ${fromLabel}`
+                        : `Click to open Statistical Trends: ${team.team} ${trendLabel} (from ${fromLabel})`
+
+                      return (
+                        <td
+                          key={col.key}
+                          style={col.key !== 'team' ? { backgroundColor: getCellColor(col.key, team[col.key]) } : {}}
+                          className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} trend-link-cell ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-col' : ''}`}
+                          role="button"
+                          tabIndex={0}
+                          title={title}
+                          onClick={() => handleOpenTrendFromCell(team.team, col.key)}
+                          onKeyDown={(event) => handleCellKeyDown(event, team.team, col.key)}
+                        >
+                          {col.key === 'team' ? (
+                            formatValue(team[col.key], col.key)
+                          ) : (
+                            <span className={`ls-stat-value ${isHeaderCenteredValueColumn(col.key) ? 'ls-stat-value--center' : ''}`}>
+                              {formatValue(team[col.key], col.key)}
+                            </span>
+                          )}
+                        </td>
+                      )
+                    })}
                   </tr>
                 ))}
                 {/* League Averages Row */}

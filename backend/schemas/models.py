@@ -9,8 +9,10 @@ class GameItem(BaseModel):
     date: str
     home_team: str
     road_team: str
+    game_type: str
     home_pts: int
     road_pts: int
+    is_overtime: bool = False
     label: str
 
 class GamesResponse(BaseModel):

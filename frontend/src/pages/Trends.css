@@ -147,6 +147,12 @@
   margin: var(--spacing-xs) 0;
 }
 
+.tooltip-hint {
+  margin-top: var(--spacing-xs);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
 /* Games Table */
 .games-table {
   overflow: hidden;

@@ -9,8 +9,12 @@ Outputs per season:
   - box_score_advanced_clutch_<season>.csv
 
 Definitions (post-event state):
-  - Garbage event:
-      period >= 3 and (home_wp < 0.10 or home_wp > 0.90) and abs(diff) > 5
+  - Garbage state (stateful latch):
+      Enter when period >= 3 and abs(diff) > 5 and
+      (home_wp >= garbage_wp_on or home_wp <= (1 - garbage_wp_on)),
+      except no new garbage entry in the final game minute.
+      Stay latched until home_wp moves back inside
+      ((1 - garbage_wp_off), garbage_wp_off).
   - Clutch event:
       period >= 4 and seconds_left < 300 and abs(diff) <= 5
 
@@ -54,6 +58,8 @@ CLOCK_RE = re.compile(r"^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$")
 DATA_SCOPES = ("garbage_filtered", "clutch")
 DEFAULT_SCOPE_STATE_MODE = "pre"
 VALID_SCOPE_STATE_MODES = {"pre", "post"}
+DEFAULT_GARBAGE_WP_ON = 0.95
+DEFAULT_GARBAGE_WP_OFF = 0.90
 TRACKED_STATS = (
     "pts",
     "fgm",
@@ -282,10 +288,25 @@ def _coerce_side(value: Any) -> Optional[str]:
     return None
 
 
-def _classify_event(event: dict[str, Any]) -> tuple[bool, bool]:
+def _validate_garbage_wp_threshold(value: float, name: str) -> float:
+    threshold = float(value)
+    if not (0.5 < threshold < 1.0):
+        raise ValueError(f"{name} must be between 0.5 and 1.0 (exclusive); got {value!r}")
+    return threshold
+
+
+def _validate_garbage_wp_pair(garbage_wp_on: float, garbage_wp_off: float) -> None:
+    if garbage_wp_off > garbage_wp_on:
+        raise ValueError(
+            "garbage_wp_off must be <= garbage_wp_on so exit is not stricter than entry "
+            f"(got on={garbage_wp_on!r}, off={garbage_wp_off!r})"
+        )
+
+
+def _event_context(event: dict[str, Any]) -> tuple[Optional[int], Optional[int], Optional[int], Optional[float], Optional[int]]:
     period = _to_optional_int(event.get("period"))
     if period is None or period <= 0:
-        return False, False
+        return None, None, None, None, None
 
     state = event.get("game_log_state")
     if not isinstance(state, dict):
@@ -297,30 +318,63 @@ def _classify_event(event: dict[str, Any]) -> tuple[bool, bool]:
     if pts_road is None:
         pts_road = _to_optional_int(event.get("score_away"))
 
-    abs_diff: Optional[int] = None
-    if pts_home is not None and pts_road is not None:
-        abs_diff = abs(pts_home - pts_road)
-
     seconds_left = _clock_to_seconds_left(event.get("clock"), period)
     home_wp = _to_optional_float(event.get("home_win_prob"))
+    return period, pts_home, pts_road, home_wp, seconds_left
+
+
+def _classify_clutch_event(event: dict[str, Any]) -> bool:
+    period, pts_home, pts_road, _home_wp, seconds_left = _event_context(event)
+    if period is None:
+        return False
 
     is_clutch = bool(
-        abs_diff is not None
-        and abs_diff <= 5
+        pts_home is not None
+        and pts_road is not None
+        and abs(pts_home - pts_road) <= 5
         and period >= 4
         and seconds_left is not None
         and seconds_left < 300
     )
+    return is_clutch
 
-    is_garbage = bool(
+
+def _should_enter_garbage(event: dict[str, Any], garbage_wp_on: float) -> bool:
+    period, pts_home, pts_road, home_wp, _seconds_left = _event_context(event)
+    if period is None:
+        return False
+    abs_diff: Optional[int] = None
+    if pts_home is not None and pts_road is not None:
+        abs_diff = abs(pts_home - pts_road)
+
+    return bool(
         abs_diff is not None
         and abs_diff > 5
         and period >= 3
         and home_wp is not None
-        and (home_wp < 0.10 or home_wp > 0.90)
+        and (home_wp >= garbage_wp_on or home_wp <= (1.0 - garbage_wp_on))
     )
 
-    return is_garbage, is_clutch
+
+def _should_exit_garbage(event: dict[str, Any], garbage_wp_off: float) -> bool:
+    _period, _pts_home, _pts_road, home_wp, _seconds_left = _event_context(event)
+    if home_wp is None:
+        return False
+    return bool((1.0 - garbage_wp_off) < home_wp < garbage_wp_off)
+
+
+def _is_final_game_minute(
+    *,
+    period: Optional[int],
+    clock_text: Any,
+    max_period: int,
+) -> bool:
+    if period is None or period <= 0:
+        return False
+    if period != max_period:
+        return False
+    seconds_left = _clock_to_seconds_left(clock_text, period)
+    return bool(seconds_left is not None and seconds_left < 60)
 
 
 def _accumulate_changed_stats(scope_state: Dict[str, Any], event: dict[str, Any]) -> None:
@@ -396,12 +450,17 @@ def _build_rows_for_game(
     base_row: Dict[str, Any],
     base_adv_row: Optional[Dict[str, Any]],
     scope_state_mode: str = DEFAULT_SCOPE_STATE_MODE,
+    garbage_wp_on: float = DEFAULT_GARBAGE_WP_ON,
+    garbage_wp_off: float = DEFAULT_GARBAGE_WP_OFF,
 ) -> Dict[str, tuple[Dict[str, Any], Dict[str, Any]]]:
     if scope_state_mode not in VALID_SCOPE_STATE_MODES:
         raise ValueError(
             f"Invalid scope_state_mode={scope_state_mode!r}. "
             f"Expected one of {sorted(VALID_SCOPE_STATE_MODES)}"
         )
+    garbage_wp_on = _validate_garbage_wp_threshold(garbage_wp_on, "garbage_wp_on")
+    garbage_wp_off = _validate_garbage_wp_threshold(garbage_wp_off, "garbage_wp_off")
+    _validate_garbage_wp_pair(garbage_wp_on=garbage_wp_on, garbage_wp_off=garbage_wp_off)
 
     scope_states = {scope: _init_scope_state() for scope in DATA_SCOPES}
 
@@ -409,22 +468,37 @@ def _build_rows_for_game(
     if not isinstance(events, list):
         events = []
 
-    annotated_events: list[dict[str, Any]] = []
+    filtered_events: list[dict[str, Any]] = []
     max_period = 4
-    prev_is_garbage = False
-    prev_is_clutch = False
     for event in events:
         if not isinstance(event, dict):
             continue
         if bool(event.get("event_quarantined")):
             continue
-
+        filtered_events.append(event)
         period = _to_optional_int(event.get("period"))
         if period is not None and period > max_period:
             max_period = period
+
+    annotated_events: list[dict[str, Any]] = []
+    prev_is_garbage = False
+    prev_is_clutch = False
+    for event in filtered_events:
+        period = _to_optional_int(event.get("period"))
         elapsed = _period_elapsed_seconds(period=period, clock_text=event.get("clock"))
 
-        is_garbage, is_clutch = _classify_event(event)
+        if prev_is_garbage:
+            is_garbage = not _should_exit_garbage(event, garbage_wp_off=garbage_wp_off)
+        else:
+            is_garbage = (
+                not _is_final_game_minute(
+                    period=period,
+                    clock_text=event.get("clock"),
+                    max_period=max_period,
+                )
+                and _should_enter_garbage(event, garbage_wp_on=garbage_wp_on)
+            )
+        is_clutch = _classify_clutch_event(event)
         if scope_state_mode == "pre":
             include_garbage_filtered = not prev_is_garbage
             include_clutch = prev_is_clutch
@@ -604,12 +678,17 @@ def build_situational_files_for_season(
     repo_dir: Path,
     incremental: bool = True,
     scope_state_mode: str = DEFAULT_SCOPE_STATE_MODE,
+    garbage_wp_on: float = DEFAULT_GARBAGE_WP_ON,
+    garbage_wp_off: float = DEFAULT_GARBAGE_WP_OFF,
 ) -> int:
     if scope_state_mode not in VALID_SCOPE_STATE_MODES:
         raise ValueError(
             f"Invalid scope_state_mode={scope_state_mode!r}. "
             f"Expected one of {sorted(VALID_SCOPE_STATE_MODES)}"
         )
+    garbage_wp_on = _validate_garbage_wp_threshold(garbage_wp_on, "garbage_wp_on")
+    garbage_wp_off = _validate_garbage_wp_threshold(garbage_wp_off, "garbage_wp_off")
+    _validate_garbage_wp_pair(garbage_wp_on=garbage_wp_on, garbage_wp_off=garbage_wp_off)
 
     game_logs_path = repo_dir / _season_to_filename(season)
     if not game_logs_path.exists():
@@ -657,6 +736,8 @@ def build_situational_files_for_season(
             base_row=base_row,
             base_adv_row=base_adv_lookup.get(gid),
             scope_state_mode=scope_state_mode,
+            garbage_wp_on=garbage_wp_on,
+            garbage_wp_off=garbage_wp_off,
         )
         for scope, (game_row, adv_row) in scope_rows.items():
             game_rows_by_scope[scope].append(game_row)
@@ -707,7 +788,8 @@ def build_situational_files_for_season(
         print(
             f"[situational] {season} {scope}: "
             f"team_rows={len(merged_game)} adv_rows={len(merged_adv)} "
-            f"mode={scope_state_mode} "
+            f"mode={scope_state_mode} garbage_wp_on={garbage_wp_on:.3f} "
+            f"garbage_wp_off={garbage_wp_off:.3f} "
             f"({output_game_path.name}, {output_adv_path.name})"
         )
 
@@ -745,6 +827,24 @@ def main() -> None:
             "'pre' attributes events to the prior state, 'post' to the resulting state."
         ),
     )
+    parser.add_argument(
+        "--garbage-wp-on",
+        type=float,
+        default=DEFAULT_GARBAGE_WP_ON,
+        help=(
+            "Garbage-state entry threshold for home WP (symmetric by side): "
+            "enter when home_wp >= threshold or <= (1-threshold)."
+        ),
+    )
+    parser.add_argument(
+        "--garbage-wp-off",
+        type=float,
+        default=DEFAULT_GARBAGE_WP_OFF,
+        help=(
+            "Garbage-state exit threshold for home WP (symmetric by side): "
+            "exit when (1-threshold) < home_wp < threshold."
+        ),
+    )
     args = parser.parse_args()
 
     repo_dir = Path(args.repo_dir) if args.repo_dir else DEFAULT_REPO_DIR
@@ -758,6 +858,8 @@ def main() -> None:
             repo_dir=repo_dir,
             incremental=args.incremental,
             scope_state_mode=args.scope_state_mode,
+            garbage_wp_on=args.garbage_wp_on,
+            garbage_wp_off=args.garbage_wp_off,
         )
 
     print(f"[situational] Completed. seasons_processed={processed}/{len(seasons)}")

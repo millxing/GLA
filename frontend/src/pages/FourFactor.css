@@ -18,6 +18,18 @@
   margin-bottom: var(--spacing-lg);
 }
 
+.four-factor .controls .form-row > .season-control {
+  flex: 0.68;
+}
+
+.four-factor .controls .form-row > .month-control {
+  flex: 0.68;
+}
+
+.four-factor .controls .form-row > .game-control {
+  flex: 1.64;
+}
+
 .results {
   display: flex;
   flex-direction: column;

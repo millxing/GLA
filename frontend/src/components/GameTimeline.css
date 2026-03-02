@@ -106,12 +106,29 @@
   top: 26px;
   left: 66px;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 0.84rem;
   color: var(--color-text-secondary);
   background: rgba(255, 255, 255, 0.85);
   padding: 4px 8px;
   border-radius: 6px;
   pointer-events: none;
+}
+
+.timeline-chart-legend .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.timeline-chart-legend .legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid rgba(17, 17, 17, 0.18);
 }
 
 .timeline-legend-home .legend-swatch {
@@ -132,6 +149,18 @@
 
 .timeline-legend-separator {
   color: var(--color-text-secondary);
+}
+
+.timeline-legend-divider {
+  color: #8f8a82;
+}
+
+.timeline-legend-garbage .legend-swatch {
+  background: rgba(148, 163, 184, 0.45);
+}
+
+.timeline-legend-clutch .legend-swatch {
+  background: rgba(248, 113, 113, 0.42);
 }
 
 .timeline-table-shell {

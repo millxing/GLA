@@ -177,6 +177,19 @@
   text-overflow: clip;
 }
 
+.summary-table td.trend-link-cell {
+  cursor: pointer;
+}
+
+.summary-table td.trend-link-cell:hover {
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.45);
+}
+
+.summary-table td.trend-link-cell:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: -2px;
+}
+
 .ls-stat-value {
   display: inline-block;
   width: 5ch;

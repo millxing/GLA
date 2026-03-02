@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   ComposedChart,
   Bar,
@@ -71,8 +72,17 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Data' },
   { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
 ]
+const VALID_STAT_OPTIONS = new Set(STAT_OPTIONS.map((option) => option.value))
+const VALID_DATA_SCOPE_OPTIONS = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
+const normalizeGameId = (value) => {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  return /^\d+$/.test(text) ? text.padStart(10, '0') : text
+}
 
 function Trends() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('trends_season', '')
@@ -84,6 +94,24 @@ function Trends() {
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+
+  useEffect(() => {
+    const navState = location.state
+    if (!navState || typeof navState !== 'object') return
+
+    if (typeof navState.season === 'string' && navState.season) {
+      setSelectedSeason(navState.season)
+    }
+    if (typeof navState.dataScope === 'string' && VALID_DATA_SCOPE_OPTIONS.has(navState.dataScope)) {
+      setSelectedDataScope(navState.dataScope)
+    }
+    if (typeof navState.stat === 'string' && VALID_STAT_OPTIONS.has(navState.stat)) {
+      setSelectedStat(navState.stat)
+    }
+    if (typeof navState.team === 'string' && navState.team) {
+      setSelectedTeam(navState.team)
+    }
+  }, [location.key, location.state, setSelectedSeason, setSelectedDataScope, setSelectedStat, setSelectedTeam])
 
   useEffect(() => {
     if (!DATA_SCOPE_OPTIONS.some((option) => option.value === selectedDataScope)) {
@@ -162,6 +190,7 @@ function Trends() {
     if (!data?.data) return []
     return data.data.map(game => ({
       ...game,
+      game_id: normalizeGameId(game.game_id),
       xLabel: `${game.home_away === 'road' ? '@' : ''}${game.opponent} on ${game.game_date}`,
     }))
   }, [data])
@@ -211,6 +240,7 @@ function Trends() {
           <p><strong>Value:</strong> {entry.value?.toFixed(1)}</p>
           <p><strong>5-Game Avg:</strong> {entry.ma_5?.toFixed(1)}</p>
         </div>
+        <p className="tooltip-hint">Click bar to open Game Analysis</p>
       </div>
     )
   }
@@ -226,6 +256,23 @@ function Trends() {
       ? data.season_average < data.league_average
       : data.season_average > data.league_average
     : false
+
+  const handleBarClick = (gameEntry) => {
+    const gameIdValue = gameEntry?.game_id
+    const gameId = normalizeGameId(gameIdValue)
+    if (!selectedSeason || !gameId) return
+    navigate('/four-factor', {
+      state: {
+        season: selectedSeason,
+        gameId,
+        gameDate: gameEntry?.game_date || '',
+        team: selectedTeam,
+        opponent: gameEntry?.opponent || '',
+        homeAway: gameEntry?.home_away || '',
+        source: 'trends',
+      },
+    })
+  }
 
   return (
     <div className="trends container">
@@ -365,11 +412,13 @@ function Trends() {
                     barSize={15}
                     stroke={BAR_OUTLINE_COLOR}
                     strokeWidth={1}
+                    cursor="pointer"
                   >
                     {chartData.map((entry, index) => (
                       <Cell
                         key={`game-bar-${entry.game_id ?? index}`}
                         fill={entry.wl === 'W' ? WIN_BAR_COLOR : LOSS_BAR_COLOR}
+                        onClick={() => handleBarClick(entry)}
                       />
                     ))}
                   </Bar>
