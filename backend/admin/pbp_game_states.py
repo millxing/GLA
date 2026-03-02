@@ -617,6 +617,30 @@ def pack_pbp_game_states(
         print(f"[pbp-pack] No packable game-state rows found in: {input_dir}")
         return 1
 
+    if parquet_path.exists() and overwrite:
+        try:
+            existing_df = _load_states_parquet_df(parquet_path)
+        except Exception as exc:
+            print(f"[pbp-pack] Failed to read existing parquet for merge: {parquet_path} ({exc})")
+            return 1
+
+        existing_records = existing_df.to_dict(orient="records")
+        merged_by_game_id: dict[str, dict[str, Any]] = {}
+        for record in existing_records:
+            gid = _normalize_game_id(record.get("game_id"))
+            if gid:
+                merged_by_game_id[gid] = record
+        for row in rows:
+            gid = _normalize_game_id(row.get("game_id"))
+            if gid:
+                merged_by_game_id[gid] = row
+
+        rows = list(merged_by_game_id.values())
+        print(
+            f"[pbp-pack] Merged JSON updates into existing parquet rows: "
+            f"existing={len(existing_records)} updates={len(json_files)} merged={len(rows)}"
+        )
+
     rows.sort(key=lambda r: (str(r.get("game_date") or ""), str(r.get("game_id") or "")))
     df = pd.DataFrame(rows)
     for col in STATES_PARQUET_COLUMNS:
@@ -1036,7 +1060,6 @@ def _load_gamelogs(repo_dir: Path, season: str, phase: str) -> pd.DataFrame:
         d = d[~d["game_type_norm"].isin(["playoffs", "play_in"])].copy()
         # All-Star is not part of the regular-season game-log/PBP workflow.
         d = d[d["game_type_norm"] != "all_star"].copy()
-        d = d[~d["game_id_norm"].str.startswith("006", na=False)].copy()
     else:
         d = d[d["game_type_norm"].isin(["playoffs", "play_in"])].copy()
 
