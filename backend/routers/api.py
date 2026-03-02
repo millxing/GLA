@@ -6,6 +6,9 @@ import subprocess
 import json
 import re
 import sys
+import logging
+import os
+import time
 import pandas as pd
 from importlib.metadata import version as pkg_version
 from importlib.metadata import PackageNotFoundError
@@ -77,12 +80,21 @@ STAT_ALIASES = {
 }
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 WINPROB_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_wizard_app.html").resolve()
 WINPROB_HYPOTHETICAL_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_hypothetical_app.html").resolve()
 STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
 TIMELINE_METRICS_FILENAME_TEMPLATE = "_timeline_metrics_{season}_{phase}.json"
 HOME_WIN_PROB_BY_EVENT_JSON_COLUMN = "home_win_prob_by_event_json"
 LEGACY_PBP_GAME_STATES_ROOT = (PBP_LEGACY_GLA_ROOT / "game_states").resolve()
+REMOTE_CACHE_TTL_SECONDS = max(
+    60,
+    int(os.getenv("PBP_REMOTE_CACHE_TTL_SECONDS", "300") or "300"),
+)
+REMOTE_FETCH_TIMEOUT_SECONDS = max(
+    10,
+    int(os.getenv("PBP_REMOTE_FETCH_TIMEOUT_SECONDS", "60") or "60"),
+)
 
 LEAGUE_SUMMARY_SCOPE_ALIASES = {
     "all": "all",
@@ -209,21 +221,54 @@ async def _resolve_league_summary_scope_df(season: str, scope: str) -> tuple[Opt
 def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
     rel = relative_path.lstrip("/")
     cache_path = (PBP_REMOTE_CACHE_DIR / rel).resolve()
-    if cache_path.exists():
-        return cache_path
+    cache_exists = cache_path.exists()
+    if cache_exists:
+        try:
+            age_seconds = max(0, int(time.time() - cache_path.stat().st_mtime))
+            if age_seconds < REMOTE_CACHE_TTL_SECONDS:
+                return cache_path
+        except Exception:
+            # If mtime checks fail, conservatively use cache to avoid hard failure.
+            return cache_path
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     remote_url = f"{PBP_GITHUB_RAW_BASE_URL}/{rel}"
     req = Request(remote_url, headers={"User-Agent": "GLA-timeline-fallback"})
     try:
-        with urlopen(req, timeout=20) as resp:
+        with urlopen(req, timeout=REMOTE_FETCH_TIMEOUT_SECONDS) as resp:
             payload = resp.read()
     except (HTTPError, URLError, TimeoutError, OSError):
-        return None
+        logger.warning(
+            "Timeline remote fallback failed: relative_path=%s url=%s",
+            rel,
+            remote_url,
+        )
+        # If refresh failed but a stale cache exists, prefer stale over missing.
+        return cache_path if cache_exists else None
 
     if not payload:
-        return None
+        logger.warning(
+            "Timeline remote fallback returned empty payload: relative_path=%s url=%s",
+            rel,
+            remote_url,
+        )
+        return cache_path if cache_exists else None
     cache_path.write_bytes(payload)
+    if cache_exists:
+        logger.warning(
+            "Timeline remote cache refreshed: relative_path=%s url=%s cache_path=%s ttl_seconds=%s",
+            rel,
+            remote_url,
+            cache_path,
+            REMOTE_CACHE_TTL_SECONDS,
+        )
+    else:
+        logger.warning(
+            "Timeline remote fallback used: relative_path=%s url=%s cache_path=%s",
+            rel,
+            remote_url,
+            cache_path,
+        )
     return cache_path
 
 
@@ -895,7 +940,8 @@ async def get_game_timeline(
     payload: Optional[dict[str, Any]] = None
 
     parquet_errors: list[str] = []
-    for candidate_phase in _timeline_phase_candidates(game_type):
+    phase_candidates = _timeline_phase_candidates(game_type)
+    for candidate_phase in phase_candidates:
         parquet_path = _find_timeline_parquet_file(season=season, phase=candidate_phase)
         if parquet_path is None:
             continue
@@ -914,6 +960,14 @@ async def get_game_timeline(
         if candidate_payload is not None:
             payload = candidate_payload
             phase = candidate_phase
+            if candidate_phase != phase_candidates[0]:
+                logger.warning(
+                    "Timeline phase fallback used: season=%s game_id=%s requested_game_type=%s phase=%s",
+                    season,
+                    game_id_norm,
+                    game_type,
+                    candidate_phase,
+                )
             break
 
     if payload is None:
@@ -926,6 +980,13 @@ async def get_game_timeline(
         )
         if timeline_path is None or phase is None:
             if parquet_errors:
+                logger.error(
+                    "Timeline parquet failed for all phase candidates: season=%s game_id=%s requested_game_type=%s errors=%s",
+                    season,
+                    game_id_norm,
+                    game_type,
+                    " | ".join(parquet_errors),
+                )
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to read timeline parquet: {' | '.join(parquet_errors)}",
@@ -934,6 +995,13 @@ async def get_game_timeline(
                 status_code=404,
                 detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
             )
+        logger.warning(
+            "Timeline JSON fallback used: season=%s game_id=%s requested_game_type=%s file=%s",
+            season,
+            game_id_norm,
+            game_type,
+            timeline_path,
+        )
 
         try:
             loaded = json.loads(timeline_path.read_text(encoding="utf-8"))

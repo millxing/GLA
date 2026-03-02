@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import { getSeasons, getGames, getDecomposition, getInterpretation, getGameTimeline } from '../api'
-import { usePersistedState } from '../hooks/usePersistedState'
 import GameTimeline from '../components/GameTimeline'
 import './FourFactor.css'
 
@@ -43,11 +42,11 @@ const DATA_SCOPE_OPTIONS = [
 function FourFactor() {
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
-  const [selectedSeason, setSelectedSeason] = usePersistedState('fourfactor_season', '')
-  const [selectedDataScope, setSelectedDataScope] = usePersistedState('fourfactor_datascope', 'all')
+  const [selectedSeason, setSelectedSeason] = useState('')
+  const [selectedDataScope, setSelectedDataScope] = useState('all')
   const [selectedGame, setSelectedGame] = useState('')
-  const [factorType, setFactorType] = usePersistedState('fourfactor_factortype', 'eight_factors')
-  const [analysisView, setAnalysisView] = usePersistedState('fourfactor_analysisview', 'factor')
+  const [factorType, setFactorType] = useState('eight_factors')
+  const [analysisView, setAnalysisView] = useState('factor')
   const [decomposition, setDecomposition] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(false)
@@ -68,7 +67,7 @@ function FourFactor() {
         const seasonsRes = await getSeasons()
         if (!isCurrent) return
         setSeasons(seasonsRes.seasons)
-        // Keep persisted season if valid, otherwise default to first
+        // Default to first available season.
         setSelectedSeason(prev => {
           if (prev && seasonsRes.seasons.includes(prev)) return prev
           return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
@@ -234,6 +233,11 @@ function FourFactor() {
     if (!selectedGame) return
     setAnalysisView('factor')
   }, [selectedGame, setAnalysisView])
+
+  useEffect(() => {
+    if (!selectedGame) return
+    setSelectedDataScope('all')
+  }, [selectedGame, setSelectedDataScope])
 
   useEffect(() => {
     let isCurrent = true
