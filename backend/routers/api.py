@@ -9,6 +9,7 @@ import sys
 import logging
 import os
 import time
+from copy import deepcopy
 import pandas as pd
 from importlib.metadata import version as pkg_version
 from importlib.metadata import PackageNotFoundError
@@ -42,7 +43,12 @@ from services.calculations import (
     compute_contribution_analysis,
     compute_league_top_contributors,
 )
-from services.llm import generate_interpretation, is_llm_configured
+from services.llm import (
+    _build_interpretation_prompt,
+    generate_interpretation,
+    get_runtime_interpretation_model,
+    is_llm_configured,
+)
 from services.data_loader import get_game_interpretation
 from schemas.models import (
     SeasonResponse,
@@ -109,6 +115,8 @@ LEAGUE_SUMMARY_SCOPE_ALIASES = {
     "non_clutch": "non_clutch_time",
 }
 LEAGUE_SUMMARY_VALID_SCOPES = {"all", "garbage_filtered", "garbage_time", "clutch", "non_clutch_time"}
+INTERPRETATION_ENABLED_SEASON = "2025-26"
+INTERPRETATION_ENABLED_SCOPE = "all"
 
 PBP_GAME_STATES_ROOTS = [PBP_GAME_STATES_ROOT]
 if PBP_ENABLE_LEGACY_GLA_FALLBACK and LEGACY_PBP_GAME_STATES_ROOT != PBP_GAME_STATES_ROOT:
@@ -682,6 +690,84 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
+LLM_QUINTILE_THRESHOLDS_2018_25 = {
+    "off_rating": {"p20": 102.7, "p40": 109.4, "p60": 115.1, "p80": 122.0},
+    "def_rating": {"p20": 102.7, "p40": 109.4, "p60": 115.1, "p80": 122.0},
+    "net_rating": {"p20": -12.1, "p40": -4.5, "p60": 4.5, "p80": 12.1},
+    "efg": {"p20": 48.1, "p40": 51.9, "p60": 55.2, "p80": 59.3},
+    "ball_handling": {"p20": 84.4, "p40": 86.5, "p60": 88.3, "p80": 90.2},
+    "oreb": {"p20": 17.0, "p40": 21.2, "p60": 25.0, "p80": 29.4},
+    "ft_rate": {"p20": 13.6, "p40": 17.5, "p60": 21.2, "p80": 25.8},
+}
+
+
+def _safe_optional_float(value: Any) -> Optional[float]:
+    """Best-effort float conversion that preserves missing/invalid as None."""
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_quintile_thresholds(request: InterpretationRequest) -> Dict[str, Dict[str, float]]:
+    """Use request-provided quintile thresholds when complete; otherwise fallback to 2018-25 defaults."""
+    provided = request.factor_ranges or {}
+    thresholds: Dict[str, Dict[str, float]] = {}
+
+    for metric, defaults in LLM_QUINTILE_THRESHOLDS_2018_25.items():
+        candidate = provided.get(metric, {})
+        if isinstance(candidate, dict) and all(k in candidate for k in ("p20", "p40", "p60", "p80")):
+            thresholds[metric] = {
+                "p20": _safe_float(candidate.get("p20"), defaults["p20"]),
+                "p40": _safe_float(candidate.get("p40"), defaults["p40"]),
+                "p60": _safe_float(candidate.get("p60"), defaults["p60"]),
+                "p80": _safe_float(candidate.get("p80"), defaults["p80"]),
+            }
+        else:
+            thresholds[metric] = defaults
+
+    return thresholds
+
+
+def _classify_quintile(
+    value: Optional[float],
+    thresholds: Dict[str, float],
+    higher_is_better: bool = True,
+) -> str:
+    """Classify a value into POOR/SUBPAR/AVERAGE/GOOD/EXCELLENT quintiles."""
+    if value is None:
+        return "AVERAGE"
+
+    p20 = thresholds["p20"]
+    p40 = thresholds["p40"]
+    p60 = thresholds["p60"]
+    p80 = thresholds["p80"]
+
+    if higher_is_better:
+        if value <= p20:
+            return "POOR"
+        if value <= p40:
+            return "SUBPAR"
+        if value <= p60:
+            return "AVERAGE"
+        if value <= p80:
+            return "GOOD"
+        return "EXCELLENT"
+
+    # For metrics where lower is better (e.g., defensive rating)
+    if value >= p80:
+        return "POOR"
+    if value >= p60:
+        return "SUBPAR"
+    if value >= p40:
+        return "AVERAGE"
+    if value >= p20:
+        return "GOOD"
+    return "EXCELLENT"
+
+
 def _build_llm_decomposition_data(request: InterpretationRequest) -> Dict[str, Any]:
     """
     Normalize interpretation request payload into the flat schema expected by llm.py.
@@ -694,6 +780,47 @@ def _build_llm_decomposition_data(request: InterpretationRequest) -> Dict[str, A
     home_ratings = request.home_ratings or {}
     road_ratings = request.road_ratings or {}
     contributions = request.contributions or {}
+    thresholds = _resolve_quintile_thresholds(request)
+
+    home_off_rating = _safe_optional_float(home_ratings.get("offensive_rating"))
+    home_def_rating = _safe_optional_float(home_ratings.get("defensive_rating"))
+    home_net_rating = _safe_optional_float(home_ratings.get("net_rating"))
+    road_off_rating = _safe_optional_float(road_ratings.get("offensive_rating"))
+    road_def_rating = _safe_optional_float(road_ratings.get("defensive_rating"))
+    road_net_rating = _safe_optional_float(road_ratings.get("net_rating"))
+
+    home_efg = _safe_optional_float(home_factors.get("efg"))
+    home_ball_handling = _safe_optional_float(home_factors.get("ball_handling"))
+    home_oreb = _safe_optional_float(home_factors.get("oreb"))
+    home_ft_rate = _safe_optional_float(home_factors.get("ft_rate"))
+    road_efg = _safe_optional_float(road_factors.get("efg"))
+    road_ball_handling = _safe_optional_float(road_factors.get("ball_handling"))
+    road_oreb = _safe_optional_float(road_factors.get("oreb"))
+    road_ft_rate = _safe_optional_float(road_factors.get("ft_rate"))
+
+    home_off_rating_class = _classify_quintile(home_off_rating, thresholds["off_rating"])
+    home_def_rating_class = _classify_quintile(
+        home_def_rating, thresholds["def_rating"], higher_is_better=False
+    )
+    home_net_rating_class = _classify_quintile(home_net_rating, thresholds["net_rating"])
+    road_off_rating_class = _classify_quintile(road_off_rating, thresholds["off_rating"])
+    road_def_rating_class = _classify_quintile(
+        road_def_rating, thresholds["def_rating"], higher_is_better=False
+    )
+    road_net_rating_class = _classify_quintile(road_net_rating, thresholds["net_rating"])
+
+    home_efg_class = _classify_quintile(home_efg, thresholds["efg"])
+    home_ball_handling_class = _classify_quintile(
+        home_ball_handling, thresholds["ball_handling"]
+    )
+    home_oreb_class = _classify_quintile(home_oreb, thresholds["oreb"])
+    home_ft_rate_class = _classify_quintile(home_ft_rate, thresholds["ft_rate"])
+    road_efg_class = _classify_quintile(road_efg, thresholds["efg"])
+    road_ball_handling_class = _classify_quintile(
+        road_ball_handling, thresholds["ball_handling"]
+    )
+    road_oreb_class = _classify_quintile(road_oreb, thresholds["oreb"])
+    road_ft_rate_class = _classify_quintile(road_ft_rate, thresholds["ft_rate"])
 
     if request.factor_type == "eight_factors":
         home_efg_contrib = _safe_float(contributions.get("home_shooting"))
@@ -730,20 +857,34 @@ def _build_llm_decomposition_data(request: InterpretationRequest) -> Dict[str, A
         "model": request.model_id or "2018-2025",
         "predicted_rating_diff": request.predicted_rating_diff,
         "actual_rating_diff": request.actual_rating_diff,
-        "home_off_rating": _safe_float(home_ratings.get("offensive_rating")),
-        "home_def_rating": _safe_float(home_ratings.get("defensive_rating")),
-        "home_net_rating": _safe_float(home_ratings.get("net_rating")),
-        "road_off_rating": _safe_float(road_ratings.get("offensive_rating")),
-        "road_def_rating": _safe_float(road_ratings.get("defensive_rating")),
-        "road_net_rating": _safe_float(road_ratings.get("net_rating")),
-        "home_efg": _safe_float(home_factors.get("efg")),
-        "home_ball_handling": _safe_float(home_factors.get("ball_handling")),
-        "home_oreb": _safe_float(home_factors.get("oreb")),
-        "home_ft_rate": _safe_float(home_factors.get("ft_rate")),
-        "road_efg": _safe_float(road_factors.get("efg")),
-        "road_ball_handling": _safe_float(road_factors.get("ball_handling")),
-        "road_oreb": _safe_float(road_factors.get("oreb")),
-        "road_ft_rate": _safe_float(road_factors.get("ft_rate")),
+        "home_off_rating": _safe_float(home_off_rating),
+        "home_off_rating_class": home_off_rating_class,
+        "home_def_rating": _safe_float(home_def_rating),
+        "home_def_rating_class": home_def_rating_class,
+        "home_net_rating": _safe_float(home_net_rating),
+        "home_net_rating_class": home_net_rating_class,
+        "road_off_rating": _safe_float(road_off_rating),
+        "road_off_rating_class": road_off_rating_class,
+        "road_def_rating": _safe_float(road_def_rating),
+        "road_def_rating_class": road_def_rating_class,
+        "road_net_rating": _safe_float(road_net_rating),
+        "road_net_rating_class": road_net_rating_class,
+        "home_efg": _safe_float(home_efg),
+        "home_efg_class": home_efg_class,
+        "home_ball_handling": _safe_float(home_ball_handling),
+        "home_ball_handling_class": home_ball_handling_class,
+        "home_oreb": _safe_float(home_oreb),
+        "home_oreb_class": home_oreb_class,
+        "home_ft_rate": _safe_float(home_ft_rate),
+        "home_ft_rate_class": home_ft_rate_class,
+        "road_efg": _safe_float(road_efg),
+        "road_efg_class": road_efg_class,
+        "road_ball_handling": _safe_float(road_ball_handling),
+        "road_ball_handling_class": road_ball_handling_class,
+        "road_oreb": _safe_float(road_oreb),
+        "road_oreb_class": road_oreb_class,
+        "road_ft_rate": _safe_float(road_ft_rate),
+        "road_ft_rate_class": road_ft_rate_class,
         "home_efg_contrib": home_efg_contrib,
         "home_ball_handling_contrib": home_ball_handling_contrib,
         "home_oreb_contrib": home_oreb_contrib,
@@ -1291,15 +1432,137 @@ async def get_decomposition(
     return response
 
 
+@router.get("/contributions/single-game")
+async def get_single_game_contribution_json(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: str = Query(..., description="Game ID"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
+):
+    """Return a contribution JSON payload with exactly one game entry.
+
+    The response mirrors the normal `contributions_*.json` structure, but with
+    the `games` array filtered to the requested game.
+    """
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    contrib_data = await load_contributions(season, data_scope=scope)
+    if contrib_data is None:
+        raise HTTPException(status_code=404, detail="Contributions not found for season")
+
+    game_id_norm = _normalize_game_id_for_timeline(game_id)
+    if not game_id_norm:
+        raise HTTPException(status_code=400, detail="Invalid game_id")
+
+    matching_game = None
+    for row in contrib_data.get("games", []):
+        if not isinstance(row, dict):
+            continue
+        row_game_id = _normalize_game_id_for_timeline(str(row.get("game_id") or ""))
+        if row_game_id == game_id_norm:
+            matching_game = row
+            break
+
+    if matching_game is None:
+        raise HTTPException(status_code=404, detail="Game not found in contributions")
+
+    payload = deepcopy(contrib_data) if isinstance(contrib_data, dict) else {}
+    payload["season"] = season
+    payload["data_scope"] = scope
+    payload["games"] = [matching_game]
+    return payload
+
+
+@router.get("/interpretation/prompt")
+async def get_interpretation_prompt(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: str = Query(..., description="Game ID"),
+    factor_type: str = Query("eight_factors", description="Factor type: eight_factors (default)"),
+    data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
+):
+    """Return the fully rendered prompt text that would be sent to the LLM."""
+    try:
+        scope = normalize_data_scope(data_scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    decomposition = await get_decomposition(
+        season=season,
+        game_id=game_id,
+        model_id=None,
+        factor_type=factor_type,
+        data_scope=scope,
+    )
+
+    interp_request = InterpretationRequest(
+        game_id=decomposition.game_id,
+        game_date=decomposition.game_date,
+        season=season,
+        home_team=decomposition.home_team,
+        road_team=decomposition.road_team,
+        home_pts=decomposition.home_pts,
+        road_pts=decomposition.road_pts,
+        contributions=decomposition.contributions,
+        predicted_rating_diff=decomposition.predicted_rating_diff,
+        actual_rating_diff=decomposition.actual_rating_diff,
+        factor_type=factor_type,
+        model_id=None,
+        home_factors=decomposition.home_factors,
+        road_factors=decomposition.road_factors,
+        home_ratings=decomposition.home_ratings,
+        road_ratings=decomposition.road_ratings,
+        league_averages=decomposition.league_averages,
+        factor_ranges=None,
+    )
+
+    decomposition_data = _build_llm_decomposition_data(interp_request)
+    prompt = _build_interpretation_prompt(decomposition_data, factor_type=factor_type)
+    return {
+        "season": season,
+        "game_id": str(decomposition.game_id).zfill(10),
+        "factor_type": factor_type,
+        "data_scope": scope,
+        "prompt": prompt,
+    }
+
+
 @router.post("/interpretation", response_model=InterpretationResponse)
 async def get_interpretation(request: InterpretationRequest):
     """Get AI interpretation of factor contributions for a game.
 
     First checks for pre-generated interpretation, then falls back to real-time generation.
     """
-    # Try to get pre-generated interpretation first
-    # Pass model_id so we only use pre-generated if it matches the decomposition model
-    if hasattr(request, 'season') and request.season and request.game_id:
+    if request.factor_type != "eight_factors":
+        raise HTTPException(status_code=404, detail="Interpretations are only available for eight_factors")
+
+    if not request.season:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Season is required. Interpretations are only available for {INTERPRETATION_ENABLED_SEASON}.",
+        )
+
+    if request.season != INTERPRETATION_ENABLED_SEASON:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Interpretations are only available for {INTERPRETATION_ENABLED_SEASON}.",
+        )
+
+    try:
+        request_scope = normalize_data_scope(request.data_scope or "all")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    if request_scope != INTERPRETATION_ENABLED_SCOPE:
+        raise HTTPException(
+            status_code=404,
+            detail="Interpretations are only available for the All Game scope.",
+        )
+
+    # Try to get pre-generated interpretation first.
+    # Pass model_id so we only use pre-generated if it matches the decomposition model.
+    if request.game_id:
         pre_generated = await get_game_interpretation(
             season=request.season,
             game_id=request.game_id,
@@ -1314,10 +1577,15 @@ async def get_interpretation(request: InterpretationRequest):
 
     # Fall back to real-time generation
     if not is_llm_configured():
-        raise HTTPException(status_code=503, detail="Interpretation service not configured")
+        raise HTTPException(
+            status_code=503,
+            detail="Interpretation service requires OPENAI_API_KEY for gpt-5-mini runtime generation.",
+        )
 
     # Build normalized, flat payload expected by llm.py prompt builder
     decomposition_data = _build_llm_decomposition_data(request)
+
+    runtime_model = get_runtime_interpretation_model()
 
     interpretation = await generate_interpretation(
         decomposition_data=decomposition_data,
@@ -1328,8 +1596,7 @@ async def get_interpretation(request: InterpretationRequest):
     if interpretation is None:
         raise HTTPException(status_code=503, detail="Failed to generate interpretation")
 
-    # Real-time uses fallback model (gpt-4o-mini or claude-3-5-haiku)
-    return InterpretationResponse(interpretation=interpretation, model="gpt-4o-mini")
+    return InterpretationResponse(interpretation=interpretation, model=runtime_model or "unknown")
 
 
 @router.get("/league-summary", response_model=LeagueSummaryResponse)

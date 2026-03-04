@@ -1,7 +1,14 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
-import { getSeasons, getGames, getDecomposition, getInterpretation, getGameTimeline } from '../api'
+import {
+  getSeasons,
+  getGames,
+  getDecomposition,
+  getInterpretation,
+  getGameTimeline,
+  getInterpretationPrompt,
+} from '../api'
 import GameTimeline from '../components/GameTimeline'
 import './FourFactor.css'
 
@@ -31,14 +38,14 @@ const TEAM_CITIES = {
 
 const toCityName = (abbr) => TEAM_CITIES[abbr] || abbr
 
-// Temporary kill-switch for LLM summaries without removing implementation code.
-const AI_SUMMARIES_ENABLED = false
-const AI_SUMMARY_MAINTENANCE_MESSAGE = 'AI game summaries closed for renovations'
+const INTERPRETATION_UI_ENABLED = true
+const INTERPRETATION_ENABLED_SEASON = '2025-26'
 const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Game' },
   { value: 'garbage_filtered', label: 'Garbage Time Excluded' },
   { value: 'clutch', label: 'Clutch Time' },
 ]
+const HIDDEN_SAVE_OPTION_MS = 8000
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
@@ -108,6 +115,16 @@ function FourFactor() {
   const [timelineError, setTimelineError] = useState(null)
   const [scopeNotice, setScopeNotice] = useState('')
   const [scopeMinutesByScope, setScopeMinutesByScope] = useState({})
+  const [showSingleGameSaveOption, setShowSingleGameSaveOption] = useState(false)
+  const [singleGameSaveMessage, setSingleGameSaveMessage] = useState('')
+  const [singleGameSaveError, setSingleGameSaveError] = useState(false)
+  const [singleGameSaving, setSingleGameSaving] = useState(false)
+  const singleGameSaveTimerRef = useRef(null)
+  const interpretationEnabled =
+    INTERPRETATION_UI_ENABLED &&
+    selectedSeason === INTERPRETATION_ENABLED_SEASON &&
+    selectedDataScope === 'all' &&
+    factorType === 'eight_factors'
 
   useEffect(() => {
     let isCurrent = true
@@ -127,6 +144,14 @@ function FourFactor() {
     }
     loadInitialData()
     return () => { isCurrent = false }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (singleGameSaveTimerRef.current) {
+        clearTimeout(singleGameSaveTimerRef.current)
+      }
+    }
   }, [])
 
   useEffect(() => {
@@ -347,15 +372,7 @@ function FourFactor() {
   useEffect(() => {
     let isCurrent = true
     async function loadInterpretation() {
-      if (AI_SUMMARIES_ENABLED === false) {
-        if (isCurrent) {
-          setInterpretation(AI_SUMMARY_MAINTENANCE_MESSAGE)
-          setInterpretationLoading(false)
-        }
-        return
-      }
-
-      if (!decomposition || factorType !== 'eight_factors') {
+      if (!decomposition || !interpretationEnabled) {
         if (isCurrent) {
           setInterpretation(null)
           setInterpretationLoading(false)
@@ -365,7 +382,12 @@ function FourFactor() {
 
       setInterpretationLoading(true)
       try {
-        const data = await getInterpretation(decomposition, factorType, selectedSeason)
+        const data = await getInterpretation(
+          decomposition,
+          factorType,
+          selectedSeason,
+          selectedDataScope
+        )
         if (isCurrent) setInterpretation(data.interpretation)
       } catch (err) {
         // Silently fail - interpretation is optional enhancement
@@ -376,7 +398,7 @@ function FourFactor() {
     }
     loadInterpretation()
     return () => { isCurrent = false }
-  }, [decomposition, factorType])
+  }, [decomposition, factorType, interpretationEnabled, selectedDataScope, selectedSeason])
 
   useEffect(() => {
     setTimelineData(null)
@@ -612,9 +634,96 @@ function FourFactor() {
     return Number.isInteger(rounded) ? `${rounded} min` : `${rounded.toFixed(1)} min`
   }
 
+  const scheduleSingleGameSaveOptionHide = () => {
+    if (singleGameSaveTimerRef.current) {
+      clearTimeout(singleGameSaveTimerRef.current)
+    }
+    singleGameSaveTimerRef.current = setTimeout(() => {
+      setShowSingleGameSaveOption(false)
+      setSingleGameSaveMessage('')
+      setSingleGameSaveError(false)
+    }, HIDDEN_SAVE_OPTION_MS)
+  }
+
+  const handlePageTitleContextMenu = (event) => {
+    event.preventDefault()
+    setShowSingleGameSaveOption(true)
+    setSingleGameSaveMessage('')
+    setSingleGameSaveError(false)
+    scheduleSingleGameSaveOptionHide()
+  }
+
+  const handleSaveSingleGameJson = async () => {
+    if (!selectedSeason || !selectedGame) {
+      setSingleGameSaveMessage('Select a season and game first.')
+      setSingleGameSaveError(true)
+      scheduleSingleGameSaveOptionHide()
+      return
+    }
+
+    setSingleGameSaving(true)
+    setSingleGameSaveMessage('')
+    setSingleGameSaveError(false)
+
+    try {
+      const payload = await getInterpretationPrompt(
+        selectedSeason,
+        selectedGame,
+        factorType,
+        selectedDataScope
+      )
+
+      const normalizedGameId = normalizeGameId(selectedGame)
+      const scope = payload?.data_scope || selectedDataScope || 'all'
+      const promptFactorType = payload?.factor_type || factorType
+      const filename = `llm_prompt_${selectedSeason}_${scope}_${promptFactorType}_${normalizedGameId}.txt`
+      const promptText = payload?.prompt || ''
+      const blob = new Blob([promptText], { type: 'text/plain;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+
+      setSingleGameSaveMessage('LLM prompt downloaded.')
+      setSingleGameSaveError(false)
+    } catch (err) {
+      setSingleGameSaveMessage(err.message || 'Failed to download LLM prompt.')
+      setSingleGameSaveError(true)
+    } finally {
+      setSingleGameSaving(false)
+      scheduleSingleGameSaveOptionHide()
+    }
+  }
+
   return (
     <div className="four-factor container">
-      <h1 className="page-title">Game Analysis</h1>
+      <div className="page-title-row">
+        <h1 className="page-title" onContextMenu={handlePageTitleContextMenu}>
+          Game Analysis
+        </h1>
+        {showSingleGameSaveOption && (
+          <div className="hidden-save-option" role="status" aria-live="polite">
+            <button
+              type="button"
+              className="hidden-save-button"
+              onClick={handleSaveSingleGameJson}
+              disabled={!selectedSeason || !selectedGame || singleGameSaving}
+              title={!selectedGame ? 'Select a game first' : 'Download the exact prompt sent to the LLM for this game'}
+            >
+              {singleGameSaving ? 'Saving…' : 'Save LLM Prompt'}
+            </button>
+            {singleGameSaveMessage && (
+              <span className={`hidden-save-message ${singleGameSaveError ? 'error' : ''}`}>
+                {singleGameSaveMessage}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
       <p className="page-description">
         Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
       </p>
@@ -1018,34 +1127,35 @@ function FourFactor() {
               <span className="axis-label-right">Helps {decomposition.home_team} →</span>
             </div>
 
-            {/* AI Interpretation */}
-            <div className="interpretation-box">
-              {interpretationLoading && (
-                <div className="interpretation-loading">
-                  <span className="interpretation-spinner"></span>
-                  Generating analysis...
-                </div>
-              )}
-              {interpretation && !interpretationLoading && (
-                <div className="interpretation-content">
-                  <div className="interpretation-text">
-                    {interpretation.includes('-') ? (
-                      <ul>
-                        {interpretation
-                          .split(/\n|(?=- )/)
-                          .map(line => line.trim())
-                          .filter(line => line.startsWith('-') || line.startsWith('•'))
-                          .map((line, i) => (
-                            <li key={i}>{line.replace(/^[-•]\s*/, '')}</li>
-                          ))}
-                      </ul>
-                    ) : (
-                      <p>{interpretation}</p>
-                    )}
+            {interpretationEnabled && (
+              <div className="interpretation-box">
+                {interpretationLoading && (
+                  <div className="interpretation-loading">
+                    <span className="interpretation-spinner"></span>
+                    Generating analysis...
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+                {interpretation && !interpretationLoading && (
+                  <div className="interpretation-content">
+                    <div className="interpretation-text">
+                      {interpretation.includes('-') ? (
+                        <ul>
+                          {interpretation
+                            .split(/\n|(?=- )/)
+                            .map(line => line.trim())
+                            .filter(line => line.startsWith('-') || line.startsWith('•'))
+                            .map((line, i) => (
+                              <li key={i}>{line.replace(/^[-•]\s*/, '')}</li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p>{interpretation}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="glossary-section card">

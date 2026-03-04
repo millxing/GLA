@@ -72,9 +72,9 @@ def get_available_seasons() -> list:
 
 # LLM configuration for interpretation generation
 LLM_MODELS = {
-    "historical": "gpt-4o-mini",           # Cheap model for historical seasons
-    "current": "claude-sonnet-4-20250514", # Better model for current season
-    "fallback": "gpt-4o-mini",             # Fallback for real-time generation
+    "historical": "gpt-4o-mini",           # Legacy/historical generation
+    "current": "gpt-5-mini",               # Current-season interpretation model
+    "fallback": "gpt-5-mini",              # Real-time fallback model
 }
 
 # URL for pre-generated interpretations

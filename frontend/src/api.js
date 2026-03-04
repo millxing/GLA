@@ -113,7 +113,7 @@ export async function getLeagueTopContributors(
   return fetchApi(`/api/league-top-contributors?${params}`)
 }
 
-export async function getInterpretation(decomposition, factorType, season = null) {
+export async function getInterpretation(decomposition, factorType, season = null, dataScope = 'all') {
   return fetchApi('/api/interpretation', {
     method: 'POST',
     body: JSON.stringify({
@@ -128,6 +128,7 @@ export async function getInterpretation(decomposition, factorType, season = null
       predicted_rating_diff: decomposition.predicted_rating_diff,
       actual_rating_diff: decomposition.actual_rating_diff,
       factor_type: factorType,
+      data_scope: dataScope,
       home_factors: decomposition.home_factors,
       road_factors: decomposition.road_factors,
       home_ratings: decomposition.home_ratings,
@@ -136,4 +137,28 @@ export async function getInterpretation(decomposition, factorType, season = null
       factor_ranges: decomposition.factor_ranges,
     }),
   })
+}
+
+export async function getSingleGameContributionJson(season, gameId, dataScope = 'all') {
+  const params = new URLSearchParams({
+    season,
+    game_id: gameId,
+    data_scope: dataScope,
+  })
+  return fetchApi(`/api/contributions/single-game?${params}`)
+}
+
+export async function getInterpretationPrompt(
+  season,
+  gameId,
+  factorType = 'eight_factors',
+  dataScope = 'all'
+) {
+  const params = new URLSearchParams({
+    season,
+    game_id: gameId,
+    factor_type: factorType,
+    data_scope: dataScope,
+  })
+  return fetchApi(`/api/interpretation/prompt?${params}`)
 }

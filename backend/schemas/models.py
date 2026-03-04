@@ -227,6 +227,7 @@ class InterpretationRequest(BaseModel):
     game_id: str
     game_date: str
     season: Optional[str] = None  # Season for pre-generated interpretation lookup
+    data_scope: Optional[str] = "all"
     home_team: str
     road_team: str
     home_pts: int
