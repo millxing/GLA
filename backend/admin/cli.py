@@ -2622,7 +2622,7 @@ def generate_interpretations(
     Args:
         season: Season string (e.g., "2024-25")
         repo_dir: Path to NBA_Data repo
-        current_season: If True, use better model (Sonnet 4); else use cheaper model (GPT-4o-mini)
+        current_season: If True, use current-season model (gpt-5.4); else use historical model (gpt-4o-mini)
         incremental: If True, only generate for games not already in output file
         dry_run: If True, show what would be generated without calling LLM
         limit: If set, only process this many games (for testing)
@@ -2789,6 +2789,13 @@ def generate_interpretations(
             print(f"[interp] Output updated: {output_file}")
         else:
             print(f"[interp] Output unchanged: {output_file}")
+        if fail_count > 0:
+            # Surface partial-generation failures to callers (e.g. morning report script).
+            print(
+                f"[error] Interpretation generation completed with failures "
+                f"(successful={success_count}, failed={fail_count})"
+            )
+            return 2
         return 0
 
     except Exception as e:
@@ -3029,7 +3036,7 @@ Examples:
 Generates LLM interpretations for all games in a season and saves them to
 NBA_Data/interpretations/{season}.json.
 
-Use --current for the current season to use a better model (Sonnet 4).
+Use --current for the current season to use gpt-5.4.
 Use --incremental to only generate for games not already in the output file.
 Use --limit N to test with a small number of games.
 Use --max-new N to fail when more than N new games would be generated.
@@ -3037,7 +3044,7 @@ Use --max-new N to fail when more than N new games would be generated.
     )
     p_interp.add_argument("--season", required=True, help="Season like 2024-25")
     p_interp.add_argument("--current", action="store_true",
-                          help="Use better model (Sonnet 4) for current season")
+                          help="Use current-season model (gpt-5.4)")
     p_interp.add_argument("--incremental", action="store_true",
                           help="Only generate for games not already in output file")
     p_interp.add_argument("--dry-run", action="store_true",

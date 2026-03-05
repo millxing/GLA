@@ -16,40 +16,53 @@
 
 .controls {
   margin-bottom: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
 }
 
-.league-summary .controls .form-row > .season-control {
-  flex: 0 0 125px;
-  min-width: 125px;
-  max-width: 125px;
+.league-summary .controls .form-group {
+  margin-bottom: 0;
 }
 
-.league-summary .controls .form-row > .date-range-control {
-  flex: 0 0 178px;
-  min-width: 178px;
-  max-width: 178px;
+.league-summary .controls .controls-top-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--spacing-md);
 }
 
-.league-summary .controls .form-row > .custom-date-control {
-  flex: 0 0 174px;
-  min-width: 174px;
-  max-width: 174px;
+.league-summary .controls .controls-top-row > * {
+  min-width: 0;
 }
 
-.league-summary .controls .form-row > .table-view-control {
-  flex: 1 1 320px;
-  min-width: 260px;
+.league-summary .controls .custom-dates-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-md);
+}
+
+.league-summary .controls .custom-dates-row > * {
+  min-width: 0;
+}
+
+.league-summary .controls .table-view-row {
+  display: block;
+}
+
+.league-summary .controls .table-view-row > .table-view-control {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
 }
 
 .league-summary .form-select,
-.league-summary .form-input,
-.view-toggle-btn {
+.league-summary .form-input {
   height: 42px;
 }
 
 .view-toggle-group {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--spacing-xs);
   width: 100%;
   max-width: 100%;
@@ -61,27 +74,28 @@
   justify-content: center;
   width: 100%;
   min-width: 0;
-  white-space: nowrap;
+  min-height: 42px;
+  white-space: normal;
   border: 1px solid var(--color-border);
   background-color: var(--color-background);
   color: var(--color-text);
   border-radius: var(--border-radius-sm);
-  padding: 0 0.5rem;
+  padding: 0.375rem 0.5rem;
   font-size: 0.875rem;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-overflow: clip;
+  line-height: 1.15;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .view-toggle-btn:hover {
-  background-color: var(--color-highlight-bg);
+  background-color: var(--color-button-hover-muted);
 }
 
 .view-toggle-btn.active {
-  background-color: var(--color-primary);
-  border-color: var(--color-primary);
+  background-color: var(--color-button-primary);
+  border-color: var(--color-button-primary);
   color: #fff;
 }
 
@@ -262,6 +276,37 @@
 
 .sort-indicator {
   font-size: 0.75rem;
+}
+
+.header-tooltip-popover {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 0.55rem 0.7rem;
+  border-radius: var(--border-radius-sm);
+  background: rgba(15, 23, 42, 0.96);
+  color: #f8fafc;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  white-space: normal;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.22);
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+}
+
+.header-tooltip-popover--bottom {
+  transform: translate(-50%, 0);
+}
+
+.header-tooltip-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 0.25rem;
+}
+
+.header-tooltip-line {
+  color: #e2e8f0;
 }
 
 /* League averages row */
@@ -491,12 +536,12 @@
 }
 
 .btn-primary {
-  background-color: var(--color-primary);
+  background-color: var(--color-button-primary);
   color: white;
 }
 
 .btn-primary:hover {
-  background-color: var(--color-primary-hover, #2563eb);
+  background-color: var(--color-button-primary-hover);
   transform: translateY(-1px);
 }
 
@@ -579,6 +624,12 @@
   margin-bottom: var(--spacing-md);
 }
 
+.section-title-context {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  font-size: 0.95em;
+}
+
 .contributors-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -636,6 +687,10 @@
 
 .contributors-table tbody tr {
   border-bottom: 1px solid var(--color-border);
+}
+
+.contributors-table tbody tr.contributors-data-row {
+  cursor: default;
 }
 
 .contributors-table tbody tr:last-child {
@@ -697,26 +752,16 @@
     max-width: 70px;
   }
 
-  .league-summary .controls .form-row > .season-control {
-    flex-basis: 120px;
-    min-width: 120px;
-    max-width: 120px;
+  .league-summary .controls .controls-top-row {
+    grid-template-columns: 1fr;
   }
 
-  .league-summary .controls .form-row > .date-range-control {
-    flex-basis: 167px;
-    min-width: 167px;
-    max-width: 167px;
+  .league-summary .controls .custom-dates-row {
+    grid-template-columns: 1fr;
   }
 
-  .league-summary .controls .form-row > .custom-date-control {
-    flex-basis: 154px;
-    min-width: 154px;
-    max-width: 154px;
-  }
-
-  .league-summary .controls .form-row > .table-view-control {
-    min-width: 100%;
+  .view-toggle-group {
+    grid-template-columns: 1fr;
   }
 
   .glossary-list {

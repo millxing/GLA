@@ -116,7 +116,7 @@
 }
 
 .home-team .team-score {
-  color: var(--color-home);
+  color: var(--color-positive);
 }
 
 .road-team .team-score {
@@ -261,11 +261,11 @@
 }
 
 .analysis-view-toggle button:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--color-button-hover-muted);
 }
 
 .analysis-view-toggle button.active {
-  background: var(--color-primary);
+  background: var(--color-button-primary);
   color: #fff;
 }
 
@@ -306,11 +306,11 @@
 }
 
 .data-scope-toggle button:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--color-button-hover-muted);
 }
 
 .data-scope-toggle button.active {
-  background: var(--color-primary);
+  background: var(--color-button-primary);
   color: #fff;
 }
 

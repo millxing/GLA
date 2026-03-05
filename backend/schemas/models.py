@@ -112,6 +112,8 @@ class TeamStats(BaseModel):
     fg_pct: float
     fg3_pct: float
     ft_pct: float
+    fg2_pct: float
+    fg3a_rate: float
     efg_pct: float
     oreb_pct: float
     dreb_pct: float
@@ -122,6 +124,10 @@ class TeamStats(BaseModel):
     def_rating: float
     net_rating: float
     opp_efg_pct: float
+    opp_ft_pct: float
+    opp_fg2_pct: float
+    opp_fg3_pct: float
+    opp_fg3a_rate: float
     opp_tov_pct: float
     opp_ball_handling: float
     opp_oreb_pct: float

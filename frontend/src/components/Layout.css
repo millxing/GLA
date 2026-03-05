@@ -5,7 +5,10 @@
 }
 
 .header {
-  background-color: #3b82f6;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background-color: #000000;
   color: white;
   box-shadow: var(--shadow);
 }
@@ -75,8 +78,18 @@
   max-width: 1400px;
   margin: 0 auto;
   text-align: center;
-  font-size: 0.875rem;
+  font-size: 1rem;
   color: var(--color-text-secondary);
+}
+
+.footer-content a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.footer-content a:hover {
+  color: var(--color-text);
 }
 
 @media (max-width: 768px) {

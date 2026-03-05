@@ -19,6 +19,10 @@
   --color-primary-light: #3b82f6;
   --color-primary-dark: #1e3a8a;
 
+  --color-button-primary: #000000;
+  --color-button-primary-hover: #1f2937;
+  --color-button-hover-muted: rgba(17, 24, 39, 0.08);
+
   --color-background: #ffffff;
   --color-background-alt: #f9fafb;
   --color-border: #e5e7eb;
@@ -30,9 +34,9 @@
   --color-home: #3b82f6;
   --color-road: #f97316;
 
-  --font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --font-family-base: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --font-family-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-family-base: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --font-family-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
 
   --border-radius-sm: 4px;
   --border-radius: 8px;

@@ -73,7 +73,7 @@ def get_available_seasons() -> list:
 # LLM configuration for interpretation generation
 LLM_MODELS = {
     "historical": "gpt-4o-mini",           # Legacy/historical generation
-    "current": "gpt-5-mini",               # Current-season interpretation model
+    "current": "gpt-5.4",                  # Current-season interpretation model (new games)
     "fallback": "gpt-5-mini",              # Real-time fallback model
 }
 

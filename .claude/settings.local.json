@@ -36,7 +36,16 @@
       "Bash(/opt/miniconda3/envs/ace_env/bin/python:*)",
       "Bash(/opt/miniconda3/bin/conda create:*)",
       "Bash(/Users/robschoen/Dropbox/CC/GLA/backend/admin/scripts/update_and_push.sh)",
-      "Bash(# Check if there are multiple backend processes lsof -i :8000)"
+      "Bash(# Check if there are multiple backend processes lsof -i :8000)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(lsof -ti:5173)",
+      "Bash(kill 13560 32166)",
+      "Bash(lsof -i :5173 -t)",
+      "Bash(kill 19447 24829)",
+      "Bash(xargs kill)",
+      "Bash(lsof -ti:5173,5174)",
+      "Bash(xargs kill -9)",
+      "Bash(npx vite build)"
     ]
   }
 }

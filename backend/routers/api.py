@@ -1020,6 +1020,7 @@ STAT_LABELS = {
     "opp_ball_handling": "Opp BH",
     "opp_oreb_pct": "Opp OREB%",
     "opp_ft_rate": "Opp FT Rate",
+    "opp_ft_pct": "Opp FT%",
     "fg2_pct": "FG2%",
     "fg3a_rate": "FG3A Rate",
     "opp_fg2_pct": "Opp FG2%",
@@ -1660,6 +1661,8 @@ async def get_league_summary(
             fg_pct=float(row["fg_pct"]),
             fg3_pct=float(row["fg3_pct"]),
             ft_pct=float(row["ft_pct"]),
+            fg2_pct=float(row["fg2_pct"]),
+            fg3a_rate=float(row["fg3a_rate"]),
             efg_pct=float(row["efg_pct"]),
             oreb_pct=float(row["oreb_pct"]),
             dreb_pct=float(row["dreb_pct"]),
@@ -1670,6 +1673,10 @@ async def get_league_summary(
             def_rating=float(row["def_rating"]),
             net_rating=float(row["net_rating"]),
             opp_efg_pct=float(row["opp_efg_pct"]),
+            opp_ft_pct=float(row["opp_ft_pct"]),
+            opp_fg2_pct=float(row["opp_fg2_pct"]),
+            opp_fg3_pct=float(row["opp_fg3_pct"]),
+            opp_fg3a_rate=float(row["opp_fg3a_rate"]),
             opp_tov_pct=float(row["opp_tov_pct"]),
             opp_ball_handling=float(row["opp_ball_handling"]),
             opp_oreb_pct=float(row["opp_oreb_pct"]),
@@ -1686,10 +1693,10 @@ async def get_league_summary(
         ))
 
     numeric_cols = [
-        "win_pct", "ppg", "opp_ppg", "fg_pct", "fg3_pct", "ft_pct",
+        "win_pct", "ppg", "opp_ppg", "fg_pct", "fg3_pct", "ft_pct", "fg2_pct", "fg3a_rate",
         "efg_pct", "oreb_pct", "dreb_pct", "tov_pct", "ball_handling",
         "ft_rate", "off_rating", "def_rating", "net_rating",
-        "opp_efg_pct", "opp_tov_pct", "opp_ft_rate", "pace",
+        "opp_efg_pct", "opp_ft_pct", "opp_fg2_pct", "opp_fg3_pct", "opp_fg3a_rate", "opp_tov_pct", "opp_ft_rate", "pace",
         "sos", "off_sos", "def_sos", "adj_net_rating", "adj_off_rating", "adj_def_rating",
         "scope_time_pct",
     ]

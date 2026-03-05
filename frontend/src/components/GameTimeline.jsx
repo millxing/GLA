@@ -456,7 +456,7 @@ export default function GameTimeline({ timeline }) {
     }
 
     ctx.fillStyle = '#666'
-    ctx.font = `625 ${12 * dpr}px "JetBrains Mono", monospace`
+    ctx.font = `625 ${12 * dpr}px "Roboto Mono", monospace`
     ctx.textAlign = 'right'
     ctx.textBaseline = 'middle'
     for (const tick of yTicks) {

@@ -18,13 +18,23 @@ OPENAI_MODEL = "gpt-5-mini"
 # Model tiers for batch generation
 LLM_MODELS = {
     "historical": "gpt-4o-mini",           # Legacy/historical generation
-    "current": "gpt-5-mini",               # Current-season model (quality/cost target)
+    "current": "gpt-5.4",                  # Current-season incremental/new-game generation
     "fallback": "gpt-5-mini",              # Real-time fallback model
 }
 
 # Timeout for LLM API calls
 LLM_TIMEOUT = 30.0  # Increased for larger prompts with examples
 LLM_TIMEOUT_BATCH = 60.0  # Even longer for batch operations
+
+
+def _openai_reasoning_effort(model_name: str) -> Optional[str]:
+    """Reasoning profile by model for chat-completions payloads."""
+    if model_name == LLM_MODELS["current"]:
+        # New-game generation requirement: no reasoning depth for gpt-5.4.
+        return "none"
+    if model_name.startswith("gpt-5") or model_name.startswith("o"):
+        return "low"
+    return None
 
 def _get_llm_config():
     """Get LLM configuration from environment (read fresh each time)."""
@@ -442,8 +452,9 @@ async def _call_openai(prompt: str, api_key: str, model: str = None, timeout: fl
                 token_key: token_budget,
                 "messages": [{"role": "user", "content": prompt}]
             }
-            if is_gpt5_family:
-                payload["reasoning_effort"] = "low"
+            reasoning_effort = _openai_reasoning_effort(use_model)
+            if reasoning_effort:
+                payload["reasoning_effort"] = reasoning_effort
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
@@ -528,8 +539,9 @@ def _call_openai_sync(prompt: str, api_key: str, model: str = None, timeout: flo
                 token_key: token_budget,
                 "messages": [{"role": "user", "content": prompt}]
             }
-            if is_gpt5_family:
-                payload["reasoning_effort"] = "low"
+            reasoning_effort = _openai_reasoning_effort(use_model)
+            if reasoning_effort:
+                payload["reasoning_effort"] = reasoning_effort
             response = client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={

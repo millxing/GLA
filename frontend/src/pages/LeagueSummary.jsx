@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom'
 import './LeagueSummary.css'
 
 const VIEW_FOUR_FACTORS = 'four_factors'
+const VIEW_SHOOTING = 'shooting'
 const VIEW_SOS_ADJUSTMENTS = 'sos_adjustments'
 
 // BH = Ball Handling = 100 - TOV% (higher is better)
@@ -15,6 +16,7 @@ const FOUR_FACTOR_COLUMNS = [
   { key: 'games', label: 'GP', labelLine2: '', sortable: true },
   { key: 'wins', label: 'W', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'losses', label: 'L', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'win_pct', label: 'PCT', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
   { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
   { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
@@ -79,8 +81,45 @@ const SOS_SCOPED_COLUMNS = [
   { key: 'adj_def_rating', label: 'Adj DRtg', labelLine2: '', sortable: true, higherBetter: false },
 ]
 
+const SHOOTING_COLUMNS = [
+  { key: 'team', label: 'Team', labelLine2: '', sortable: true },
+  { key: 'games', label: 'GP', labelLine2: '', sortable: true },
+  { key: 'wins', label: 'W', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'losses', label: 'L', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'win_pct', label: 'PCT', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'ft_pct', label: 'FT%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'fg2_pct', label: '2pt%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'fg3_pct', label: '3pt%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'fg3a_rate', label: '3ptAr', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'opp_ft_pct', label: 'FT%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_fg2_pct', label: '2pt%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_fg3_pct', label: '3pt%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_fg3a_rate', label: '3ptAr', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+]
+
+const SHOOTING_SCOPED_COLUMNS = [
+  { key: 'team', label: 'Team', labelLine2: '', sortable: true },
+  { key: 'scope_games', label: 'G', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'scope_time_pct', label: '% of Time', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'off_rating', label: 'ORtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'def_rating', label: 'DRtg', labelLine2: '', sortable: true, higherBetter: false },
+  { key: 'net_rating', label: 'NRtg', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'ft_pct', label: 'FT%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'fg2_pct', label: '2pt%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'fg3_pct', label: '3pt%', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'fg3a_rate', label: '3ptAr', labelLine2: '', sortable: true, higherBetter: true },
+  { key: 'opp_ft_pct', label: 'FT%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_fg2_pct', label: '2pt%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_fg3_pct', label: '3pt%', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+  { key: 'opp_fg3a_rate', label: '3ptAr', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
+]
+
 const SECTION_START_COLUMNS = {
   [VIEW_FOUR_FACTORS]: new Set(['off_rating', 'efg_pct', 'opp_efg_pct', 'pace']),
+  [VIEW_SHOOTING]: new Set(['off_rating', 'ft_pct', 'opp_ft_pct']),
   [VIEW_SOS_ADJUSTMENTS]: new Set(['net_rating', 'sos', 'adj_net_rating']),
 }
 
@@ -88,11 +127,19 @@ const TRENDS_DIRECT_STAT_COLUMNS = new Set([
   'net_rating',
   'off_rating',
   'def_rating',
+  'ft_pct',
+  'fg2_pct',
+  'fg3_pct',
+  'fg3a_rate',
   'efg_pct',
   'ball_handling',
   'oreb_pct',
   'ft_rate',
   'opp_efg_pct',
+  'opp_ft_pct',
+  'opp_fg2_pct',
+  'opp_fg3_pct',
+  'opp_fg3a_rate',
   'opp_ball_handling',
   'opp_oreb_pct',
   'opp_ft_rate',
@@ -123,7 +170,15 @@ const TRENDS_STAT_LABELS = {
   ball_handling: 'Ball Handling',
   oreb_pct: 'Offensive Rebound %',
   ft_rate: 'Free Throw Rate',
+  ft_pct: 'Free Throw Percentage',
+  fg2_pct: '2-Point FG%',
+  fg3_pct: '3-Point FG%',
+  fg3a_rate: '3-Point Attempt Rate',
   opp_efg_pct: 'Opp Effective FG%',
+  opp_ft_pct: 'Opp Free Throw Percentage',
+  opp_fg2_pct: 'Opp 2-Point FG%',
+  opp_fg3_pct: 'Opp 3-Point FG%',
+  opp_fg3a_rate: 'Opp 3-Point Attempt Rate',
   opp_ball_handling: 'Opp Ball Handling',
   opp_oreb_pct: 'Opp Offensive Rebound %',
   opp_ft_rate: 'Opp Free Throw Rate',
@@ -136,6 +191,8 @@ const resolveTrendStatForColumn = (columnKey) => {
 }
 
 const GLOSSARY_ITEMS = [
+  { term: 'Rank', definition: 'League rank based on the currently selected sort column.' },
+  { term: 'Team', definition: 'Team abbreviation.' },
   { term: 'GP', definition: 'Games Played' },
   { term: 'G', definition: 'Games containing the selected situational segment (garbage time or clutch time).' },
   { term: '% of Time', definition: 'Share of total game time spent in the selected situational segment.' },
@@ -148,6 +205,10 @@ const GLOSSARY_ITEMS = [
   { term: 'BH', definition: 'Ball Handling - Measures ability to take care of the ball. Calculated as 100 - TOV%. Higher is better.' },
   { term: 'OREB%', definition: 'Offensive Rebounding Percentage - Percentage of available offensive rebounds grabbed' },
   { term: 'FT Rate', definition: 'Free Throw Rate - Free throws made per field goal attempt (FTM / FGA × 100)' },
+  { term: 'FT%', definition: 'Free Throw Percentage - Free throws made divided by free throw attempts (FTM / FTA × 100).' },
+  { term: '2pt%', definition: '2-point field goal percentage: 2PT FGM / 2PT FGA × 100.' },
+  { term: '3pt%', definition: '3-point field goal percentage: 3PT FGM / 3PT FGA × 100.' },
+  { term: '3ptAr', definition: '3-point attempt rate: 3PA / FGA × 100.' },
   { term: 'Opp', definition: 'Opponent statistics - For defensive stats, lower opponent values are better for your team' },
   { term: 'Pace', definition: 'Average possessions per game. Higher pace indicates a faster-paced playing style.' },
   { term: 'PCT', definition: 'Winning Percentage (shown as .xxx)' },
@@ -160,16 +221,70 @@ const GLOSSARY_ITEMS = [
   { term: 'Contribution', definition: 'How much a factor contributed to a team\'s net rating relative to league average. Calculated as: (Team Value - League Avg) × Model Coefficient. Positive contributions help the team; negative contributions hurt.' },
 ]
 
+const GLOSSARY_DEFINITIONS = Object.fromEntries(
+  GLOSSARY_ITEMS.map(({ term, definition }) => [term, definition])
+)
+
+const HEADER_TOOLTIP_TERMS = {
+  rank: 'Rank',
+  team: 'Team',
+  games: 'GP',
+  scope_games: 'G',
+  scope_time_pct: '% of Time',
+  wins: 'W',
+  losses: 'L',
+  win_pct: 'PCT',
+  off_rating: 'ORtg',
+  def_rating: 'DRtg',
+  net_rating: 'NRtg',
+  efg_pct: 'eFG%',
+  ball_handling: 'BH',
+  oreb_pct: 'OREB%',
+  ft_rate: 'FT Rate',
+  pace: 'Pace',
+  ft_pct: 'FT%',
+  fg2_pct: '2pt%',
+  fg3_pct: '3pt%',
+  fg3a_rate: '3ptAr',
+  opp_efg_pct: 'eFG%',
+  opp_ball_handling: 'BH',
+  opp_oreb_pct: 'OREB%',
+  opp_ft_rate: 'FT Rate',
+  opp_ft_pct: 'FT%',
+  opp_fg2_pct: '2pt%',
+  opp_fg3_pct: '3pt%',
+  opp_fg3a_rate: '3ptAr',
+  sos: 'SOS',
+  off_sos: 'Off SOS',
+  def_sos: 'Def SOS',
+  adj_net_rating: 'Adj NRtg',
+  adj_off_rating: 'Adj ORtg',
+  adj_def_rating: 'Adj DRtg',
+}
+
+function getHeaderTooltip(columnKey, isOpponentColumn = false) {
+  const glossaryTerm = HEADER_TOOLTIP_TERMS[columnKey]
+  if (!glossaryTerm) return ''
+
+  const definition = GLOSSARY_DEFINITIONS[glossaryTerm]
+  if (!definition) return ''
+
+  if (!isOpponentColumn) return definition
+
+  const opponentDefinition = GLOSSARY_DEFINITIONS.Opp
+  return `Opponent ${glossaryTerm} - ${definition} ${opponentDefinition}`
+}
+
 const DATE_RANGE_OPTIONS = [
   { value: 'season', label: 'Season' },
-  { value: 'season_regular', label: 'Season (Regular Season only)' },
+  { value: 'season_regular', label: 'Regular Season' },
   { value: 'this_month', label: 'This Month' },
   { value: 'last_2_months', label: 'Last 2 months' },
   { value: 'last_3_months', label: 'Last 3 months' },
   { value: 'last_10_games', label: 'Last 10 games' },
   { value: 'last_15_games', label: 'Last 15 games' },
   { value: 'last_20_games', label: 'Last 20 games' },
-  { value: 'custom', label: 'Custom Date Range' },
+  { value: 'custom', label: 'Custom Dates' },
 ]
 const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Data' },
@@ -347,6 +462,7 @@ function LeagueSummary() {
   const [topContributors, setTopContributors] = useState(null)
   const [contributorsLoading, setContributorsLoading] = useState(false)
   const [topContributorsNote, setTopContributorsNote] = useState('')
+  const [hoverTooltip, setHoverTooltip] = useState(null)
   const isCustomDateRangeVisible = dateRangePreset === 'custom'
 
   useEffect(() => {
@@ -383,6 +499,19 @@ function LeagueSummary() {
       setDateRangePreset('season')
     }
   }, [dateRangePreset, setDateRangePreset])
+
+  useEffect(() => {
+    if (!hoverTooltip) return undefined
+
+    const hideTooltip = () => setHoverTooltip(null)
+    window.addEventListener('scroll', hideTooltip, true)
+    window.addEventListener('resize', hideTooltip)
+
+    return () => {
+      window.removeEventListener('scroll', hideTooltip, true)
+      window.removeEventListener('resize', hideTooltip)
+    }
+  }, [hoverTooltip])
 
   const formatUtcDate = (dateObj) => {
     const y = dateObj.getUTCFullYear()
@@ -565,6 +694,9 @@ function LeagueSummary() {
     if (tableView === VIEW_SOS_ADJUSTMENTS) {
       return isScopedSummary ? SOS_SCOPED_COLUMNS : SOS_COLUMNS
     }
+    if (tableView === VIEW_SHOOTING) {
+      return isScopedSummary ? SHOOTING_SCOPED_COLUMNS : SHOOTING_COLUMNS
+    }
     return isScopedSummary ? FOUR_FACTOR_SCOPED_COLUMNS : FOUR_FACTOR_COLUMNS
   }, [tableView, isScopedSummary])
 
@@ -670,6 +802,27 @@ function LeagueSummary() {
     }
   }
 
+  const showHoverTooltip = (event, tooltipContent) => {
+    if (!tooltipContent) return
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    const showAbove = rect.top > 96
+    const centerX = rect.left + (rect.width / 2)
+    const x = Math.min(Math.max(centerX, 24), window.innerWidth - 24)
+    const y = showAbove ? rect.top - 10 : rect.bottom + 10
+
+    setHoverTooltip({
+      ...tooltipContent,
+      x,
+      y,
+      placement: showAbove ? 'top' : 'bottom',
+    })
+  }
+
+  const hideHoverTooltip = () => {
+    setHoverTooltip(null)
+  }
+
   const isHeaderCenteredValueColumn = (columnKey) => {
     return ['games', 'wins', 'losses', 'win_pct', 'scope_games', 'scope_time_pct'].includes(columnKey)
   }
@@ -692,6 +845,76 @@ function LeagueSummary() {
       return value.toFixed(1)
     }
     return value
+  }
+
+  const formatReadableDate = (dateString) => {
+    if (!dateString) return ''
+    return new Date(`${dateString}T00:00:00`).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    })
+  }
+
+  const contributorPeriodHeadingLabel = useMemo(() => {
+    if (!topContributors?.start_date || !topContributors?.end_date) return ''
+
+    const startLabel = formatReadableDate(topContributors.start_date)
+    const endLabel = formatReadableDate(topContributors.end_date)
+
+    if (lastNGames) {
+      return `Last ${lastNGames} games`
+    }
+
+    if (dateRangePreset === 'season_regular') {
+      return 'Regular season'
+    }
+
+    if (dateRangePreset === 'season') {
+      return 'Season to date'
+    }
+
+    if (startLabel === endLabel) return startLabel
+    return `${startLabel} - ${endLabel}`
+  }, [topContributors, lastNGames, dateRangePreset])
+
+  const contributorPeriodSentenceLabel = useMemo(() => {
+    if (!topContributors?.start_date || !topContributors?.end_date) return 'this period'
+
+    const startLabel = formatReadableDate(topContributors.start_date)
+    const endLabel = formatReadableDate(topContributors.end_date)
+
+    if (lastNGames) {
+      return `the last ${lastNGames} games`
+    }
+
+    if (dateRangePreset === 'season_regular') {
+      return 'the regular season to date'
+    }
+
+    if (dateRangePreset === 'season') {
+      return 'the season to date'
+    }
+
+    if (startLabel === endLabel) {
+      return `games on ${startLabel}`
+    }
+
+    return `games from ${startLabel} to ${endLabel}`
+  }, [topContributors, lastNGames, dateRangePreset])
+
+  const getContributorTooltip = (item) => {
+    if (!item) return null
+
+    const teamLabel = TEAM_CITY_BY_ABBR[item.team] || TEAM_NAME_BY_ABBR[item.team] || item.team
+    const contributionValue = Math.abs(item.contribution).toFixed(2)
+    const verb = item.contribution >= 0 ? 'added' : 'subtracted'
+    const preposition = item.contribution >= 0 ? 'to' : 'from'
+    const sentence = `${teamLabel}'s ${item.factor_label} ${verb} ${contributionValue} points ${preposition} their net rating in ${contributorPeriodSentenceLabel}.`
+
+    return {
+      lines: [sentence],
+    }
   }
 
   // Compute league averages for the new columns
@@ -747,7 +970,12 @@ function LeagueSummary() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    const viewSuffix = tableView === VIEW_SOS_ADJUSTMENTS ? 'sos_adjusted' : 'four_factors'
+    const viewSuffix =
+      tableView === VIEW_SOS_ADJUSTMENTS
+        ? 'sos_adjusted'
+        : tableView === VIEW_SHOOTING
+          ? 'shooting'
+          : 'four_factors'
     const rangeSuffix = lastNGames ? `last_${lastNGames}_games` : `${startDate}_${endDate}`
     a.download = `league_summary_${viewSuffix}_${selectedSeason}_${rangeSuffix}.csv`
     document.body.appendChild(a)
@@ -893,7 +1121,7 @@ function LeagueSummary() {
       </p>
 
       <div className="controls card">
-        <div className="form-row">
+        <div className="form-row controls-top-row">
           <div className="form-group season-control">
             <label className="form-label">Season</label>
             <select
@@ -908,7 +1136,7 @@ function LeagueSummary() {
             </select>
           </div>
 
-          <div className="form-group">
+          <div className="form-group data-scope-control">
             <label className="form-label">Data Scope</label>
             <select
               className="form-select"
@@ -933,35 +1161,37 @@ function LeagueSummary() {
               ))}
             </select>
           </div>
+        </div>
 
-          {isCustomDateRangeVisible && (
-            <>
-              <div className="form-group custom-date-control">
-                <label className="form-label">Start Date</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={customStartDate}
-                  min={seasonBounds.first || undefined}
-                  max={seasonBounds.last || undefined}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                />
-              </div>
+        {isCustomDateRangeVisible && (
+          <div className="form-row custom-dates-row">
+            <div className="form-group custom-date-control">
+              <label className="form-label">Start Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={customStartDate}
+                min={seasonBounds.first || undefined}
+                max={seasonBounds.last || undefined}
+                onChange={(e) => setCustomStartDate(e.target.value)}
+              />
+            </div>
 
-              <div className="form-group custom-date-control">
-                <label className="form-label">End Date</label>
-                <input
-                  type="date"
-                  className="form-input"
-                  value={customEndDate}
-                  min={seasonBounds.first || undefined}
-                  max={seasonBounds.last || undefined}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                />
-              </div>
-            </>
-          )}
+            <div className="form-group custom-date-control">
+              <label className="form-label">End Date</label>
+              <input
+                type="date"
+                className="form-input"
+                value={customEndDate}
+                min={seasonBounds.first || undefined}
+                max={seasonBounds.last || undefined}
+                onChange={(e) => setCustomEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
 
+        <div className="form-row table-view-row">
           <div className="form-group table-view-control">
             <label className="form-label">Table View</label>
             <div className="view-toggle-group">
@@ -970,18 +1200,24 @@ function LeagueSummary() {
                 className={`view-toggle-btn ${tableView === VIEW_FOUR_FACTORS ? 'active' : ''}`}
                 onClick={() => setTableView(VIEW_FOUR_FACTORS)}
               >
-                Show Four Factors
+                Four Factors
+              </button>
+              <button
+                type="button"
+                className={`view-toggle-btn ${tableView === VIEW_SHOOTING ? 'active' : ''}`}
+                onClick={() => setTableView(VIEW_SHOOTING)}
+              >
+                Shooting
               </button>
               <button
                 type="button"
                 className={`view-toggle-btn ${tableView === VIEW_SOS_ADJUSTMENTS ? 'active' : ''}`}
                 onClick={() => setTableView(VIEW_SOS_ADJUSTMENTS)}
               >
-                {isCustomDateRangeVisible ? 'Show SOS' : 'Show Strength of Schedule'}
+                {isCustomDateRangeVisible ? 'SOS' : 'Strength of Schedule'}
               </button>
             </div>
           </div>
-
         </div>
       </div>
 
@@ -1000,7 +1236,11 @@ function LeagueSummary() {
             <table className="summary-table">
               <thead>
                 <tr>
-                  <th className="rank-col">
+                  <th
+                    className="rank-col"
+                    onMouseEnter={(event) => showHoverTooltip(event, { lines: [getHeaderTooltip('rank')] })}
+                    onMouseLeave={hideHoverTooltip}
+                  >
                     <div className="header-content">
                       <span className="header-line1">Rank</span>
                     </div>
@@ -1010,6 +1250,8 @@ function LeagueSummary() {
                       key={col.key}
                       className={`stat-header ${col.sortable ? 'sortable' : ''} ${sortColumn === col.key ? 'sorted' : ''} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-header' : ''}`}
                       onClick={() => col.sortable && handleSort(col.key)}
+                      onMouseEnter={(event) => showHoverTooltip(event, { lines: [getHeaderTooltip(col.key, col.labelLine2 === 'Opp')] })}
+                      onMouseLeave={hideHoverTooltip}
                     >
                       <div className="header-content">
                         {col.labelLine2 && <span className="header-line2">{col.labelLine2}</span>}
@@ -1170,7 +1412,10 @@ function LeagueSummary() {
 
           {topContributors && !contributorsLoading && (
             <div className="top-contributors-section">
-              <h2 className="section-title">Top Contributors to Net Rating</h2>
+              <h2 className="section-title">
+                Top Contributors to Net Rating
+                {contributorPeriodHeadingLabel ? <span className="section-title-context"> ({contributorPeriodHeadingLabel})</span> : null}
+              </h2>
               <div className="contributors-grid">
                 <div className="contributors-column">
                   <h3 className="column-title positive">Top Positive Contributors</h3>
@@ -1185,7 +1430,12 @@ function LeagueSummary() {
                     </thead>
                     <tbody>
                       {topContributors.top_positive.map((item, index) => (
-                        <tr key={`pos-${index}`}>
+                        <tr
+                          key={`pos-${index}`}
+                          className="contributors-data-row"
+                          onMouseEnter={(event) => showHoverTooltip(event, getContributorTooltip(item))}
+                          onMouseLeave={hideHoverTooltip}
+                        >
                           <td className="team-cell">{item.team}</td>
                           <td>{item.factor_label}</td>
                           <td className="value-cell">{item.value.toFixed(1)}</td>
@@ -1210,7 +1460,12 @@ function LeagueSummary() {
                     </thead>
                     <tbody>
                       {topContributors.top_negative.map((item, index) => (
-                        <tr key={`neg-${index}`}>
+                        <tr
+                          key={`neg-${index}`}
+                          className="contributors-data-row"
+                          onMouseEnter={(event) => showHoverTooltip(event, getContributorTooltip(item))}
+                          onMouseLeave={hideHoverTooltip}
+                        >
                           <td className="team-cell">{item.team}</td>
                           <td>{item.factor_label}</td>
                           <td className="value-cell">{item.value.toFixed(1)}</td>
@@ -1238,6 +1493,20 @@ function LeagueSummary() {
               Loading top contributors...
             </div>
           )}
+        </div>
+      )}
+
+      {hoverTooltip && (
+        <div
+          className={`header-tooltip-popover header-tooltip-popover--${hoverTooltip.placement}`}
+          style={{ left: `${hoverTooltip.x}px`, top: `${hoverTooltip.y}px` }}
+          role="tooltip"
+          aria-hidden="true"
+        >
+          {hoverTooltip.title ? <div className="header-tooltip-title">{hoverTooltip.title}</div> : null}
+          {(hoverTooltip.lines || []).map((line, index) => (
+            <div key={`${line}-${index}`} className="header-tooltip-line">{line}</div>
+          ))}
         </div>
       )}
 

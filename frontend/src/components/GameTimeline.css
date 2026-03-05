@@ -42,11 +42,11 @@
 }
 
 .timeline-mode-toggle button:hover {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--color-button-hover-muted);
 }
 
 .timeline-mode-toggle button.active {
-  background: var(--color-primary);
+  background: var(--color-button-primary);
   color: #fff;
 }
 

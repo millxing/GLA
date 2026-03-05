@@ -1,13 +1,22 @@
-import { Outlet, NavLink } from 'react-router-dom'
+import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import './Layout.css'
 
 function Layout() {
+  const location = useLocation()
+
+  const handleLogoClick = (e) => {
+    if (location.pathname === '/') {
+      e.preventDefault()
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
   return (
     <div className="layout">
       <header className="header">
         <div className="header-content">
-          <NavLink to="/" className="logo">
-            NBA Game Log Analytics
+          <NavLink to="/" className="logo" onClick={handleLogoClick}>
+            Extra Pass Analytics
           </NavLink>
           <nav className="nav">
             <NavLink to="/four-factor" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
@@ -30,7 +39,14 @@ function Layout() {
       </main>
       <footer className="footer">
         <div className="footer-content">
-          Data sourced from NBA game logs. Built with React and FastAPI.
+          Data sourced with{' '}
+          <a href="https://github.com/swar/nba_api" target="_blank" rel="noreferrer">
+            NBA_API
+          </a>
+          . Built with React and FastAPI by{' '}
+          <a href="https://entangledparticles.xyz" target="_blank" rel="noreferrer">
+            Entangled Paricles
+          </a>
         </div>
       </footer>
     </div>

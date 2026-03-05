@@ -335,10 +335,14 @@ def compute_league_aggregates(
     team_stats = filtered_df.groupby("team").agg(agg_cols).reset_index()
     team_stats = team_stats.rename(columns={"game_id": "games"})
 
-    team_stats["fg_pct"] = (team_stats["fgm"] / team_stats["fga"] * 100).round(1)
-    team_stats["fg3_pct"] = (team_stats["fg3m"] / team_stats["fg3a"] * 100).round(1)
-    team_stats["ft_pct"] = (team_stats["ftm"] / team_stats["fta"] * 100).round(1)
-    team_stats["efg_pct"] = ((team_stats["fgm"] + 0.5 * team_stats["fg3m"]) / team_stats["fga"] * 100).round(1)
+    team_stats["fg_pct"] = (team_stats["fgm"] / team_stats["fga"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["fg3_pct"] = (team_stats["fg3m"] / team_stats["fg3a"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["ft_pct"] = (team_stats["ftm"] / team_stats["fta"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["efg_pct"] = ((team_stats["fgm"] + 0.5 * team_stats["fg3m"]) / team_stats["fga"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    fg2m = team_stats["fgm"] - team_stats["fg3m"]
+    fg2a = team_stats["fga"] - team_stats["fg3a"]
+    team_stats["fg2_pct"] = (fg2m / fg2a.replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["fg3a_rate"] = (team_stats["fg3a"] / team_stats["fga"].replace(0, pd.NA) * 100).fillna(0).round(1)
 
     team_stats["reb"] = team_stats["oreb"] + team_stats["dreb"]
     team_stats["opp_reb"] = team_stats["opp_oreb"] + team_stats["opp_dreb"]
@@ -367,7 +371,13 @@ def compute_league_aggregates(
     team_stats["ppg"] = (team_stats["pts"] / team_stats["games"]).round(1)
     team_stats["opp_ppg"] = (team_stats["opp_pts"] / team_stats["games"]).round(1)
 
-    team_stats["opp_efg_pct"] = ((team_stats["opp_fgm"] + 0.5 * team_stats["opp_fg3m"]) / team_stats["opp_fga"] * 100).round(1)
+    team_stats["opp_efg_pct"] = ((team_stats["opp_fgm"] + 0.5 * team_stats["opp_fg3m"]) / team_stats["opp_fga"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["opp_ft_pct"] = (team_stats["opp_ftm"] / team_stats["opp_fta"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    opp_fg2m = team_stats["opp_fgm"] - team_stats["opp_fg3m"]
+    opp_fg2a = team_stats["opp_fga"] - team_stats["opp_fg3a"]
+    team_stats["opp_fg2_pct"] = (opp_fg2m / opp_fg2a.replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["opp_fg3_pct"] = (team_stats["opp_fg3m"] / team_stats["opp_fg3a"].replace(0, pd.NA) * 100).fillna(0).round(1)
+    team_stats["opp_fg3a_rate"] = (team_stats["opp_fg3a"] / team_stats["opp_fga"].replace(0, pd.NA) * 100).fillna(0).round(1)
     team_stats["opp_tov_pct"] = (
         team_stats["opp_tov"] / team_stats["opp_possessions"].replace(0, pd.NA) * 100
     ).fillna(0).round(1)
@@ -587,6 +597,8 @@ def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
         return (df["ftm"] / df["fga"] * 100).round(1)
     elif stat == "opp_efg_pct":
         return ((df["opp_fgm"] + 0.5 * df["opp_fg3m"]) / df["opp_fga"] * 100).round(1)
+    elif stat == "opp_ft_pct":
+        return (df["opp_ftm"] / df["opp_fta"] * 100).round(1)
     elif stat == "opp_ball_handling":
         opp_tov_pct = df["opp_tov"] / opp_poss.replace(0, pd.NA) * 100
         return (100 - opp_tov_pct).fillna(100).round(1)
