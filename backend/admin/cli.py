@@ -2768,8 +2768,11 @@ def generate_interpretations(
 
                 # Save progress every 50 games
                 if (i + 1) % 50 == 0:
-                    _save_interpretations(output_file, season, interpretations, decomposition_model_id)
-                    print(f"[interp] Progress saved ({success_count} successful, {fail_count} failed)")
+                    wrote = _save_interpretations(output_file, season, interpretations, decomposition_model_id)
+                    if wrote:
+                        print(f"[interp] Progress saved ({success_count} successful, {fail_count} failed)")
+                    else:
+                        print(f"[interp] Progress unchanged ({success_count} successful, {fail_count} failed)")
 
                 # Rate limiting - small delay between calls
                 time.sleep(0.5)
@@ -2779,10 +2782,13 @@ def generate_interpretations(
                 fail_count += 1
 
         # Final save
-        _save_interpretations(output_file, season, interpretations, decomposition_model_id)
+        wrote_final = _save_interpretations(output_file, season, interpretations, decomposition_model_id)
 
         print(f"[interp] Done! {success_count} successful, {fail_count} failed")
-        print(f"[interp] Output: {output_file}")
+        if wrote_final:
+            print(f"[interp] Output updated: {output_file}")
+        else:
+            print(f"[interp] Output unchanged: {output_file}")
         return 0
 
     except Exception as e:
@@ -2924,8 +2930,12 @@ def _build_game_data_with_quintiles(game_row: pd.Series, contribution_entry: Dic
 
 def _save_interpretations(
     output_file: Path, season: str, interpretations: Dict, decomposition_model_id: str = None
-) -> None:
-    """Save interpretations to JSON file."""
+) -> bool:
+    """Save interpretations to JSON file only when content changes.
+
+    Returns:
+        bool: True when the file was written, False when content was unchanged.
+    """
     data = {
         "season": season,
         "prompt_version": "v3_quintiles",
@@ -2934,8 +2944,15 @@ def _save_interpretations(
     # Store which decomposition model was used so API can check for match
     if decomposition_model_id:
         data["decomposition_model_id"] = decomposition_model_id
-    with open(output_file, "w") as f:
-        json.dump(data, f, indent=2)
+    serialized = json.dumps(data, indent=2)
+
+    if output_file.exists():
+        existing = output_file.read_text(encoding="utf-8")
+        if existing == serialized or existing.rstrip("\n") == serialized:
+            return False
+
+    output_file.write_text(serialized, encoding="utf-8")
+    return True
 
 
 def build_parser() -> argparse.ArgumentParser:
