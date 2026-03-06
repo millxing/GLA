@@ -2,16 +2,29 @@
   max-width: 100%;
 }
 
+.page-header {
+  margin-bottom: var(--spacing-md);
+}
+
+.page-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .page-title {
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--color-text);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: 0;
 }
 
 .page-description {
   color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 0;
+  min-width: 0;
 }
 
 .controls {
@@ -53,6 +66,21 @@
   width: 100%;
   min-width: 0;
   max-width: none;
+}
+
+.league-summary .controls .inline-toggle-control {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.league-summary .controls .inline-toggle-control .form-label {
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.league-summary .controls .inline-toggle-control .view-toggle-group {
+  flex: 1;
 }
 
 .league-summary .form-select,
@@ -99,11 +127,25 @@
   color: #fff;
 }
 
+.league-summary .table-container {
+  overflow: auto;
+  max-height: min(70vh, 720px);
+  scrollbar-gutter: stable both-edges;
+}
+
 .summary-table {
   font-size: 0.8125rem;
   table-layout: fixed;
   width: 100%;
   line-height: 1.2;
+}
+
+.summary-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background-color: var(--color-background-alt);
+  box-shadow: inset 0 -1px 0 var(--color-border);
 }
 
 .summary-table th,
@@ -151,6 +193,10 @@
   font-weight: 600;
 }
 
+.summary-table thead .rank-col {
+  z-index: 4;
+}
+
 .rank-col .header-content {
   width: 100%;
   align-items: center;
@@ -182,6 +228,11 @@
   background-color: var(--color-background);
   z-index: 1;
   text-align: center;
+}
+
+.summary-table thead th:nth-child(2) {
+  left: 0;
+  z-index: 5;
 }
 
 .stat-cell {
@@ -729,6 +780,16 @@
 
 
 @media (max-width: 768px) {
+  .page-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+  }
+
+  .league-summary .table-container {
+    max-height: 62vh;
+  }
+
   .summary-table {
     font-size: 0.75rem;
   }
@@ -758,6 +819,11 @@
 
   .league-summary .controls .custom-dates-row {
     grid-template-columns: 1fr;
+  }
+
+  .league-summary .controls .inline-toggle-control {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .view-toggle-group {

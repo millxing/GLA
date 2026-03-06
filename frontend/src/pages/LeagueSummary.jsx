@@ -1115,10 +1115,14 @@ function LeagueSummary() {
 
   return (
     <div className="league-summary container">
-      <h1 className="page-title">League Summary</h1>
-      <p className="page-description">
-        Compare team statistics across the league. Click column headers to sort.
-      </p>
+      <div className="page-header">
+        <div className="page-title-row">
+          <h1 className="page-title">League Summary</h1>
+          <p className="page-description">
+            Compare team statistics across the league. Click column headers to sort.
+          </p>
+        </div>
+      </div>
 
       <div className="controls card">
         <div className="form-row controls-top-row">
@@ -1192,8 +1196,8 @@ function LeagueSummary() {
         )}
 
         <div className="form-row table-view-row">
-          <div className="form-group table-view-control">
-            <label className="form-label">Table View</label>
+          <div className="form-group table-view-control inline-toggle-control">
+            <label className="form-label">Table View:</label>
             <div className="view-toggle-group">
               <button
                 type="button"

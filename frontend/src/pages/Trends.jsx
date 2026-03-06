@@ -280,10 +280,14 @@ function Trends() {
 
   return (
     <div className="trends container">
-      <h1 className="page-title">Statistical Trends</h1>
-      <p className="page-description">
-        Plot the time series of team statistics over the season
-      </p>
+      <div className="page-header">
+        <div className="page-title-row">
+          <h1 className="page-title">Statistical Trends</h1>
+          <p className="page-description">
+            Plot the time series of team statistics over the season
+          </p>
+        </div>
+      </div>
 
       <div className="controls card">
         <div className="form-row">

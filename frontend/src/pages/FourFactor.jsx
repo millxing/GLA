@@ -701,10 +701,15 @@ function FourFactor() {
 
   return (
     <div className="four-factor container">
-      <div className="page-title-row">
-        <h1 className="page-title" onContextMenu={handlePageTitleContextMenu}>
-          Game Analysis
-        </h1>
+      <div className="page-header">
+        <div className="page-title-row">
+          <h1 className="page-title" onContextMenu={handlePageTitleContextMenu}>
+            Game Analysis
+          </h1>
+          <p className="page-description">
+            Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
+          </p>
+        </div>
         {showSingleGameSaveOption && (
           <div className="hidden-save-option" role="status" aria-live="polite">
             <button
@@ -724,9 +729,6 @@ function FourFactor() {
           </div>
         )}
       </div>
-      <p className="page-description">
-        Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
-      </p>
 
       <div className="controls card">
         <div className="form-row">
@@ -1129,6 +1131,7 @@ function FourFactor() {
 
             {interpretationEnabled && (
               <div className="interpretation-box">
+                <h3 className="interpretation-title">AI-generated contribution analysis</h3>
                 {interpretationLoading && (
                   <div className="interpretation-loading">
                     <span className="interpretation-spinner"></span>

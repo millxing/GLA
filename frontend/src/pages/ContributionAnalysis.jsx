@@ -420,10 +420,14 @@ function ContributionAnalysis() {
 
   return (
     <div className="contribution-analysis container">
-      <h1 className="page-title">Contribution Analysis</h1>
-      <p className="page-description">
-        Analyze how each of the eight factors contributed to a team's net rating over a period
-      </p>
+      <div className="page-header">
+        <div className="page-title-row">
+          <h1 className="page-title">Contribution Analysis</h1>
+          <p className="page-description">
+            Analyze how each of the eight factors contributed to a team's net rating over a period
+          </p>
+        </div>
+      </div>
 
       <div className="controls card">
         <div className="form-row">

@@ -2,16 +2,29 @@
   max-width: 1200px;
 }
 
+.page-header {
+  margin-bottom: var(--spacing-md);
+}
+
+.page-title-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-lg);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .page-title {
   font-size: 1.75rem;
   font-weight: 700;
   color: var(--color-text);
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: 0;
 }
 
 .page-description {
   color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: 0;
+  min-width: 0;
 }
 
 .controls {
@@ -230,6 +243,12 @@
 }
 
 @media (max-width: 768px) {
+  .page-title-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+  }
+
   .summary-grid {
     grid-template-columns: repeat(2, 1fr);
     gap: var(--spacing-md);
