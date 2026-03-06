@@ -3,8 +3,10 @@ LLM service for generating chart interpretations.
 Supports both Anthropic (Claude) and OpenAI (GPT) providers.
 """
 
+import asyncio
 import json
 import os
+import time
 from typing import Optional, Dict, Any, Tuple
 
 import httpx
@@ -25,6 +27,8 @@ LLM_MODELS = {
 # Timeout for LLM API calls
 LLM_TIMEOUT = 30.0  # Increased for larger prompts with examples
 LLM_TIMEOUT_BATCH = 60.0  # Even longer for batch operations
+OPENAI_MAX_ATTEMPTS = 3
+OPENAI_RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
 
 
 def _openai_reasoning_effort(model_name: str) -> Optional[str]:
@@ -35,6 +39,14 @@ def _openai_reasoning_effort(model_name: str) -> Optional[str]:
     if model_name.startswith("gpt-5") or model_name.startswith("o"):
         return "low"
     return None
+
+
+def _is_retryable_openai_status(status_code: int) -> bool:
+    return status_code in OPENAI_RETRYABLE_STATUS_CODES
+
+
+def _openai_retry_delay(attempt: int) -> float:
+    return min(2.0, 0.5 * attempt)
 
 def _get_llm_config():
     """Get LLM configuration from environment (read fresh each time)."""
@@ -445,36 +457,42 @@ async def _call_openai(prompt: str, api_key: str, model: str = None, timeout: fl
     token_key = "max_completion_tokens" if is_gpt5_family or use_model.startswith("o") else "max_tokens"
     token_budget = 1500 if is_gpt5_family else 500
 
-    try:
-        async with httpx.AsyncClient() as client:
-            payload = {
-                "model": use_model,
-                token_key: token_budget,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-            reasoning_effort = _openai_reasoning_effort(use_model)
-            if reasoning_effort:
-                payload["reasoning_effort"] = reasoning_effort
-            response = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=use_timeout,
-            )
+    async with httpx.AsyncClient() as client:
+        for attempt in range(1, OPENAI_MAX_ATTEMPTS + 1):
+            try:
+                payload = {
+                    "model": use_model,
+                    token_key: token_budget,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+                reasoning_effort = _openai_reasoning_effort(use_model)
+                if reasoning_effort:
+                    payload["reasoning_effort"] = reasoning_effort
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=use_timeout,
+                )
 
-            if response.status_code != 200:
+                if response.status_code == 200:
+                    result = response.json()
+                    return result["choices"][0]["message"]["content"]
+
                 print(f"[LLM DEBUG] OpenAI error {response.status_code}: {response.text}")
+                if not _is_retryable_openai_status(response.status_code) or attempt == OPENAI_MAX_ATTEMPTS:
+                    return None
+            except Exception as e:
+                print(f"[LLM DEBUG] OpenAI exception (attempt {attempt}/{OPENAI_MAX_ATTEMPTS}): {e}")
+                if attempt == OPENAI_MAX_ATTEMPTS:
+                    return None
 
-            if response.status_code == 200:
-                result = response.json()
-                return result["choices"][0]["message"]["content"]
-            return None
-    except Exception as e:
-        print(f"[LLM DEBUG] OpenAI exception: {e}")
-        return None
+            await asyncio.sleep(_openai_retry_delay(attempt))
+
+    return None
 
 
 def is_llm_configured() -> bool:
@@ -532,35 +550,42 @@ def _call_openai_sync(prompt: str, api_key: str, model: str = None, timeout: flo
     token_key = "max_completion_tokens" if is_gpt5_family or use_model.startswith("o") else "max_tokens"
     token_budget = 1500 if is_gpt5_family else 500
 
-    try:
-        with httpx.Client() as client:
-            payload = {
-                "model": use_model,
-                token_key: token_budget,
-                "messages": [{"role": "user", "content": prompt}]
-            }
-            reasoning_effort = _openai_reasoning_effort(use_model)
-            if reasoning_effort:
-                payload["reasoning_effort"] = reasoning_effort
-            response = client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=use_timeout,
-            )
+    with httpx.Client() as client:
+        for attempt in range(1, OPENAI_MAX_ATTEMPTS + 1):
+            try:
+                payload = {
+                    "model": use_model,
+                    token_key: token_budget,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+                reasoning_effort = _openai_reasoning_effort(use_model)
+                if reasoning_effort:
+                    payload["reasoning_effort"] = reasoning_effort
+                response = client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=use_timeout,
+                )
 
-            if response.status_code == 200:
-                result = response.json()
-                return result["choices"][0]["message"]["content"]
-            else:
+                if response.status_code == 200:
+                    result = response.json()
+                    return result["choices"][0]["message"]["content"]
+
                 print(f"[LLM] OpenAI error {response.status_code}: {response.text[:200]}")
-            return None
-    except Exception as e:
-        print(f"[LLM] OpenAI exception: {e}")
-        return None
+                if not _is_retryable_openai_status(response.status_code) or attempt == OPENAI_MAX_ATTEMPTS:
+                    return None
+            except Exception as e:
+                print(f"[LLM] OpenAI exception (attempt {attempt}/{OPENAI_MAX_ATTEMPTS}): {e}")
+                if attempt == OPENAI_MAX_ATTEMPTS:
+                    return None
+
+            time.sleep(_openai_retry_delay(attempt))
+
+    return None
 
 
 def generate_interpretation_sync(
