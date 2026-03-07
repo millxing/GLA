@@ -5,6 +5,7 @@ import FourFactor from './pages/FourFactor'
 import LeagueSummary from './pages/LeagueSummary'
 import Trends from './pages/Trends'
 import ContributionAnalysis from './pages/ContributionAnalysis'
+import Blog from './pages/Blog'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="league-summary" element={<LeagueSummary />} />
           <Route path="trends" element={<Trends />} />
           <Route path="contribution-analysis" element={<ContributionAnalysis />} />
+          <Route path="blog" element={<Blog />} />
         </Route>
       </Routes>
     </BrowserRouter>

@@ -1,8 +1,9 @@
-import { Outlet, NavLink, useLocation } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import './Layout.css'
 
 function Layout() {
   const location = useLocation()
+  const navigate = useNavigate()
 
   const handleLogoClick = (e) => {
     if (location.pathname === '/') {
@@ -11,11 +12,16 @@ function Layout() {
     }
   }
 
+  const handleLogoContextMenu = (e) => {
+    e.preventDefault()
+    navigate('/blog')
+  }
+
   return (
     <div className="layout">
       <header className="header">
         <div className="header-content">
-          <NavLink to="/" className="logo" onClick={handleLogoClick}>
+          <NavLink to="/" className="logo" onClick={handleLogoClick} onContextMenu={handleLogoContextMenu}>
             Extra Pass Analytics
           </NavLink>
           <nav className="nav">

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { getSeasons, getLeagueSummary, getLeagueTopContributors } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { ScatterChart, Scatter, XAxis, YAxis, ReferenceLine, ResponsiveContainer, LabelList, Tooltip } from 'recharts'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import './LeagueSummary.css'
 
 const VIEW_FOUR_FACTORS = 'four_factors'
@@ -122,6 +122,25 @@ const SECTION_START_COLUMNS = {
   [VIEW_SHOOTING]: new Set(['off_rating', 'ft_pct', 'opp_ft_pct']),
   [VIEW_SOS_ADJUSTMENTS]: new Set(['net_rating', 'sos', 'adj_net_rating']),
 }
+
+const ALL_LEAGUE_SUMMARY_COLUMNS = [
+  ...FOUR_FACTOR_COLUMNS,
+  ...FOUR_FACTOR_SCOPED_COLUMNS,
+  ...SOS_COLUMNS,
+  ...SOS_SCOPED_COLUMNS,
+  ...SHOOTING_COLUMNS,
+  ...SHOOTING_SCOPED_COLUMNS,
+]
+
+const COLUMN_CONFIG_BY_KEY = new Map(
+  ALL_LEAGUE_SUMMARY_COLUMNS.map((column) => [column.key, column])
+)
+
+const ALL_SORTABLE_COLUMN_KEYS = new Set(
+  ALL_LEAGUE_SUMMARY_COLUMNS
+    .filter((column) => column.sortable)
+    .map((column) => column.key)
+)
 
 const TRENDS_DIRECT_STAT_COLUMNS = new Set([
   'net_rating',
@@ -294,6 +313,53 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'non_clutch_time', label: 'Non-Clutch Time' },
 ]
 const DERIVED_SCOPE_VALUES = new Set(['garbage_time', 'non_clutch_time'])
+const VALID_DATE_RANGE_VALUES = new Set(DATE_RANGE_OPTIONS.map((option) => option.value))
+const VALID_DATA_SCOPE_VALUES = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
+const VALID_TABLE_VIEW_VALUES = new Set([VIEW_FOUR_FACTORS, VIEW_SHOOTING, VIEW_SOS_ADJUSTMENTS])
+
+const SORT_COLUMN_ALIASES = {
+  ortg: 'off_rating',
+  offensive_rating: 'off_rating',
+  drtg: 'def_rating',
+  defensive_rating: 'def_rating',
+  nrtg: 'net_rating',
+  net_rating: 'net_rating',
+  sos_adjusted: 'adj_net_rating',
+}
+
+const DATE_RANGE_ALIASES = {
+  regular_season: 'season_regular',
+  season_to_date: 'season',
+  last10games: 'last_10_games',
+  last15games: 'last_15_games',
+  last20games: 'last_20_games',
+}
+
+const DATA_SCOPE_ALIASES = {
+  non_garbage: 'garbage_filtered',
+  non_garbage_time: 'garbage_filtered',
+  garbage_filtered: 'garbage_filtered',
+  garbage: 'garbage_time',
+  garbage_time: 'garbage_time',
+  clutch_time: 'clutch',
+  non_clutch: 'non_clutch_time',
+  non_clutch_time: 'non_clutch_time',
+}
+
+const TABLE_VIEW_ALIASES = {
+  four_factor: VIEW_FOUR_FACTORS,
+  four_factors: VIEW_FOUR_FACTORS,
+  shooting: VIEW_SHOOTING,
+  sos: VIEW_SOS_ADJUSTMENTS,
+  sos_adjustment: VIEW_SOS_ADJUSTMENTS,
+  sos_adjustments: VIEW_SOS_ADJUSTMENTS,
+  strength_of_schedule: VIEW_SOS_ADJUSTMENTS,
+}
+
+const SORT_DIRECTION_ALIASES = {
+  ascending: 'asc',
+  descending: 'desc',
+}
 
 const EFFICIENCY_CHART_MARGIN = { top: 20, right: 56, bottom: 54, left: 56 }
 const TEAM_NAME_BY_ABBR = {
@@ -443,8 +509,79 @@ function EfficiencyTooltip({ active, payload }) {
   )
 }
 
+function normalizeQueryToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/%/g, ' pct ')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function readSearchParam(searchParams, ...keys) {
+  for (const key of keys) {
+    const value = searchParams.get(key)
+    if (value) return value
+  }
+  return ''
+}
+
+function normalizeDateRangeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_DATE_RANGE_VALUES.has(token)) return token
+  return DATE_RANGE_ALIASES[token] || ''
+}
+
+function normalizeDataScopeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_DATA_SCOPE_VALUES.has(token)) return token
+  return DATA_SCOPE_ALIASES[token] || ''
+}
+
+function normalizeTableViewParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_TABLE_VIEW_VALUES.has(token)) return token
+  return TABLE_VIEW_ALIASES[token] || ''
+}
+
+function normalizeSortDirectionParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (token === 'asc' || token === 'desc') return token
+  return SORT_DIRECTION_ALIASES[token] || ''
+}
+
+function normalizeSortColumnParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (ALL_SORTABLE_COLUMN_KEYS.has(token)) return token
+  const aliasedKey = SORT_COLUMN_ALIASES[token]
+  return aliasedKey && ALL_SORTABLE_COLUMN_KEYS.has(aliasedKey) ? aliasedKey : ''
+}
+
+function getDefaultSortForView(view) {
+  return view === VIEW_SOS_ADJUSTMENTS
+    ? { column: 'adj_net_rating', direction: 'desc' }
+    : { column: 'net_rating', direction: 'desc' }
+}
+
+function getDefaultSortDirectionForColumn(columnKey) {
+  if (columnKey === 'team') return 'asc'
+  const column = COLUMN_CONFIG_BY_KEY.get(columnKey)
+  if (column?.higherBetter === false) return 'asc'
+  return 'desc'
+}
+
+function normalizeDateInputValue(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : ''
+}
+
 function LeagueSummary() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('leaguesummary_season', '')
   const [selectedDataScope, setSelectedDataScope] = usePersistedState('leaguesummary_datascope', 'all')
@@ -464,6 +601,19 @@ function LeagueSummary() {
   const [topContributorsNote, setTopContributorsNote] = useState('')
   const [hoverTooltip, setHoverTooltip] = useState(null)
   const isCustomDateRangeVisible = dateRangePreset === 'custom'
+  const urlSelections = useMemo(() => {
+    const season = readSearchParam(searchParams, 'season').trim()
+    return {
+      season,
+      dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
+      dateRange: normalizeDateRangeParam(readSearchParam(searchParams, 'range', 'date_range', 'dateRange')),
+      tableView: normalizeTableViewParam(readSearchParam(searchParams, 'view', 'table_view', 'tableView')),
+      sortColumn: normalizeSortColumnParam(readSearchParam(searchParams, 'sort', 'sort_by', 'sortBy')),
+      sortDirection: normalizeSortDirectionParam(readSearchParam(searchParams, 'direction', 'sort_direction', 'sortDirection')),
+      customStartDate: normalizeDateInputValue(readSearchParam(searchParams, 'start', 'start_date', 'startDate')),
+      customEndDate: normalizeDateInputValue(readSearchParam(searchParams, 'end', 'end_date', 'endDate')),
+    }
+  }, [searchParams])
 
   useEffect(() => {
     async function loadInitialData() {
@@ -472,6 +622,9 @@ function LeagueSummary() {
         setSeasons(seasonsRes.seasons)
         // Keep persisted season if valid, otherwise default to first
         setSelectedSeason(prev => {
+          if (urlSelections.season && seasonsRes.seasons.includes(urlSelections.season)) {
+            return urlSelections.season
+          }
           if (prev && seasonsRes.seasons.includes(prev)) return prev
           return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
         })
@@ -480,18 +633,62 @@ function LeagueSummary() {
       }
     }
     loadInitialData()
-  }, [])
+  }, [setSelectedSeason, urlSelections.season])
+
+  useEffect(() => {
+    if (urlSelections.season && seasons.includes(urlSelections.season) && selectedSeason !== urlSelections.season) {
+      setSelectedSeason(urlSelections.season)
+    }
+  }, [seasons, selectedSeason, setSelectedSeason, urlSelections.season])
+
+  useEffect(() => {
+    if (urlSelections.dataScope && urlSelections.dataScope !== selectedDataScope) {
+      setSelectedDataScope(urlSelections.dataScope)
+    }
+  }, [selectedDataScope, setSelectedDataScope, urlSelections.dataScope])
+
+  useEffect(() => {
+    if (urlSelections.dateRange && urlSelections.dateRange !== dateRangePreset) {
+      setDateRangePreset(urlSelections.dateRange)
+    }
+  }, [dateRangePreset, setDateRangePreset, urlSelections.dateRange])
+
+  useEffect(() => {
+    if (urlSelections.tableView && urlSelections.tableView !== tableView) {
+      setTableView(urlSelections.tableView)
+    }
+  }, [setTableView, tableView, urlSelections.tableView])
+
+  useEffect(() => {
+    if (urlSelections.dateRange !== 'custom') return
+    if (urlSelections.customStartDate && urlSelections.customStartDate !== customStartDate) {
+      setCustomStartDate(urlSelections.customStartDate)
+    }
+    if (urlSelections.customEndDate && urlSelections.customEndDate !== customEndDate) {
+      setCustomEndDate(urlSelections.customEndDate)
+    }
+  }, [customEndDate, customStartDate, urlSelections.customEndDate, urlSelections.customStartDate, urlSelections.dateRange])
 
   // Reset date preset when season changes
   useEffect(() => {
-    setDateRangePreset('season')
-    setCustomStartDate('')
-    setCustomEndDate('')
+    const nextDateRangePreset = urlSelections.dateRange || 'season'
+    const shouldUseCustomDates = nextDateRangePreset === 'custom'
+
+    setDateRangePreset(nextDateRangePreset)
+    setCustomStartDate(shouldUseCustomDates ? urlSelections.customStartDate : '')
+    setCustomEndDate(shouldUseCustomDates ? urlSelections.customEndDate : '')
     setSeasonBounds({ first: '', last: '' })
     setData(null)
     setTopContributors(null)
     setTopContributorsNote('')
-  }, [selectedSeason, selectedDataScope])
+  }, [
+    selectedSeason,
+    selectedDataScope,
+    urlSelections.dateRange,
+    urlSelections.customStartDate,
+    urlSelections.customEndDate,
+    setDateRangePreset,
+  ])
 
   // Keep persisted date preset valid when option list changes
   useEffect(() => {
@@ -701,10 +898,19 @@ function LeagueSummary() {
   }, [tableView, isScopedSummary])
 
   useEffect(() => {
-    const defaultSortByView =
-      tableView === VIEW_SOS_ADJUSTMENTS
-        ? { column: 'adj_net_rating', direction: 'desc' }
-        : { column: 'net_rating', direction: 'desc' }
+    if (!urlSelections.sortColumn) return
+    if (!activeColumns.some((column) => column.key === urlSelections.sortColumn)) return
+    if (urlSelections.sortColumn !== sortColumn) {
+      setSortColumn(urlSelections.sortColumn)
+    }
+    const nextDirection = urlSelections.sortDirection || getDefaultSortDirectionForColumn(urlSelections.sortColumn)
+    if (nextDirection !== sortDirection) {
+      setSortDirection(nextDirection)
+    }
+  }, [activeColumns, sortColumn, sortDirection, urlSelections.sortColumn, urlSelections.sortDirection])
+
+  useEffect(() => {
+    const defaultSortByView = getDefaultSortForView(tableView)
 
     if (!activeColumns.some(col => col.key === sortColumn)) {
       setSortColumn(defaultSortByView.column)
