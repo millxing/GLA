@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { usePersistedState } from '../hooks/usePersistedState'
 import {
   BarChart,
@@ -32,6 +33,22 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Data' },
   { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
 ]
+const VALID_DATE_RANGE_VALUES = new Set(DATE_RANGE_OPTIONS.map((option) => option.value))
+const VALID_DATA_SCOPE_VALUES = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
+
+const DATE_RANGE_ALIASES = {
+  regular_season: 'season_regular',
+  season_to_date: 'season',
+  last10games: 'last_10_games',
+  last15games: 'last_15_games',
+  last20games: 'last_20_games',
+}
+
+const DATA_SCOPE_ALIASES = {
+  non_garbage: 'garbage_filtered',
+  non_garbage_time: 'garbage_filtered',
+  garbage_filtered: 'garbage_filtered',
+}
 
 const GLOSSARY_ITEMS = [
   { term: 'Net Rating', definition: 'Offensive Rating minus Defensive Rating. Measures overall point differential per 100 possessions.' },
@@ -73,7 +90,42 @@ const LOWER_IS_BETTER_FACTORS = new Set([
   'opp_free_throws',
 ])
 
+function normalizeQueryToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function readSearchParam(searchParams, ...keys) {
+  for (const key of keys) {
+    const value = searchParams.get(key)
+    if (value) return value
+  }
+  return ''
+}
+
+function normalizeDateRangeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_DATE_RANGE_VALUES.has(token)) return token
+  return DATE_RANGE_ALIASES[token] || ''
+}
+
+function normalizeDataScopeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_DATA_SCOPE_VALUES.has(token)) return token
+  return DATA_SCOPE_ALIASES[token] || ''
+}
+
+function normalizeDateInputValue(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : ''
+}
+
 function ContributionAnalysis() {
+  const [searchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '2025-26')
@@ -89,6 +141,18 @@ function ContributionAnalysis() {
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const urlSelections = useMemo(() => {
+    const season = readSearchParam(searchParams, 'season').trim()
+    const team = readSearchParam(searchParams, 'team').trim().toUpperCase()
+    return {
+      season,
+      team,
+      dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
+      dateRange: normalizeDateRangeParam(readSearchParam(searchParams, 'range', 'date_range', 'dateRange')),
+      customStartDate: normalizeDateInputValue(readSearchParam(searchParams, 'start', 'start_date', 'startDate')),
+      customEndDate: normalizeDateInputValue(readSearchParam(searchParams, 'end', 'end_date', 'endDate')),
+    }
+  }, [searchParams])
 
   // Load seasons on mount
   useEffect(() => {
@@ -97,16 +161,26 @@ function ContributionAnalysis() {
         const seasonsRes = await getSeasons()
         setSeasons(seasonsRes.seasons)
 
-        // Default to most recent season if 2025-26 not available
-        if (seasonsRes.seasons.length > 0 && !seasonsRes.seasons.includes('2025-26')) {
-          setSelectedSeason(seasonsRes.seasons[0])
-        }
+        setSelectedSeason((prevSeason) => {
+          if (urlSelections.season && seasonsRes.seasons.includes(urlSelections.season)) {
+            return urlSelections.season
+          }
+          if (prevSeason && seasonsRes.seasons.includes(prevSeason)) return prevSeason
+          if (seasonsRes.seasons.includes('2025-26')) return '2025-26'
+          return seasonsRes.seasons[0] || ''
+        })
       } catch (err) {
         setError(err.message)
       }
     }
     loadInitialData()
-  }, [])
+  }, [setSelectedSeason, urlSelections.season])
+
+  useEffect(() => {
+    if (urlSelections.season && seasons.includes(urlSelections.season) && selectedSeason !== urlSelections.season) {
+      setSelectedSeason(urlSelections.season)
+    }
+  }, [seasons, selectedSeason, setSelectedSeason, urlSelections.season])
 
   // Keep persisted date preset valid when option list changes
   useEffect(() => {
@@ -120,6 +194,28 @@ function ContributionAnalysis() {
       setSelectedDataScope('all')
     }
   }, [selectedDataScope, setSelectedDataScope])
+
+  useEffect(() => {
+    if (urlSelections.dataScope && urlSelections.dataScope !== selectedDataScope) {
+      setSelectedDataScope(urlSelections.dataScope)
+    }
+  }, [selectedDataScope, setSelectedDataScope, urlSelections.dataScope])
+
+  useEffect(() => {
+    if (urlSelections.dateRange && urlSelections.dateRange !== dateRangeType) {
+      setDateRangeType(urlSelections.dateRange)
+    }
+  }, [dateRangeType, setDateRangeType, urlSelections.dateRange])
+
+  useEffect(() => {
+    if (urlSelections.dateRange !== 'custom') return
+    if (urlSelections.customStartDate && urlSelections.customStartDate !== customStartDate) {
+      setCustomStartDate(urlSelections.customStartDate)
+    }
+    if (urlSelections.customEndDate && urlSelections.customEndDate !== customEndDate) {
+      setCustomEndDate(urlSelections.customEndDate)
+    }
+  }, [customEndDate, customStartDate, urlSelections.customEndDate, urlSelections.customStartDate, urlSelections.dateRange])
 
   // Load teams and season bounds when season changes
   useEffect(() => {
@@ -140,6 +236,9 @@ function ContributionAnalysis() {
         setTeams(teamsRes.teams)
         // Keep persisted team if it exists in this season, otherwise default to BOS or first team
         setSelectedTeam(prevTeam => {
+          if (urlSelections.team && teamsRes.teams.includes(urlSelections.team)) {
+            return urlSelections.team
+          }
           if (teamsRes.teams.includes(prevTeam)) return prevTeam
           if (teamsRes.teams.includes('BOS')) return 'BOS'
           if (teamsRes.teams.length > 0) return teamsRes.teams[0]
@@ -158,7 +257,13 @@ function ContributionAnalysis() {
     }
     loadTeamsAndBounds()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedDataScope])
+  }, [selectedSeason, selectedDataScope, setSelectedTeam, urlSelections.team])
+
+  useEffect(() => {
+    if (urlSelections.team && teams.includes(urlSelections.team) && selectedTeam !== urlSelections.team) {
+      setSelectedTeam(urlSelections.team)
+    }
+  }, [teams, selectedTeam, setSelectedTeam, urlSelections.team])
 
   // Populate custom date fields when switching to custom and bounds are available
   useEffect(() => {

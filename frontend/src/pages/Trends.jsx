@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ComposedChart,
   Bar,
@@ -84,9 +84,50 @@ const normalizeGameId = (value) => {
   return /^\d+$/.test(text) ? text.padStart(10, '0') : text
 }
 
+function normalizeQueryToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/%/g, ' pct ')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function readSearchParam(searchParams, ...keys) {
+  for (const key of keys) {
+    const value = searchParams.get(key)
+    if (value) return value
+  }
+  return ''
+}
+
+function normalizeDataScopeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_DATA_SCOPE_OPTIONS.has(token)) return token
+  if (token === 'garbage' || token === 'non_garbage' || token === 'non_garbage_time') return 'garbage_filtered'
+  return ''
+}
+
+function normalizeStatParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_STAT_OPTIONS.has(token)) return token
+  const aliases = {
+    ortg: 'off_rating',
+    offensive_rating: 'off_rating',
+    drtg: 'def_rating',
+    defensive_rating: 'def_rating',
+    nrtg: 'net_rating',
+    net_rating: 'net_rating',
+  }
+  return aliases[token] || ''
+}
+
 function Trends() {
   const location = useLocation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('trends_season', '')
@@ -98,6 +139,12 @@ function Trends() {
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const urlSelections = useMemo(() => ({
+    season: readSearchParam(searchParams, 'season').trim(),
+    team: readSearchParam(searchParams, 'team').trim().toUpperCase(),
+    stat: normalizeStatParam(readSearchParam(searchParams, 'stat', 'metric')),
+    dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
+  }), [searchParams])
 
   useEffect(() => {
     const navState = location.state
@@ -118,6 +165,18 @@ function Trends() {
   }, [location.key, location.state, setSelectedSeason, setSelectedDataScope, setSelectedStat, setSelectedTeam])
 
   useEffect(() => {
+    if (urlSelections.dataScope && urlSelections.dataScope !== selectedDataScope) {
+      setSelectedDataScope(urlSelections.dataScope)
+    }
+  }, [selectedDataScope, setSelectedDataScope, urlSelections.dataScope])
+
+  useEffect(() => {
+    if (urlSelections.stat && urlSelections.stat !== selectedStat) {
+      setSelectedStat(urlSelections.stat)
+    }
+  }, [selectedStat, setSelectedStat, urlSelections.stat])
+
+  useEffect(() => {
     if (!DATA_SCOPE_OPTIONS.some((option) => option.value === selectedDataScope)) {
       setSelectedDataScope('all')
     }
@@ -132,6 +191,7 @@ function Trends() {
         setSeasons(res.seasons)
         // Keep persisted season if valid, otherwise default to first
         setSelectedSeason(prev => {
+          if (urlSelections.season && res.seasons.includes(urlSelections.season)) return urlSelections.season
           if (prev && res.seasons.includes(prev)) return prev
           return res.seasons.length > 0 ? res.seasons[0] : ''
         })
@@ -141,7 +201,13 @@ function Trends() {
     }
     loadSeasons()
     return () => { isCurrent = false }
-  }, [])
+  }, [setSelectedSeason, urlSelections.season])
+
+  useEffect(() => {
+    if (urlSelections.season && seasons.includes(urlSelections.season) && selectedSeason !== urlSelections.season) {
+      setSelectedSeason(urlSelections.season)
+    }
+  }, [seasons, selectedSeason, setSelectedSeason, urlSelections.season])
 
   useEffect(() => {
     let isCurrent = true
@@ -155,6 +221,7 @@ function Trends() {
         setTeams(res.teams)
         // Keep persisted team if valid, otherwise default to BOS or first team
         setSelectedTeam(prev => {
+          if (urlSelections.team && res.teams.includes(urlSelections.team)) return urlSelections.team
           if (prev && res.teams.includes(prev)) return prev
           if (res.teams.includes('BOS')) return 'BOS'
           if (res.teams.length > 0) return res.teams[0]
@@ -168,7 +235,13 @@ function Trends() {
     }
     loadTeams()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedDataScope])
+  }, [selectedSeason, selectedDataScope, setSelectedTeam, urlSelections.team])
+
+  useEffect(() => {
+    if (urlSelections.team && teams.includes(urlSelections.team) && selectedTeam !== urlSelections.team) {
+      setSelectedTeam(urlSelections.team)
+    }
+  }, [teams, selectedTeam, setSelectedTeam, urlSelections.team])
 
   useEffect(() => {
     let isCurrent = true

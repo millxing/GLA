@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts'
 import {
   getSeasons,
@@ -45,6 +45,9 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'garbage_filtered', label: 'Garbage Time Excluded' },
   { value: 'clutch', label: 'Clutch Time' },
 ]
+const VALID_DATA_SCOPE_OPTIONS = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
+const VALID_FACTOR_TYPES = new Set(['four_factors', 'eight_factors'])
+const VALID_ANALYSIS_VIEWS = new Set(['factor', 'timeline'])
 const HIDDEN_SAVE_OPTION_MS = 8000
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -92,8 +95,51 @@ const normalizeGameId = (value) => {
   return /^\d+$/.test(text) ? text.padStart(10, '0') : text
 }
 
+function normalizeQueryToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+}
+
+function readSearchParam(searchParams, ...keys) {
+  for (const key of keys) {
+    const value = searchParams.get(key)
+    if (value) return value
+  }
+  return ''
+}
+
+function normalizeDataScopeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_DATA_SCOPE_OPTIONS.has(token)) return token
+  if (token === 'garbage' || token === 'non_garbage' || token === 'non_garbage_time') return 'garbage_filtered'
+  if (token === 'clutch_time') return 'clutch'
+  return ''
+}
+
+function normalizeFactorTypeParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_FACTOR_TYPES.has(token)) return token
+  if (token === 'four' || token === 'four_factor') return 'four_factors'
+  if (token === 'eight' || token === 'eight_factor') return 'eight_factors'
+  return ''
+}
+
+function normalizeAnalysisViewParam(value) {
+  const token = normalizeQueryToken(value)
+  if (!token) return ''
+  if (VALID_ANALYSIS_VIEWS.has(token)) return token
+  if (token === 'factors') return 'factor'
+  return ''
+}
+
 function FourFactor() {
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
@@ -120,6 +166,14 @@ function FourFactor() {
   const [singleGameSaveError, setSingleGameSaveError] = useState(false)
   const [singleGameSaving, setSingleGameSaving] = useState(false)
   const singleGameSaveTimerRef = useRef(null)
+  const urlSelections = useMemo(() => ({
+    season: readSearchParam(searchParams, 'season').trim(),
+    month: readSearchParam(searchParams, 'month').trim(),
+    gameId: normalizeGameId(readSearchParam(searchParams, 'game', 'game_id', 'gameId')),
+    dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
+    factorType: normalizeFactorTypeParam(readSearchParam(searchParams, 'factors', 'factor_type', 'factorType')),
+    analysisView: normalizeAnalysisViewParam(readSearchParam(searchParams, 'view', 'analysis_view', 'analysisView')),
+  }), [searchParams])
   const interpretationEnabled =
     INTERPRETATION_UI_ENABLED &&
     selectedSeason === INTERPRETATION_ENABLED_SEASON &&
@@ -135,6 +189,9 @@ function FourFactor() {
         setSeasons(seasonsRes.seasons)
         // Default to first available season.
         setSelectedSeason(prev => {
+          if (urlSelections.season && seasonsRes.seasons.includes(urlSelections.season)) {
+            return urlSelections.season
+          }
           if (prev && seasonsRes.seasons.includes(prev)) return prev
           return seasonsRes.seasons.length > 0 ? seasonsRes.seasons[0] : ''
         })
@@ -144,7 +201,31 @@ function FourFactor() {
     }
     loadInitialData()
     return () => { isCurrent = false }
-  }, [])
+  }, [urlSelections.season])
+
+  useEffect(() => {
+    if (urlSelections.season && seasons.includes(urlSelections.season) && selectedSeason !== urlSelections.season) {
+      setSelectedSeason(urlSelections.season)
+    }
+  }, [seasons, selectedSeason, urlSelections.season])
+
+  useEffect(() => {
+    if (urlSelections.dataScope && selectedDataScope !== urlSelections.dataScope) {
+      setSelectedDataScope(urlSelections.dataScope)
+    }
+  }, [selectedDataScope, urlSelections.dataScope])
+
+  useEffect(() => {
+    if (urlSelections.factorType && factorType !== urlSelections.factorType) {
+      setFactorType(urlSelections.factorType)
+    }
+  }, [factorType, urlSelections.factorType])
+
+  useEffect(() => {
+    if (urlSelections.analysisView && analysisView !== urlSelections.analysisView) {
+      setAnalysisView(urlSelections.analysisView)
+    }
+  }, [analysisView, urlSelections.analysisView])
 
   useEffect(() => {
     return () => {
@@ -269,10 +350,19 @@ function FourFactor() {
       return
     }
     setSelectedMonth((prev) => {
+      if (urlSelections.month && monthOptions.some((option) => option.value === urlSelections.month)) {
+        return urlSelections.month
+      }
       if (prev && monthOptions.some((option) => option.value === prev)) return prev
       return monthOptions[0].value
     })
-  }, [monthOptions])
+  }, [monthOptions, urlSelections.month])
+
+  useEffect(() => {
+    if (urlSelections.month && monthOptions.some((option) => option.value === urlSelections.month) && selectedMonth !== urlSelections.month) {
+      setSelectedMonth(urlSelections.month)
+    }
+  }, [monthOptions, selectedMonth, urlSelections.month])
 
   useEffect(() => {
     if (!selectedMonth) {
@@ -281,13 +371,31 @@ function FourFactor() {
       return
     }
     setSelectedGame((prev) => {
+      if (urlSelections.gameId) {
+        const urlGame = filteredGames.find((game) => normalizeGameId(game.game_id) === urlSelections.gameId)
+        if (urlGame) return urlGame.game_id
+      }
       if (prev) {
         const matchedGame = filteredGames.find((game) => normalizeGameId(game.game_id) === normalizeGameId(prev))
         if (matchedGame) return matchedGame.game_id
       }
       return filteredGames.length > 0 ? filteredGames[0].game_id : ''
     })
-  }, [selectedMonth, filteredGames, pendingNavigationSelection])
+  }, [selectedMonth, filteredGames, pendingNavigationSelection, urlSelections.gameId])
+
+  useEffect(() => {
+    if (!urlSelections.gameId || games.length === 0) return
+    const targetGame = games.find((game) => normalizeGameId(game.game_id) === urlSelections.gameId)
+    if (!targetGame) return
+
+    const monthKey = getMonthKeyFromDate(targetGame.date)
+    if (monthKey && selectedMonth !== monthKey) {
+      setSelectedMonth(monthKey)
+    }
+    if (selectedGame !== targetGame.game_id) {
+      setSelectedGame(targetGame.game_id)
+    }
+  }, [games, selectedGame, selectedMonth, urlSelections.gameId])
 
   useEffect(() => {
     let isCurrent = true
@@ -408,13 +516,13 @@ function FourFactor() {
 
   useEffect(() => {
     if (!selectedGame) return
-    setAnalysisView('factor')
-  }, [selectedGame, setAnalysisView])
+    setAnalysisView(urlSelections.analysisView || 'factor')
+  }, [selectedGame, urlSelections.analysisView])
 
   useEffect(() => {
     if (!selectedGame) return
-    setSelectedDataScope('all')
-  }, [selectedGame, setSelectedDataScope])
+    setSelectedDataScope(urlSelections.dataScope || 'all')
+  }, [selectedGame, urlSelections.dataScope])
 
   useEffect(() => {
     let isCurrent = true
