@@ -259,7 +259,9 @@ verify_timeline_artifacts_synced() {
 
 # Load API keys from .env (for LLM interpretation generation)
 if [ -f "$PROJECT_DIR/backend/.env" ]; then
+    set -a
     source "$PROJECT_DIR/backend/.env"
+    set +a
 fi
 
 echo "[run] Updating season data for $SEASON"
