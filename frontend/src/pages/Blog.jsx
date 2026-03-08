@@ -14,9 +14,9 @@ function Blog() {
     <div className="blog-page">
       <div className="blog-shell">
         <section className="blog-hero">
-          <h1 className="blog-title">Extra Pass Analytics</h1>
+          <h1 className="blog-title">Extra Pass Analytics Blog</h1>
           <p className="blog-subtitle">
-            Observations about the NBA team performance using advanced analytics.
+            Observations about NBA team performance using advanced analytics.
           </p>
         </section>
 
