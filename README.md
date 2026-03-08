@@ -1,7 +1,7 @@
 # [EXTRA PASS ANALYTICS](https://www.nbaextrapass.xyz/)
 
 ## UNDERSTAND WHY TEAMS WIN
-Factor decomposition for games and multi-game periods, league rankings, and trend analysis for all NBA seasons since 2000.
+Factor decomposition for games and multi-game periods, league rankings, and trend analysis for all NBA seasons since 2000.<br>
 Ad-free, open-source, non-commercial
 
 ## Game Analaysis
