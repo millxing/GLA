@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+<rect width="100%" height="100%" fill="#fffdf8"/>
+<text x="80" y="34" font-size="24" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Team-season clutch possession distribution</text>
+<line x1="80" y1="440" x2="860" y2="440" stroke="#4b5563" stroke-width="2"/>
+<line x1="80" y1="70" x2="80" y2="440" stroke="#4b5563" stroke-width="2"/>
+<rect x="81.00" y="431.46" width="46.75" height="8.54" fill="#2f6f9f" opacity="0.82"/>
+<rect x="129.75" y="425.77" width="46.75" height="14.23" fill="#2f6f9f" opacity="0.82"/>
+<rect x="178.50" y="391.62" width="46.75" height="48.38" fill="#2f6f9f" opacity="0.82"/>
+<rect x="227.25" y="354.62" width="46.75" height="85.38" fill="#2f6f9f" opacity="0.82"/>
+<rect x="276.00" y="289.15" width="46.75" height="150.85" fill="#2f6f9f" opacity="0.82"/>
+<rect x="324.75" y="229.38" width="46.75" height="210.62" fill="#2f6f9f" opacity="0.82"/>
+<rect x="373.50" y="115.54" width="46.75" height="324.46" fill="#2f6f9f" opacity="0.82"/>
+<rect x="422.25" y="115.54" width="46.75" height="324.46" fill="#2f6f9f" opacity="0.82"/>
+<rect x="471.00" y="70.00" width="46.75" height="370.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="519.75" y="149.69" width="46.75" height="290.31" fill="#2f6f9f" opacity="0.82"/>
+<rect x="568.50" y="297.69" width="46.75" height="142.31" fill="#2f6f9f" opacity="0.82"/>
+<rect x="617.25" y="311.92" width="46.75" height="128.08" fill="#2f6f9f" opacity="0.82"/>
+<rect x="666.00" y="371.69" width="46.75" height="68.31" fill="#2f6f9f" opacity="0.82"/>
+<rect x="714.75" y="420.08" width="46.75" height="19.92" fill="#2f6f9f" opacity="0.82"/>
+<rect x="763.50" y="422.92" width="46.75" height="17.08" fill="#2f6f9f" opacity="0.82"/>
+<rect x="812.25" y="434.31" width="46.75" height="5.69" fill="#2f6f9f" opacity="0.82"/>
+<line x1="80.00" y1="440" x2="80.00" y2="448" stroke="#4b5563"/>
+<text x="80.00" y="468" text-anchor="middle" font-size="14" font-family="Helvetica, Arial, sans-serif" fill="#374151">131</text>
+<line x1="470.00" y1="440" x2="470.00" y2="448" stroke="#4b5563"/>
+<text x="470.00" y="468" text-anchor="middle" font-size="14" font-family="Helvetica, Arial, sans-serif" fill="#374151">332</text>
+<line x1="860.00" y1="440" x2="860.00" y2="448" stroke="#4b5563"/>
+<text x="860.00" y="468" text-anchor="middle" font-size="14" font-family="Helvetica, Arial, sans-serif" fill="#374151">533</text>
+<line x1="72" y1="440.00" x2="80" y2="440.00" stroke="#4b5563"/>
+<text x="66" y="445.00" text-anchor="end" font-size="14" font-family="Helvetica, Arial, sans-serif" fill="#374151">0</text>
+<line x1="72" y1="255.00" x2="80" y2="255.00" stroke="#4b5563"/>
+<text x="66" y="260.00" text-anchor="end" font-size="14" font-family="Helvetica, Arial, sans-serif" fill="#374151">65</text>
+<line x1="72" y1="70.00" x2="80" y2="70.00" stroke="#4b5563"/>
+<text x="66" y="75.00" text-anchor="end" font-size="14" font-family="Helvetica, Arial, sans-serif" fill="#374151">130</text>
+<text x="470.00" y="496" text-anchor="middle" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Clutch possessions per team-season</text>
+</svg>

@@ -94,6 +94,24 @@ Numbered list:
 3. Add charts or video
 ```
 
+## Tables
+
+Use standard Markdown pipe tables for any blog table:
+
+```md
+| Season | Team | Clutch-overall net rating |
+| --- | --- | --- |
+| 2025-26 | Los Angeles Lakers | 26.4 |
+| 2021-22 | Phoenix Suns | 26.0 |
+```
+
+Notes:
+
+- Include the separator row directly under the header row.
+- Keep column names short.
+- Prefer 3 to 5 columns so the table still works on mobile.
+- If a table is wide, consider splitting it into two smaller tables instead.
+
 ## Images
 
 Put blog images in:
@@ -107,6 +125,11 @@ Single image:
 ```md
 ![Lakers record vs net rating](/images/lal_2025-26_blog_record_vs_net.png)
 ```
+
+Important:
+
+- Blog image paths should be public web paths like `/images/chart-name.png`.
+- Do not use absolute filesystem paths like `/Users/...` inside blog posts. Those will not render in the app or in production.
 
 Image with caption:
 

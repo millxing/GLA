@@ -1,0 +1,393 @@
+{
+  "config": {
+    "repo_dir": "/Users/robschoen/Dropbox/CC/NBA_Data",
+    "output_dir": "/Users/robschoen/Dropbox/CC/GLA/research/outputs/clutch_persistence",
+    "include_playoffs": false,
+    "min_half_games": 10,
+    "min_half_poss": 100,
+    "min_yoy_poss": 150,
+    "permutations": 5000,
+    "seed": 42,
+    "thresholds": [
+      75,
+      100,
+      125,
+      150
+    ]
+  },
+  "dataset": {
+    "first_season": "2000-01",
+    "last_season": "2025-26",
+    "team_seasons": 776,
+    "split_half_rows": 776,
+    "year_to_year_pairs": 745
+  },
+  "data_integrity": {
+    "seasons_expected": 26,
+    "seasons_loaded": 26,
+    "max_possession_overage": 0.0,
+    "max_minute_overage": 0.0,
+    "max_complement_poss_error": 0.0,
+    "max_complement_minute_error": 0.0
+  },
+  "descriptive": {
+    "clutch_games": {
+      "count": 776,
+      "mean": 40.848,
+      "std": 6.317,
+      "min": 21.0,
+      "p25": 37.0,
+      "median": 41.0,
+      "p75": 45.0,
+      "max": 58.0
+    },
+    "clutch_minutes": {
+      "count": 776,
+      "mean": 730.559,
+      "std": 148.677,
+      "min": 286.0,
+      "p25": 632.75,
+      "median": 729.5,
+      "p75": 825.0,
+      "max": 1243.0
+    },
+    "clutch_possessions": {
+      "count": 776,
+      "mean": 325.996,
+      "std": 64.214,
+      "min": 131.0,
+      "p25": 285.0,
+      "median": 326.0,
+      "p75": 368.0,
+      "max": 533.0
+    },
+    "clutch_time_pct": {
+      "count": 776,
+      "mean": 3.78,
+      "std": 0.701,
+      "min": 1.477,
+      "p25": 3.317,
+      "median": 3.749,
+      "p75": 4.206,
+      "max": 6.221
+    },
+    "seasonal_raw_spread": {
+      "count": 26,
+      "mean": 11.564,
+      "std": 1.992,
+      "min": 7.857,
+      "p25": 10.327,
+      "median": 11.261,
+      "p75": 13.071,
+      "max": 15.28
+    },
+    "seasonal_residual_spread": {
+      "count": 26,
+      "mean": 10.056,
+      "std": 1.863,
+      "min": 6.379,
+      "p25": 8.534,
+      "median": 9.985,
+      "p75": 11.485,
+      "max": 14.01
+    }
+  },
+  "within_season": {
+    "default_threshold": 100,
+    "default_threshold_results": [
+      {
+        "analysis": "within_season",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 100,
+        "n_obs": 731,
+        "pearson_r": 0.217631,
+        "spearman_brown": 0.357466,
+        "wls_slope": 0.224699,
+        "control_metric_beta": 0.206264,
+        "control_non_clutch_beta": 1.703576,
+        "control_r2": 0.075479
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 100,
+        "n_obs": 731,
+        "pearson_r": 0.189732,
+        "spearman_brown": 0.318949,
+        "wls_slope": 0.198305,
+        "control_metric_beta": 0.193565,
+        "control_non_clutch_beta": 1.754953,
+        "control_r2": 0.066064
+      }
+    ],
+    "threshold_grid_results": [
+      {
+        "analysis": "within_season",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 75,
+        "n_obs": 768,
+        "pearson_r": 0.217313,
+        "spearman_brown": 0.357037,
+        "wls_slope": 0.223318,
+        "control_metric_beta": 0.20298,
+        "control_non_clutch_beta": 1.820159,
+        "control_r2": 0.079015
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 75,
+        "n_obs": 768,
+        "pearson_r": 0.188466,
+        "spearman_brown": 0.317158,
+        "wls_slope": 0.196198,
+        "control_metric_beta": 0.19045,
+        "control_non_clutch_beta": 1.859236,
+        "control_r2": 0.069259
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 100,
+        "n_obs": 731,
+        "pearson_r": 0.217631,
+        "spearman_brown": 0.357466,
+        "wls_slope": 0.224699,
+        "control_metric_beta": 0.206264,
+        "control_non_clutch_beta": 1.703576,
+        "control_r2": 0.075479
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 100,
+        "n_obs": 731,
+        "pearson_r": 0.189732,
+        "spearman_brown": 0.318949,
+        "wls_slope": 0.198305,
+        "control_metric_beta": 0.193565,
+        "control_non_clutch_beta": 1.754953,
+        "control_r2": 0.066064
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 125,
+        "n_obs": 605,
+        "pearson_r": 0.261464,
+        "spearman_brown": 0.414541,
+        "wls_slope": 0.266575,
+        "control_metric_beta": 0.249935,
+        "control_non_clutch_beta": 1.506595,
+        "control_r2": 0.087546
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 125,
+        "n_obs": 605,
+        "pearson_r": 0.234109,
+        "spearman_brown": 0.379397,
+        "wls_slope": 0.240577,
+        "control_metric_beta": 0.23686,
+        "control_non_clutch_beta": 1.615846,
+        "control_r2": 0.077629
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 150,
+        "n_obs": 380,
+        "pearson_r": 0.28696,
+        "spearman_brown": 0.44595,
+        "wls_slope": 0.269125,
+        "control_metric_beta": 0.259968,
+        "control_non_clutch_beta": 1.20075,
+        "control_r2": 0.091702
+      },
+      {
+        "analysis": "within_season",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 150,
+        "n_obs": 380,
+        "pearson_r": 0.263054,
+        "spearman_brown": 0.416536,
+        "wls_slope": 0.248227,
+        "control_metric_beta": 0.249775,
+        "control_non_clutch_beta": 1.372464,
+        "control_r2": 0.083571
+      }
+    ]
+  },
+  "year_to_year": {
+    "default_threshold": 150,
+    "default_threshold_results": [
+      {
+        "analysis": "year_to_year",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 150,
+        "n_obs": 742,
+        "pearson_r": 0.261444,
+        "wls_slope": 0.249384,
+        "control_metric_beta": 0.080621,
+        "control_non_clutch_beta": 0.865341,
+        "control_r2": 0.150775
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 150,
+        "n_obs": 742,
+        "pearson_r": 0.102851,
+        "wls_slope": 0.09523,
+        "control_metric_beta": 0.077723,
+        "control_non_clutch_beta": 0.371466,
+        "control_r2": 0.036328
+      }
+    ],
+    "threshold_grid_results": [
+      {
+        "analysis": "year_to_year",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 75,
+        "n_obs": 745,
+        "pearson_r": 0.26424,
+        "wls_slope": 0.251348,
+        "control_metric_beta": 0.080789,
+        "control_non_clutch_beta": 0.870841,
+        "control_r2": 0.152495
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 75,
+        "n_obs": 745,
+        "pearson_r": 0.102918,
+        "wls_slope": 0.095505,
+        "control_metric_beta": 0.077843,
+        "control_non_clutch_beta": 0.374165,
+        "control_r2": 0.03677
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 100,
+        "n_obs": 745,
+        "pearson_r": 0.26424,
+        "wls_slope": 0.251348,
+        "control_metric_beta": 0.080789,
+        "control_non_clutch_beta": 0.870841,
+        "control_r2": 0.152495
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 100,
+        "n_obs": 745,
+        "pearson_r": 0.102918,
+        "wls_slope": 0.095505,
+        "control_metric_beta": 0.077843,
+        "control_non_clutch_beta": 0.374165,
+        "control_r2": 0.03677
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 125,
+        "n_obs": 745,
+        "pearson_r": 0.26424,
+        "wls_slope": 0.251348,
+        "control_metric_beta": 0.080789,
+        "control_non_clutch_beta": 0.870841,
+        "control_r2": 0.152495
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 125,
+        "n_obs": 745,
+        "pearson_r": 0.102918,
+        "wls_slope": 0.095505,
+        "control_metric_beta": 0.077843,
+        "control_non_clutch_beta": 0.374165,
+        "control_r2": 0.03677
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "raw_clutch_net",
+        "metric_label": "Raw clutch net rating",
+        "threshold": 150,
+        "n_obs": 742,
+        "pearson_r": 0.261444,
+        "wls_slope": 0.249384,
+        "control_metric_beta": 0.080621,
+        "control_non_clutch_beta": 0.865341,
+        "control_r2": 0.150775
+      },
+      {
+        "analysis": "year_to_year",
+        "metric_key": "clutch_minus_non_clutch",
+        "metric_label": "Clutch minus non-clutch net rating",
+        "threshold": 150,
+        "n_obs": 742,
+        "pearson_r": 0.102851,
+        "wls_slope": 0.09523,
+        "control_metric_beta": 0.077723,
+        "control_non_clutch_beta": 0.371466,
+        "control_r2": 0.036328
+      }
+    ]
+  },
+  "permutation_nulls": {
+    "within_season": {
+      "raw_clutch_net": {
+        "observed": 0.217631,
+        "null_mean": -0.001474,
+        "null_ci_low": -0.075561,
+        "null_ci_high": 0.071659,
+        "empirical_p_value": 0.0002
+      },
+      "clutch_minus_non_clutch": {
+        "observed": 0.189732,
+        "null_mean": -0.002116,
+        "null_ci_low": -0.077324,
+        "null_ci_high": 0.071165,
+        "empirical_p_value": 0.0002
+      }
+    },
+    "year_to_year": {
+      "raw_clutch_net": {
+        "observed": 0.261444,
+        "null_mean": 0.000247,
+        "null_ci_low": -0.073184,
+        "null_ci_high": 0.074101,
+        "empirical_p_value": 0.0002
+      },
+      "clutch_minus_non_clutch": {
+        "observed": 0.102851,
+        "null_mean": 0.00033,
+        "null_ci_low": -0.06999,
+        "null_ci_high": 0.072508,
+        "empirical_p_value": 0.006199
+      }
+    }
+  }
+}

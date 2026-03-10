@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="760" viewBox="0 0 1000 760">
+<rect width="100%" height="100%" fill="#fffdf8"/>
+<text x="40" y="34" font-size="24" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Permutation null benchmarks</text>
+<rect x="40.00" y="60.00" width="450.00" height="320.00" fill="#fffdf8" stroke="#d6d3d1"/>
+<text x="95.00" y="82.00" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Within-season raw clutch net</text>
+<line x1="95.00" y1="338.00" x2="470.00" y2="338.00" stroke="#4b5563" stroke-width="2"/>
+<line x1="95.00" y1="96.00" x2="95.00" y2="338.00" stroke="#4b5563" stroke-width="2"/>
+<rect x="96.00" y="337.75" width="21.44" height="0.25" fill="#2f6f9f" opacity="0.82"/>
+<rect x="119.44" y="337.75" width="21.44" height="0.25" fill="#2f6f9f" opacity="0.82"/>
+<rect x="142.88" y="335.79" width="21.44" height="2.21" fill="#2f6f9f" opacity="0.82"/>
+<rect x="166.31" y="332.34" width="21.44" height="5.66" fill="#2f6f9f" opacity="0.82"/>
+<rect x="189.75" y="310.95" width="21.44" height="27.05" fill="#2f6f9f" opacity="0.82"/>
+<rect x="213.19" y="276.76" width="21.44" height="61.24" fill="#2f6f9f" opacity="0.82"/>
+<rect x="236.62" y="209.87" width="21.44" height="128.13" fill="#2f6f9f" opacity="0.82"/>
+<rect x="260.06" y="136.83" width="21.44" height="201.17" fill="#2f6f9f" opacity="0.82"/>
+<rect x="283.50" y="96.00" width="21.44" height="242.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="306.94" y="121.33" width="21.44" height="216.67" fill="#2f6f9f" opacity="0.82"/>
+<rect x="330.38" y="159.45" width="21.44" height="178.55" fill="#2f6f9f" opacity="0.82"/>
+<rect x="353.81" y="234.46" width="21.44" height="103.54" fill="#2f6f9f" opacity="0.82"/>
+<rect x="377.25" y="297.17" width="21.44" height="40.83" fill="#2f6f9f" opacity="0.82"/>
+<rect x="400.69" y="321.28" width="21.44" height="16.72" fill="#2f6f9f" opacity="0.82"/>
+<rect x="424.12" y="334.07" width="21.44" height="3.93" fill="#2f6f9f" opacity="0.82"/>
+<rect x="447.56" y="336.52" width="21.44" height="1.48" fill="#2f6f9f" opacity="0.82"/>
+<line x1="572.70" y1="96.00" x2="572.70" y2="338.00" stroke="#c0392b" stroke-width="3" stroke-dasharray="8 6"/>
+<text x="578.70" y="110.00" font-size="12" font-family="Helvetica, Arial, sans-serif" fill="#c0392b">Obs 0.218</text>
+<text x="282.50" y="370.00" text-anchor="middle" font-size="13" font-family="Helvetica, Arial, sans-serif" fill="#374151">Pearson r under null</text>
+<rect x="510.00" y="60.00" width="450.00" height="320.00" fill="#fffdf8" stroke="#d6d3d1"/>
+<text x="565.00" y="82.00" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Within-season clutch minus non-clutch</text>
+<line x1="565.00" y1="338.00" x2="940.00" y2="338.00" stroke="#4b5563" stroke-width="2"/>
+<line x1="565.00" y1="96.00" x2="565.00" y2="338.00" stroke="#4b5563" stroke-width="2"/>
+<rect x="566.00" y="337.14" width="21.44" height="0.86" fill="#2f6f9f" opacity="0.82"/>
+<rect x="589.44" y="334.86" width="21.44" height="3.14" fill="#2f6f9f" opacity="0.82"/>
+<rect x="612.88" y="328.00" width="21.44" height="10.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="636.31" y="311.43" width="21.44" height="26.57" fill="#2f6f9f" opacity="0.82"/>
+<rect x="659.75" y="281.14" width="21.44" height="56.86" fill="#2f6f9f" opacity="0.82"/>
+<rect x="683.19" y="234.57" width="21.44" height="103.43" fill="#2f6f9f" opacity="0.82"/>
+<rect x="706.62" y="161.14" width="21.44" height="176.86" fill="#2f6f9f" opacity="0.82"/>
+<rect x="730.06" y="111.14" width="21.44" height="226.86" fill="#2f6f9f" opacity="0.82"/>
+<rect x="753.50" y="96.00" width="21.44" height="242.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="776.94" y="118.57" width="21.44" height="219.43" fill="#2f6f9f" opacity="0.82"/>
+<rect x="800.38" y="169.14" width="21.44" height="168.86" fill="#2f6f9f" opacity="0.82"/>
+<rect x="823.81" y="223.71" width="21.44" height="114.29" fill="#2f6f9f" opacity="0.82"/>
+<rect x="847.25" y="290.29" width="21.44" height="47.71" fill="#2f6f9f" opacity="0.82"/>
+<rect x="870.69" y="316.86" width="21.44" height="21.14" fill="#2f6f9f" opacity="0.82"/>
+<rect x="894.12" y="331.71" width="21.44" height="6.29" fill="#2f6f9f" opacity="0.82"/>
+<rect x="917.56" y="333.71" width="21.44" height="4.29" fill="#2f6f9f" opacity="0.82"/>
+<line x1="1034.83" y1="96.00" x2="1034.83" y2="338.00" stroke="#c0392b" stroke-width="3" stroke-dasharray="8 6"/>
+<text x="1040.83" y="110.00" font-size="12" font-family="Helvetica, Arial, sans-serif" fill="#c0392b">Obs 0.190</text>
+<text x="752.50" y="370.00" text-anchor="middle" font-size="13" font-family="Helvetica, Arial, sans-serif" fill="#374151">Pearson r under null</text>
+<rect x="40.00" y="400.00" width="450.00" height="320.00" fill="#fffdf8" stroke="#d6d3d1"/>
+<text x="95.00" y="422.00" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Year-to-year raw clutch net</text>
+<line x1="95.00" y1="678.00" x2="470.00" y2="678.00" stroke="#4b5563" stroke-width="2"/>
+<line x1="95.00" y1="436.00" x2="95.00" y2="678.00" stroke="#4b5563" stroke-width="2"/>
+<rect x="96.00" y="677.44" width="21.44" height="0.56" fill="#2f6f9f" opacity="0.82"/>
+<rect x="119.44" y="676.33" width="21.44" height="1.67" fill="#2f6f9f" opacity="0.82"/>
+<rect x="142.88" y="668.00" width="21.44" height="10.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="166.31" y="648.27" width="21.44" height="29.73" fill="#2f6f9f" opacity="0.82"/>
+<rect x="189.75" y="610.48" width="21.44" height="67.52" fill="#2f6f9f" opacity="0.82"/>
+<rect x="213.19" y="556.03" width="21.44" height="121.97" fill="#2f6f9f" opacity="0.82"/>
+<rect x="236.62" y="506.02" width="21.44" height="171.98" fill="#2f6f9f" opacity="0.82"/>
+<rect x="260.06" y="442.11" width="21.44" height="235.89" fill="#2f6f9f" opacity="0.82"/>
+<rect x="283.50" y="436.00" width="21.44" height="242.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="306.94" y="467.95" width="21.44" height="210.05" fill="#2f6f9f" opacity="0.82"/>
+<rect x="330.38" y="527.69" width="21.44" height="150.31" fill="#2f6f9f" opacity="0.82"/>
+<rect x="353.81" y="593.81" width="21.44" height="84.19" fill="#2f6f9f" opacity="0.82"/>
+<rect x="377.25" y="637.71" width="21.44" height="40.29" fill="#2f6f9f" opacity="0.82"/>
+<rect x="400.69" y="660.50" width="21.44" height="17.50" fill="#2f6f9f" opacity="0.82"/>
+<rect x="424.12" y="674.11" width="21.44" height="3.89" fill="#2f6f9f" opacity="0.82"/>
+<rect x="447.56" y="676.33" width="21.44" height="1.67" fill="#2f6f9f" opacity="0.82"/>
+<line x1="655.89" y1="436.00" x2="655.89" y2="678.00" stroke="#c0392b" stroke-width="3" stroke-dasharray="8 6"/>
+<text x="661.89" y="450.00" font-size="12" font-family="Helvetica, Arial, sans-serif" fill="#c0392b">Obs 0.261</text>
+<text x="282.50" y="710.00" text-anchor="middle" font-size="13" font-family="Helvetica, Arial, sans-serif" fill="#374151">Pearson r under null</text>
+<rect x="510.00" y="400.00" width="450.00" height="320.00" fill="#fffdf8" stroke="#d6d3d1"/>
+<text x="565.00" y="422.00" font-size="16" font-family="Helvetica, Arial, sans-serif" fill="#16202a">Year-to-year clutch minus non-clutch</text>
+<line x1="565.00" y1="678.00" x2="940.00" y2="678.00" stroke="#4b5563" stroke-width="2"/>
+<line x1="565.00" y1="436.00" x2="565.00" y2="678.00" stroke="#4b5563" stroke-width="2"/>
+<rect x="566.00" y="677.50" width="21.44" height="0.50" fill="#2f6f9f" opacity="0.82"/>
+<rect x="589.44" y="675.99" width="21.44" height="2.01" fill="#2f6f9f" opacity="0.82"/>
+<rect x="612.88" y="672.48" width="21.44" height="5.52" fill="#2f6f9f" opacity="0.82"/>
+<rect x="636.31" y="660.68" width="21.44" height="17.32" fill="#2f6f9f" opacity="0.82"/>
+<rect x="659.75" y="627.04" width="21.44" height="50.96" fill="#2f6f9f" opacity="0.82"/>
+<rect x="683.19" y="572.82" width="21.44" height="105.18" fill="#2f6f9f" opacity="0.82"/>
+<rect x="706.62" y="502.78" width="21.44" height="175.22" fill="#2f6f9f" opacity="0.82"/>
+<rect x="730.06" y="455.33" width="21.44" height="222.67" fill="#2f6f9f" opacity="0.82"/>
+<rect x="753.50" y="436.00" width="21.44" height="242.00" fill="#2f6f9f" opacity="0.82"/>
+<rect x="776.94" y="483.45" width="21.44" height="194.55" fill="#2f6f9f" opacity="0.82"/>
+<rect x="800.38" y="550.22" width="21.44" height="127.78" fill="#2f6f9f" opacity="0.82"/>
+<rect x="823.81" y="608.71" width="21.44" height="69.29" fill="#2f6f9f" opacity="0.82"/>
+<rect x="847.25" y="649.13" width="21.44" height="28.87" fill="#2f6f9f" opacity="0.82"/>
+<rect x="870.69" y="667.46" width="21.44" height="10.54" fill="#2f6f9f" opacity="0.82"/>
+<rect x="894.12" y="676.24" width="21.44" height="1.76" fill="#2f6f9f" opacity="0.82"/>
+<rect x="917.56" y="677.00" width="21.44" height="1.00" fill="#2f6f9f" opacity="0.82"/>
+<line x1="893.23" y1="436.00" x2="893.23" y2="678.00" stroke="#c0392b" stroke-width="3" stroke-dasharray="8 6"/>
+<text x="899.23" y="450.00" font-size="12" font-family="Helvetica, Arial, sans-serif" fill="#c0392b">Obs 0.103</text>
+<text x="752.50" y="710.00" text-anchor="middle" font-size="13" font-family="Helvetica, Arial, sans-serif" fill="#374151">Pearson r under null</text>
+</svg>

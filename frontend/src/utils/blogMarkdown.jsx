@@ -91,6 +91,22 @@ function parseStandaloneImages(line) {
   return images.length > 0 ? images : null
 }
 
+function parseTableCells(line) {
+  return line
+    .trim()
+    .replace(/^\|/, '')
+    .replace(/\|$/, '')
+    .split('|')
+    .map((cell) => cell.trim())
+}
+
+function isTableSeparator(line) {
+  if (!line?.includes('|')) return false
+
+  const cells = parseTableCells(line)
+  return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
+}
+
 function getYouTubeEmbedUrl(url) {
   try {
     const parsed = new URL(url)
@@ -264,6 +280,47 @@ export function renderMarkdownBlocks(content, slug) {
         )
       }
       index += 1
+      continue
+    }
+
+    if (line.includes('|') && isTableSeparator(lines[index + 1]?.trim())) {
+      const headers = parseTableCells(line)
+      const rows = []
+      index += 2
+
+      while (index < lines.length) {
+        const rowLine = lines[index].trim()
+        if (!rowLine || !rowLine.includes('|')) break
+        rows.push(parseTableCells(rowLine))
+        index += 1
+      }
+
+      blocks.push(
+        <div className="blog-table-wrapper" key={`${slug}-table-${index}`}>
+          <table className="blog-table">
+            <thead>
+              <tr>
+                {headers.map((header, headerIndex) => (
+                  <th key={`${slug}-table-head-${headerIndex}`}>
+                    {renderInlineMarkdown(header, `${slug}-table-head-${headerIndex}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, rowIndex) => (
+                <tr key={`${slug}-table-row-${rowIndex}`}>
+                  {row.map((cell, cellIndex) => (
+                    <td key={`${slug}-table-cell-${rowIndex}-${cellIndex}`}>
+                      {renderInlineMarkdown(cell, `${slug}-table-cell-${rowIndex}-${cellIndex}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
       continue
     }
 
