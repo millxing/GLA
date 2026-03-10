@@ -38,7 +38,7 @@ First it looked at persistence from year to year. Does relative clutch performan
 
 Next, Stockton looked at persistence from the first half to the second half of the season. Does relative clutch performance in the first half of the season predict a team's relative clutch performance in the second half? There were 731 within-year team pairs (44 pairs were excluded for having fewer than 100 clutch possessions and at least 10 clutch games in each half). The correlation between relative clutch performance in the first half and relative clutch performance in the second half is 0.190. That's a lot higher than the year-to-year correlation, and it is very statistically significant (t-stat = 5.218, p < .0001). 
 
-I think we've established that there is strong evidence for persistence between team-seasons and within team-seasons, with it being much stringer within season. That's encouraging for Lakers fans. [BTW: I was accused of being a Lakers fan-boy and that couldn't be more wrong. I'm a Celtics fan!]
+I think we've established that there is strong evidence for persistence between team-seasons and within team-seasons, with it being much stronger within season. That's encouraging for Lakers fans. [BTW: I was accused of being a Lakers fan-boy and that couldn't be more wrong. I'm a Celtics fan!]
 
 ![Within-season clutch persistence](/images/lakers_clutch_persistence_withinseason.svg "Within-season clutch persistence")
 
