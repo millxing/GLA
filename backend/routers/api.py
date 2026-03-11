@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from typing import Optional, Dict, Any
+import hmac
 import math
 import subprocess
 import json
@@ -949,7 +950,8 @@ async def get_winprob_forecast(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to generate forecast: {exc}")
+        logger.exception("Failed to generate forecast: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to generate forecast")
 
     return result
 
@@ -987,7 +989,8 @@ async def get_winprob_hypothetical_forecast(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to generate hypothetical forecast: {exc}")
+        logger.exception("Failed to generate hypothetical forecast: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to generate hypothetical forecast")
 
     return result
 
@@ -1131,7 +1134,7 @@ async def get_game_timeline(
                 )
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to read timeline parquet: {' | '.join(parquet_errors)}",
+                    detail="Failed to read timeline data",
                 )
             raise HTTPException(
                 status_code=404,
@@ -1148,7 +1151,8 @@ async def get_game_timeline(
         try:
             loaded = json.loads(timeline_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Failed to read timeline JSON: {exc}")
+            logger.exception("Failed to read timeline JSON: %s", exc)
+            raise HTTPException(status_code=500, detail="Failed to read timeline data")
         payload = loaded if isinstance(loaded, dict) else None
 
     if not isinstance(payload, dict):
@@ -1977,7 +1981,7 @@ async def admin_clear_cache(
     """Clear the in-memory cache. Requires ADMIN_SECRET_KEY."""
     if not ADMIN_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Admin endpoint not configured")
-    if key != ADMIN_SECRET_KEY:
+    if not hmac.compare_digest(key, ADMIN_SECRET_KEY):
         raise HTTPException(status_code=403, detail="Invalid key")
 
     clear_cache()

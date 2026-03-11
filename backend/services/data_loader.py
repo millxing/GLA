@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import httpx
 import json
@@ -60,9 +61,13 @@ def _resolve_local_path_from_url(url: str) -> Optional[Path]:
             return None
 
         rel = unquote(url_path[len(base_path) + 1 :])
-        if not rel or rel.startswith("../"):
+        if not rel or ".." in rel.split("/"):
             return None
-        return (NBA_DATA_REPO_DIR / rel).resolve()
+        resolved = (NBA_DATA_REPO_DIR / rel).resolve()
+        # Ensure resolved path is still inside the repo directory
+        if not str(resolved).startswith(str(NBA_DATA_REPO_DIR.resolve()) + os.sep) and resolved != NBA_DATA_REPO_DIR.resolve():
+            return None
+        return resolved
     except Exception:
         return None
 

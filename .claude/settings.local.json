@@ -45,7 +45,8 @@
       "Bash(xargs kill)",
       "Bash(lsof -ti:5173,5174)",
       "Bash(xargs kill -9)",
-      "Bash(npx vite build)"
+      "Bash(npx vite build)",
+      "Bash(find /Users/robschoen/Dropbox/CC/GLA/frontend/src -type f -name *.test.* -o -name *.spec.*)"
     ]
   }
 }
