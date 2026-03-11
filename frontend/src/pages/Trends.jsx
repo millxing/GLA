@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ComposedChart,
@@ -127,7 +127,7 @@ function normalizeStatParam(value) {
 function Trends() {
   const location = useLocation()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('trends_season', '')
@@ -139,12 +139,58 @@ function Trends() {
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const hasUserInteractedRef = useRef(false)
   const urlSelections = useMemo(() => ({
     season: readSearchParam(searchParams, 'season').trim(),
     team: readSearchParam(searchParams, 'team').trim().toUpperCase(),
     stat: normalizeStatParam(readSearchParam(searchParams, 'stat', 'metric')),
     dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
   }), [searchParams])
+
+  const buildSearchParamsFromState = (overrides = {}) => {
+    const nextState = {
+      season: selectedSeason,
+      team: selectedTeam,
+      stat: selectedStat,
+      dataScope: selectedDataScope,
+      ...overrides,
+    }
+
+    const nextParams = new URLSearchParams()
+    if (nextState.season) nextParams.set('season', nextState.season)
+    if (nextState.team) nextParams.set('team', nextState.team)
+    if (nextState.stat) nextParams.set('stat', nextState.stat)
+    if (nextState.dataScope) nextParams.set('scope', nextState.dataScope)
+    return nextParams
+  }
+
+  const updateUrlFromUserChange = (overrides = {}) => {
+    hasUserInteractedRef.current = true
+    const nextParams = buildSearchParamsFromState(overrides)
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }
+
+  const handleSeasonChange = (value) => {
+    updateUrlFromUserChange({ season: value })
+    setSelectedSeason(value)
+  }
+
+  const handleTeamChange = (value) => {
+    updateUrlFromUserChange({ team: value })
+    setSelectedTeam(value)
+  }
+
+  const handleDataScopeChange = (value) => {
+    updateUrlFromUserChange({ dataScope: value })
+    setSelectedDataScope(value)
+  }
+
+  const handleStatChange = (value) => {
+    updateUrlFromUserChange({ stat: value })
+    setSelectedStat(value)
+  }
 
   useEffect(() => {
     const navState = location.state
@@ -242,6 +288,21 @@ function Trends() {
       setSelectedTeam(urlSelections.team)
     }
   }, [teams, selectedTeam, setSelectedTeam, urlSelections.team])
+
+  useEffect(() => {
+    if (!hasUserInteractedRef.current) return
+    const nextParams = buildSearchParamsFromState()
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }, [
+    searchParams,
+    selectedDataScope,
+    selectedSeason,
+    selectedStat,
+    selectedTeam,
+    setSearchParams,
+  ])
 
   useEffect(() => {
     let isCurrent = true
@@ -369,7 +430,7 @@ function Trends() {
             <select
               className="form-select"
               value={selectedSeason}
-              onChange={(e) => setSelectedSeason(e.target.value)}
+              onChange={(e) => handleSeasonChange(e.target.value)}
             >
               <option value="">Select season...</option>
               {seasons.map((season) => (
@@ -383,7 +444,7 @@ function Trends() {
             <select
               className="form-select"
               value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
+              onChange={(e) => handleTeamChange(e.target.value)}
               disabled={!selectedSeason || teams.length === 0}
             >
               <option value="">Select team...</option>
@@ -398,7 +459,7 @@ function Trends() {
             <select
               className="form-select"
               value={selectedDataScope}
-              onChange={(e) => setSelectedDataScope(e.target.value)}
+              onChange={(e) => handleDataScopeChange(e.target.value)}
             >
               {DATA_SCOPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
@@ -411,7 +472,7 @@ function Trends() {
             <select
               className="form-select"
               value={selectedStat}
-              onChange={(e) => setSelectedStat(e.target.value)}
+              onChange={(e) => handleStatChange(e.target.value)}
             >
               {STAT_OPTIONS.map((stat) => (
                 <option key={stat.value} value={stat.value}>{stat.label}</option>

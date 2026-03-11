@@ -139,7 +139,7 @@ function normalizeAnalysisViewParam(value) {
 
 function FourFactor() {
   const location = useLocation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
@@ -166,6 +166,7 @@ function FourFactor() {
   const [singleGameSaveError, setSingleGameSaveError] = useState(false)
   const [singleGameSaving, setSingleGameSaving] = useState(false)
   const singleGameSaveTimerRef = useRef(null)
+  const hasUserInteractedRef = useRef(false)
   const urlSelections = useMemo(() => ({
     season: readSearchParam(searchParams, 'season').trim(),
     month: readSearchParam(searchParams, 'month').trim(),
@@ -174,6 +175,65 @@ function FourFactor() {
     factorType: normalizeFactorTypeParam(readSearchParam(searchParams, 'factors', 'factor_type', 'factorType')),
     analysisView: normalizeAnalysisViewParam(readSearchParam(searchParams, 'view', 'analysis_view', 'analysisView')),
   }), [searchParams])
+
+  const buildSearchParamsFromState = (overrides = {}) => {
+    const nextState = {
+      season: selectedSeason,
+      month: selectedMonth,
+      gameId: selectedGame,
+      dataScope: selectedDataScope,
+      factorType,
+      analysisView,
+      ...overrides,
+    }
+
+    const nextParams = new URLSearchParams()
+    if (nextState.season) nextParams.set('season', nextState.season)
+    if (nextState.month) nextParams.set('month', nextState.month)
+    if (nextState.gameId) nextParams.set('game', normalizeGameId(nextState.gameId))
+    if (nextState.dataScope) nextParams.set('scope', nextState.dataScope)
+    if (nextState.factorType) nextParams.set('factors', nextState.factorType)
+    if (nextState.analysisView) nextParams.set('view', nextState.analysisView)
+    return nextParams
+  }
+
+  const updateUrlFromUserChange = (overrides = {}) => {
+    hasUserInteractedRef.current = true
+    const nextParams = buildSearchParamsFromState(overrides)
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }
+
+  const handleSeasonChange = (value) => {
+    updateUrlFromUserChange({ season: value })
+    setSelectedSeason(value)
+  }
+
+  const handleMonthChange = (value) => {
+    updateUrlFromUserChange({ month: value })
+    setSelectedMonth(value)
+  }
+
+  const handleGameChange = (value) => {
+    updateUrlFromUserChange({ gameId: value })
+    setSelectedGame(value)
+  }
+
+  const handleFactorTypeChange = (value) => {
+    updateUrlFromUserChange({ factorType: value })
+    setFactorType(value)
+  }
+
+  const handleAnalysisViewChange = (value) => {
+    updateUrlFromUserChange({ analysisView: value })
+    setAnalysisView(value)
+  }
+
+  const handleDataScopeChange = (value) => {
+    updateUrlFromUserChange({ dataScope: value })
+    setSelectedDataScope(value)
+  }
   const interpretationEnabled =
     INTERPRETATION_UI_ENABLED &&
     selectedSeason === INTERPRETATION_ENABLED_SEASON &&
@@ -398,6 +458,23 @@ function FourFactor() {
   }, [games, selectedGame, selectedMonth, urlSelections.gameId])
 
   useEffect(() => {
+    if (!hasUserInteractedRef.current) return
+    const nextParams = buildSearchParamsFromState()
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }, [
+    analysisView,
+    factorType,
+    searchParams,
+    selectedDataScope,
+    selectedGame,
+    selectedMonth,
+    selectedSeason,
+    setSearchParams,
+  ])
+
+  useEffect(() => {
     let isCurrent = true
     async function loadDecomposition() {
       if (!selectedSeason || !selectedGame) return
@@ -516,12 +593,18 @@ function FourFactor() {
 
   useEffect(() => {
     if (!selectedGame) return
-    setAnalysisView(urlSelections.analysisView || 'factor')
+    const nextView = urlSelections.analysisView || 'factor'
+    if (analysisView !== nextView) {
+      setAnalysisView(nextView)
+    }
   }, [selectedGame, urlSelections.analysisView])
 
   useEffect(() => {
     if (!selectedGame) return
-    setSelectedDataScope(urlSelections.dataScope || 'all')
+    const nextScope = urlSelections.dataScope || 'all'
+    if (selectedDataScope !== nextScope) {
+      setSelectedDataScope(nextScope)
+    }
   }, [selectedGame, urlSelections.dataScope])
 
   useEffect(() => {
@@ -845,7 +928,7 @@ function FourFactor() {
             <select
               className="form-select"
               value={selectedSeason}
-              onChange={(e) => setSelectedSeason(e.target.value)}
+              onChange={(e) => handleSeasonChange(e.target.value)}
             >
               <option value="">Select season...</option>
               {seasons.map((season) => (
@@ -859,7 +942,7 @@ function FourFactor() {
             <select
               className="form-select"
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              onChange={(e) => handleMonthChange(e.target.value)}
               disabled={!selectedSeason || monthOptions.length === 0}
             >
               <option value="">Select month...</option>
@@ -874,7 +957,7 @@ function FourFactor() {
             <select
               className="form-select"
               value={selectedGame}
-              onChange={(e) => setSelectedGame(e.target.value)}
+              onChange={(e) => handleGameChange(e.target.value)}
               disabled={!selectedSeason || !selectedMonth || filteredGames.length === 0}
             >
               <option value="">Select game...</option>
@@ -889,7 +972,7 @@ function FourFactor() {
             <select
               className="form-select"
               value={factorType}
-              onChange={(e) => setFactorType(e.target.value)}
+              onChange={(e) => handleFactorTypeChange(e.target.value)}
             >
               <option value="four_factors">Four Factors</option>
               <option value="eight_factors">Eight Factors</option>
@@ -1000,14 +1083,14 @@ function FourFactor() {
               <button
                 type="button"
                 className={analysisView === 'factor' ? 'active' : ''}
-                onClick={() => setAnalysisView('factor')}
+                onClick={() => handleAnalysisViewChange('factor')}
               >
                 Factor Analysis
               </button>
               <button
                 type="button"
                 className={analysisView === 'timeline' ? 'active' : ''}
-                onClick={() => setAnalysisView('timeline')}
+                onClick={() => handleAnalysisViewChange('timeline')}
               >
                 Game Timeline
               </button>
@@ -1026,7 +1109,7 @@ function FourFactor() {
                       key={option.value}
                       type="button"
                       className={selectedDataScope === option.value ? 'active' : ''}
-                      onClick={() => setSelectedDataScope(option.value)}
+                      onClick={() => handleDataScopeChange(option.value)}
                     >
                       {option.label} ({formatScopeMinutesLabel(option.value)})
                     </button>

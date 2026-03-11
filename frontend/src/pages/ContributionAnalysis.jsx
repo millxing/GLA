@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { usePersistedState } from '../hooks/usePersistedState'
 import {
@@ -125,7 +125,7 @@ function normalizeDateInputValue(value) {
 }
 
 function ContributionAnalysis() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '2025-26')
@@ -141,6 +141,7 @@ function ContributionAnalysis() {
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const hasUserInteractedRef = useRef(false)
   const urlSelections = useMemo(() => {
     const season = readSearchParam(searchParams, 'season').trim()
     const team = readSearchParam(searchParams, 'team').trim().toUpperCase()
@@ -153,6 +154,67 @@ function ContributionAnalysis() {
       customEndDate: normalizeDateInputValue(readSearchParam(searchParams, 'end', 'end_date', 'endDate')),
     }
   }, [searchParams])
+
+  const buildSearchParamsFromState = (overrides = {}) => {
+    const nextState = {
+      season: selectedSeason,
+      team: selectedTeam,
+      dataScope: selectedDataScope,
+      dateRange: dateRangeType,
+      customStartDate,
+      customEndDate,
+      ...overrides,
+    }
+
+    const nextParams = new URLSearchParams()
+    if (nextState.season) nextParams.set('season', nextState.season)
+    if (nextState.team) nextParams.set('team', nextState.team)
+    if (nextState.dataScope) nextParams.set('scope', nextState.dataScope)
+    if (nextState.dateRange) nextParams.set('range', nextState.dateRange)
+    if (nextState.dateRange === 'custom') {
+      if (nextState.customStartDate) nextParams.set('start', nextState.customStartDate)
+      if (nextState.customEndDate) nextParams.set('end', nextState.customEndDate)
+    }
+    return nextParams
+  }
+
+  const updateUrlFromUserChange = (overrides = {}) => {
+    hasUserInteractedRef.current = true
+    const nextParams = buildSearchParamsFromState(overrides)
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }
+
+  const handleSeasonChange = (value) => {
+    updateUrlFromUserChange({ season: value })
+    setSelectedSeason(value)
+  }
+
+  const handleTeamChange = (value) => {
+    updateUrlFromUserChange({ team: value })
+    setSelectedTeam(value)
+  }
+
+  const handleDataScopeChange = (value) => {
+    updateUrlFromUserChange({ dataScope: value })
+    setSelectedDataScope(value)
+  }
+
+  const handleDateRangeChange = (value) => {
+    updateUrlFromUserChange({ dateRange: value })
+    setDateRangeType(value)
+  }
+
+  const handleCustomStartDateChange = (value) => {
+    updateUrlFromUserChange({ dateRange: 'custom', customStartDate: value })
+    setCustomStartDate(value)
+  }
+
+  const handleCustomEndDateChange = (value) => {
+    updateUrlFromUserChange({ dateRange: 'custom', customEndDate: value })
+    setCustomEndDate(value)
+  }
 
   // Load seasons on mount
   useEffect(() => {
@@ -264,6 +326,23 @@ function ContributionAnalysis() {
       setSelectedTeam(urlSelections.team)
     }
   }, [teams, selectedTeam, setSelectedTeam, urlSelections.team])
+
+  useEffect(() => {
+    if (!hasUserInteractedRef.current) return
+    const nextParams = buildSearchParamsFromState()
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }, [
+    customEndDate,
+    customStartDate,
+    dateRangeType,
+    searchParams,
+    selectedDataScope,
+    selectedSeason,
+    selectedTeam,
+    setSearchParams,
+  ])
 
   // Populate custom date fields when switching to custom and bounds are available
   useEffect(() => {
@@ -541,7 +620,7 @@ function ContributionAnalysis() {
             <select
               className="form-select"
               value={selectedSeason}
-              onChange={(e) => setSelectedSeason(e.target.value)}
+              onChange={(e) => handleSeasonChange(e.target.value)}
             >
               <option value="">Select season...</option>
               {seasons.map((season) => (
@@ -555,7 +634,7 @@ function ContributionAnalysis() {
             <select
               className="form-select"
               value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
+              onChange={(e) => handleTeamChange(e.target.value)}
               disabled={!selectedSeason || teams.length === 0}
             >
               <option value="">Select team...</option>
@@ -570,7 +649,7 @@ function ContributionAnalysis() {
             <select
               className="form-select"
               value={selectedDataScope}
-              onChange={(e) => setSelectedDataScope(e.target.value)}
+              onChange={(e) => handleDataScopeChange(e.target.value)}
             >
               {DATA_SCOPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -583,7 +662,7 @@ function ContributionAnalysis() {
             <select
               className="form-select"
               value={dateRangeType}
-              onChange={(e) => setDateRangeType(e.target.value)}
+              onChange={(e) => handleDateRangeChange(e.target.value)}
             >
               {DATE_RANGE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -601,7 +680,7 @@ function ContributionAnalysis() {
                 type="date"
                 className="form-input"
                 value={customStartDate}
-                onChange={(e) => setCustomStartDate(e.target.value)}
+                onChange={(e) => handleCustomStartDateChange(e.target.value)}
               />
             </div>
             <div className="form-group">
@@ -610,7 +689,7 @@ function ContributionAnalysis() {
                 type="date"
                 className="form-input"
                 value={customEndDate}
-                onChange={(e) => setCustomEndDate(e.target.value)}
+                onChange={(e) => handleCustomEndDateChange(e.target.value)}
               />
             </div>
           </div>

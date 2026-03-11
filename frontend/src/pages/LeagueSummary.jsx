@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { getSeasons, getLeagueSummary, getLeagueTopContributors } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { ScatterChart, Scatter, XAxis, YAxis, ReferenceLine, ResponsiveContainer, LabelList, Tooltip } from 'recharts'
@@ -581,7 +581,7 @@ function normalizeDateInputValue(value) {
 
 function LeagueSummary() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('leaguesummary_season', '')
   const [selectedDataScope, setSelectedDataScope] = usePersistedState('leaguesummary_datascope', 'all')
@@ -600,6 +600,7 @@ function LeagueSummary() {
   const [contributorsLoading, setContributorsLoading] = useState(false)
   const [topContributorsNote, setTopContributorsNote] = useState('')
   const [hoverTooltip, setHoverTooltip] = useState(null)
+  const hasUserInteractedRef = useRef(false)
   const isCustomDateRangeVisible = dateRangePreset === 'custom'
   const urlSelections = useMemo(() => {
     const season = readSearchParam(searchParams, 'season').trim()
@@ -636,30 +637,35 @@ function LeagueSummary() {
   }, [setSelectedSeason, urlSelections.season])
 
   useEffect(() => {
+    if (hasUserInteractedRef.current) return
     if (urlSelections.season && seasons.includes(urlSelections.season) && selectedSeason !== urlSelections.season) {
       setSelectedSeason(urlSelections.season)
     }
   }, [seasons, selectedSeason, setSelectedSeason, urlSelections.season])
 
   useEffect(() => {
+    if (hasUserInteractedRef.current) return
     if (urlSelections.dataScope && urlSelections.dataScope !== selectedDataScope) {
       setSelectedDataScope(urlSelections.dataScope)
     }
   }, [selectedDataScope, setSelectedDataScope, urlSelections.dataScope])
 
   useEffect(() => {
+    if (hasUserInteractedRef.current) return
     if (urlSelections.dateRange && urlSelections.dateRange !== dateRangePreset) {
       setDateRangePreset(urlSelections.dateRange)
     }
   }, [dateRangePreset, setDateRangePreset, urlSelections.dateRange])
 
   useEffect(() => {
+    if (hasUserInteractedRef.current) return
     if (urlSelections.tableView && urlSelections.tableView !== tableView) {
       setTableView(urlSelections.tableView)
     }
   }, [setTableView, tableView, urlSelections.tableView])
 
   useEffect(() => {
+    if (hasUserInteractedRef.current) return
     if (urlSelections.dateRange !== 'custom') return
     if (urlSelections.customStartDate && urlSelections.customStartDate !== customStartDate) {
       setCustomStartDate(urlSelections.customStartDate)
@@ -669,14 +675,81 @@ function LeagueSummary() {
     }
   }, [customEndDate, customStartDate, urlSelections.customEndDate, urlSelections.customStartDate, urlSelections.dateRange])
 
+  const buildSearchParamsFromState = (overrides = {}) => {
+    const nextState = {
+      season: selectedSeason,
+      dataScope: selectedDataScope,
+      dateRange: dateRangePreset,
+      tableView,
+      sortColumn,
+      sortDirection,
+      customStartDate,
+      customEndDate,
+      ...overrides,
+    }
+
+    const nextParams = new URLSearchParams()
+    if (nextState.season) nextParams.set('season', nextState.season)
+    if (nextState.dataScope) nextParams.set('scope', nextState.dataScope)
+    if (nextState.dateRange) nextParams.set('range', nextState.dateRange)
+    if (nextState.dateRange === 'custom') {
+      if (nextState.customStartDate) nextParams.set('start', nextState.customStartDate)
+      if (nextState.customEndDate) nextParams.set('end', nextState.customEndDate)
+    }
+    if (nextState.tableView) nextParams.set('view', nextState.tableView)
+    if (nextState.sortColumn) nextParams.set('sort', nextState.sortColumn)
+    if (nextState.sortDirection) nextParams.set('direction', nextState.sortDirection)
+    return nextParams
+  }
+
+  const updateUrlFromUserChange = (overrides = {}) => {
+    hasUserInteractedRef.current = true
+    const nextParams = buildSearchParamsFromState(overrides)
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }
+
+  const handleSeasonChange = (value) => {
+    updateUrlFromUserChange({ season: value })
+    setSelectedSeason(value)
+  }
+
+  const handleDataScopeChange = (value) => {
+    updateUrlFromUserChange({ dataScope: value })
+    setSelectedDataScope(value)
+  }
+
+  const handleDateRangeChange = (value) => {
+    updateUrlFromUserChange({ dateRange: value })
+    setDateRangePreset(value)
+  }
+
+  const handleCustomStartDateChange = (value) => {
+    updateUrlFromUserChange({ dateRange: 'custom', customStartDate: value })
+    setCustomStartDate(value)
+  }
+
+  const handleCustomEndDateChange = (value) => {
+    updateUrlFromUserChange({ dateRange: 'custom', customEndDate: value })
+    setCustomEndDate(value)
+  }
+
+  const handleTableViewChange = (value) => {
+    updateUrlFromUserChange({ tableView: value })
+    setTableView(value)
+  }
+
   // Reset date preset when season changes
   useEffect(() => {
-    const nextDateRangePreset = urlSelections.dateRange || 'season'
+    const nextDateRangePreset = hasUserInteractedRef.current
+      ? dateRangePreset
+      : (urlSelections.dateRange || 'season')
     const shouldUseCustomDates = nextDateRangePreset === 'custom'
 
     setDateRangePreset(nextDateRangePreset)
-    setCustomStartDate(shouldUseCustomDates ? urlSelections.customStartDate : '')
-    setCustomEndDate(shouldUseCustomDates ? urlSelections.customEndDate : '')
+    setCustomStartDate(shouldUseCustomDates ? customStartDate : '')
+    setCustomEndDate(shouldUseCustomDates ? customEndDate : '')
     setSeasonBounds({ first: '', last: '' })
     setData(null)
     setTopContributors(null)
@@ -684,10 +757,6 @@ function LeagueSummary() {
   }, [
     selectedSeason,
     selectedDataScope,
-    urlSelections.dateRange,
-    urlSelections.customStartDate,
-    urlSelections.customEndDate,
-    setDateRangePreset,
   ])
 
   // Keep persisted date preset valid when option list changes
@@ -800,8 +869,13 @@ function LeagueSummary() {
         const res = await getLeagueSummary(selectedSeason, null, null, false, null, selectedDataScope)
         if (isCurrent && res.first_game_date && res.last_game_date) {
           setSeasonBounds({ first: res.first_game_date, last: res.last_game_date })
-          setCustomStartDate(res.first_game_date)
-          setCustomEndDate(res.last_game_date)
+          if (dateRangePreset !== 'custom') {
+            setCustomStartDate(res.first_game_date)
+            setCustomEndDate(res.last_game_date)
+          } else {
+            if (!customStartDate) setCustomStartDate(res.first_game_date)
+            if (!customEndDate) setCustomEndDate(res.last_game_date)
+          }
           setError(null)
         }
       } catch (err) {
@@ -812,7 +886,26 @@ function LeagueSummary() {
     }
     loadSeasonBounds()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedDataScope])
+  }, [selectedSeason, selectedDataScope, dateRangePreset, customStartDate, customEndDate])
+
+  useEffect(() => {
+    if (!hasUserInteractedRef.current) return
+    const nextParams = buildSearchParamsFromState()
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true })
+    }
+  }, [
+    customEndDate,
+    customStartDate,
+    dateRangePreset,
+    searchParams,
+    selectedDataScope,
+    selectedSeason,
+    setSearchParams,
+    sortColumn,
+    sortDirection,
+    tableView,
+  ])
 
   // Load data with calculated date range
   useEffect(() => {
@@ -898,6 +991,7 @@ function LeagueSummary() {
   }, [tableView, isScopedSummary])
 
   useEffect(() => {
+    if (hasUserInteractedRef.current) return
     if (!urlSelections.sortColumn) return
     if (!activeColumns.some((column) => column.key === urlSelections.sortColumn)) return
     if (urlSelections.sortColumn !== sortColumn) {
@@ -975,11 +1069,15 @@ function LeagueSummary() {
 
   const handleSort = (column) => {
     if (sortColumn === column) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')
+      const nextDirection = sortDirection === 'asc' ? 'desc' : 'asc'
+      updateUrlFromUserChange({ sortColumn: column, sortDirection: nextDirection })
+      setSortDirection(nextDirection)
     } else {
-      setSortColumn(column)
       const col = activeColumns.find((c) => c.key === column)
-      setSortDirection(col?.higherBetter === false ? 'asc' : 'desc')
+      const nextDirection = col?.higherBetter === false ? 'asc' : 'desc'
+      updateUrlFromUserChange({ sortColumn: column, sortDirection: nextDirection })
+      setSortColumn(column)
+      setSortDirection(nextDirection)
     }
   }
 
@@ -1337,7 +1435,7 @@ function LeagueSummary() {
             <select
               className="form-select"
               value={selectedSeason}
-              onChange={(e) => setSelectedSeason(e.target.value)}
+              onChange={(e) => handleSeasonChange(e.target.value)}
             >
               <option value="">Select season...</option>
               {seasons.map((season) => (
@@ -1351,7 +1449,7 @@ function LeagueSummary() {
             <select
               className="form-select"
               value={selectedDataScope}
-              onChange={(e) => setSelectedDataScope(e.target.value)}
+              onChange={(e) => handleDataScopeChange(e.target.value)}
             >
               {DATA_SCOPE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1364,7 +1462,7 @@ function LeagueSummary() {
             <select
               className="form-select"
               value={dateRangePreset}
-              onChange={(e) => setDateRangePreset(e.target.value)}
+              onChange={(e) => handleDateRangeChange(e.target.value)}
             >
               {DATE_RANGE_OPTIONS.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1383,7 +1481,7 @@ function LeagueSummary() {
                 value={customStartDate}
                 min={seasonBounds.first || undefined}
                 max={seasonBounds.last || undefined}
-                onChange={(e) => setCustomStartDate(e.target.value)}
+                onChange={(e) => handleCustomStartDateChange(e.target.value)}
               />
             </div>
 
@@ -1395,7 +1493,7 @@ function LeagueSummary() {
                 value={customEndDate}
                 min={seasonBounds.first || undefined}
                 max={seasonBounds.last || undefined}
-                onChange={(e) => setCustomEndDate(e.target.value)}
+                onChange={(e) => handleCustomEndDateChange(e.target.value)}
               />
             </div>
           </div>
@@ -1408,21 +1506,21 @@ function LeagueSummary() {
               <button
                 type="button"
                 className={`view-toggle-btn ${tableView === VIEW_FOUR_FACTORS ? 'active' : ''}`}
-                onClick={() => setTableView(VIEW_FOUR_FACTORS)}
+                onClick={() => handleTableViewChange(VIEW_FOUR_FACTORS)}
               >
                 Four Factors
               </button>
               <button
                 type="button"
                 className={`view-toggle-btn ${tableView === VIEW_SHOOTING ? 'active' : ''}`}
-                onClick={() => setTableView(VIEW_SHOOTING)}
+                onClick={() => handleTableViewChange(VIEW_SHOOTING)}
               >
                 Shooting
               </button>
               <button
                 type="button"
                 className={`view-toggle-btn ${tableView === VIEW_SOS_ADJUSTMENTS ? 'active' : ''}`}
-                onClick={() => setTableView(VIEW_SOS_ADJUSTMENTS)}
+                onClick={() => handleTableViewChange(VIEW_SOS_ADJUSTMENTS)}
               >
                 {isCustomDateRangeVisible ? 'SOS' : 'Strength of Schedule'}
               </button>
