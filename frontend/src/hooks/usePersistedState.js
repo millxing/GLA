@@ -1,6 +1,11 @@
 import { useState, useEffect } from 'react'
+import { ENABLE_MODULE_STATE_PERSISTENCE } from '../config/featureFlags'
 
 const STORAGE_PREFIX = 'gla_'
+
+function resolveDefaultValue(defaultValue) {
+  return typeof defaultValue === 'function' ? defaultValue() : defaultValue
+}
 
 /**
  * A useState hook that persists the value to localStorage.
@@ -11,22 +16,32 @@ const STORAGE_PREFIX = 'gla_'
  * @returns {[any, Function]} - Same as useState: [value, setValue]
  */
 export function usePersistedState(key, defaultValue) {
+  const storageKey = STORAGE_PREFIX + key
   const [value, setValue] = useState(() => {
+    if (!ENABLE_MODULE_STATE_PERSISTENCE) {
+      return resolveDefaultValue(defaultValue)
+    }
+
     try {
-      const stored = localStorage.getItem(STORAGE_PREFIX + key)
-      return stored !== null ? JSON.parse(stored) : defaultValue
+      const stored = localStorage.getItem(storageKey)
+      return stored !== null ? JSON.parse(stored) : resolveDefaultValue(defaultValue)
     } catch {
-      return defaultValue
+      return resolveDefaultValue(defaultValue)
     }
   })
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value))
+      if (!ENABLE_MODULE_STATE_PERSISTENCE) {
+        localStorage.removeItem(storageKey)
+        return
+      }
+
+      localStorage.setItem(storageKey, JSON.stringify(value))
     } catch {
       // Silently fail if localStorage is unavailable
     }
-  }, [key, value])
+  }, [storageKey, value])
 
   return [value, setValue]
 }

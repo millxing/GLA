@@ -75,6 +75,35 @@ from schemas.models import (
     GameTimelineState,
 )
 
+_SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
+_GAME_ID_RE = re.compile(r"^\d{1,10}$")
+_TEAM_RE = re.compile(r"^[A-Z]{3}$")
+_VALID_SEASONS = set(get_available_seasons())
+
+
+def validate_season(season: str) -> str:
+    """Validate season format (YYYY-YY) and existence. Returns the season or raises 400."""
+    if not _SEASON_RE.match(season):
+        raise HTTPException(status_code=400, detail="Invalid season format. Expected YYYY-YY (e.g. 2024-25)")
+    if season not in _VALID_SEASONS:
+        raise HTTPException(status_code=400, detail=f"Season {season} is not available")
+    return season
+
+
+def validate_game_id(game_id: str) -> str:
+    """Validate game ID is numeric (1-10 digits). Returns the game_id or raises 400."""
+    if not _GAME_ID_RE.match(game_id):
+        raise HTTPException(status_code=400, detail="Invalid game ID. Must be numeric (up to 10 digits)")
+    return game_id
+
+
+def validate_team(team: str) -> str:
+    """Validate team abbreviation is 3 uppercase letters. Returns the team or raises 400."""
+    if not _TEAM_RE.match(team):
+        raise HTTPException(status_code=400, detail="Invalid team abbreviation. Expected 3 uppercase letters (e.g. BOS)")
+    return team
+
+
 STAT_ALIASES = {
     "ORTG": "off_rating",
     "DRTG": "def_rating",
@@ -934,6 +963,8 @@ async def get_winprob_forecast(
     game_seconds_left: float = Query(..., ge=0.0, le=720.0, description="Seconds left in game (0-720)"),
     phase: str = Query("regular", description="Phase namespace for base data; also used for legacy artifact fallback"),
 ):
+    validate_season(season)
+    validate_game_id(game_id)
     from admin.winprob_models import DEFAULT_INPUT_ROOT, DEFAULT_OUTPUT_ROOT, forecast_from_game_seconds_left
 
     try:
@@ -1043,6 +1074,7 @@ async def get_games(
     season: str = Query(..., description="Season in format YYYY-YY"),
     data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
+    validate_season(season)
     try:
         scope = normalize_data_scope(data_scope)
     except ValueError as exc:
@@ -1059,6 +1091,7 @@ async def get_teams(
     season: str = Query(..., description="Season in format YYYY-YY"),
     data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
+    validate_season(season)
     try:
         scope = normalize_data_scope(data_scope)
     except ValueError as exc:
@@ -1076,6 +1109,12 @@ async def get_game_timeline(
     home_team: Optional[str] = Query(None, description="Home team abbreviation"),
     road_team: Optional[str] = Query(None, description="Road team abbreviation"),
 ):
+    validate_season(season)
+    validate_game_id(game_id)
+    if home_team:
+        validate_team(home_team)
+    if road_team:
+        validate_team(road_team)
     game_id_norm = _normalize_game_id_for_timeline(game_id)
     if not game_id_norm:
         raise HTTPException(status_code=400, detail="Invalid game_id")
@@ -1280,6 +1319,8 @@ async def get_decomposition(
     factor_type: str = Query("eight_factors", description="Factor type: eight_factors (default)"),
     data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
+    validate_season(season)
+    validate_game_id(game_id)
     try:
         scope = normalize_data_scope(data_scope)
     except ValueError as exc:
@@ -1616,6 +1657,7 @@ async def get_league_summary(
         description="Data scope: all, garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time",
     ),
 ):
+    validate_season(season)
     try:
         scope = _normalize_league_summary_scope(data_scope)
     except ValueError as exc:
@@ -1724,6 +1766,8 @@ async def get_trends(
     exclude_non_regular: bool = Query(False, description="Exclude playoffs, play-in, and NBA Cup final from trends"),
     data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
+    validate_season(season)
+    validate_team(team)
     try:
         scope = normalize_data_scope(data_scope)
     except ValueError as exc:
@@ -1786,6 +1830,8 @@ async def get_contribution_analysis(
     data_scope: str = Query("all", description="Data scope: all, garbage_filtered, clutch"),
 ):
     """Analyze a team's net rating decomposition over a period using contribution JSON."""
+    validate_season(season)
+    validate_team(team)
     del model_id  # Explicitly ignored for backwards compatibility.
 
     # Load season data

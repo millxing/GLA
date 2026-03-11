@@ -15,7 +15,9 @@ ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_NBA_DATA_REPO_DIR = Path("/Users/robschoen/Dropbox/CC/NBA_Data").resolve()
+# Default: ../NBA_Data relative to project root (sibling directory).
+# Override with NBA_DATA_REPO_DIR env var for other machines/deployments.
+DEFAULT_NBA_DATA_REPO_DIR = (PROJECT_ROOT / ".." / "NBA_Data").resolve()
 NBA_DATA_REPO_DIR = Path(
     os.getenv("NBA_DATA_REPO_DIR", str(DEFAULT_NBA_DATA_REPO_DIR))
 ).expanduser().resolve()

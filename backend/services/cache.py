@@ -1,7 +1,9 @@
+import threading
 from cachetools import TTLCache
 from config import CACHE_TTL_SECONDS, CACHE_MAX_SIZE
 
 cache = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL_SECONDS)
+_lock = threading.Lock()
 
 def get_cache_key(func_name: str, *args, **kwargs) -> str:
     key_parts = [func_name]
@@ -12,10 +14,13 @@ def get_cache_key(func_name: str, *args, **kwargs) -> str:
     return ":".join(key_parts)
 
 def get_cached(key: str):
-    return cache.get(key)
+    with _lock:
+        return cache.get(key)
 
 def set_cached(key: str, value):
-    cache[key] = value
+    with _lock:
+        cache[key] = value
 
 def clear_cache():
-    cache.clear()
+    with _lock:
+        cache.clear()
