@@ -220,6 +220,7 @@
 
 .blog-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   border: 1px solid var(--color-border);
   border-radius: 1rem;
@@ -234,6 +235,8 @@
   border-bottom: 1px solid var(--color-border);
   text-align: left;
   vertical-align: top;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .blog-table th {
@@ -246,6 +249,12 @@
 
 .blog-table td {
   color: var(--color-text-secondary);
+}
+
+.blog-table th.blog-table-cell--numeric,
+.blog-table td.blog-table-cell--numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .blog-table tbody tr:last-child td {

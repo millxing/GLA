@@ -453,6 +453,150 @@ def compute_league_aggregates(
     return team_stats
 
 
+def _safe_percentage(numerator: float, denominator: float) -> float:
+    if denominator is None or pd.isna(denominator) or denominator == 0:
+        return 0.0
+    return float(numerator) / float(denominator) * 100.0
+
+
+def _safe_average(numerator: float, denominator: float) -> float:
+    if denominator is None or pd.isna(denominator) or denominator == 0:
+        return 0.0
+    return float(numerator) / float(denominator)
+
+
+def _weighted_mean(series: pd.Series, weights: pd.Series) -> float:
+    values = pd.to_numeric(series, errors="coerce")
+    weight_values = pd.to_numeric(weights, errors="coerce").fillna(0.0)
+    valid = values.notna() & weight_values.gt(0)
+    if not valid.any():
+        return 0.0
+    return float((values[valid] * weight_values[valid]).sum() / weight_values[valid].sum())
+
+
+def compute_league_summary_averages(
+    df: pd.DataFrame,
+    team_stats_df: pd.DataFrame,
+    start_date: Optional[str],
+    end_date: Optional[str],
+    exclude_playoffs: bool = False,
+    last_n_games: Optional[int] = None,
+    scope_metrics_df: Optional[pd.DataFrame] = None,
+) -> Dict[str, float]:
+    """Compute league-wide summary values using aggregate totals where possible."""
+    filtered_df = _apply_league_filters(
+        df=df,
+        start_date=start_date,
+        end_date=end_date,
+        exclude_playoffs=exclude_playoffs,
+        last_n_games=last_n_games,
+    )
+    if filtered_df.empty or team_stats_df.empty:
+        return {}
+
+    team_count = max(int(len(team_stats_df)), 1)
+    total_team_games = float(len(filtered_df))
+    total_wins = float((filtered_df["pts"] > filtered_df["opp_pts"]).sum())
+
+    totals = {
+        col: float(pd.to_numeric(filtered_df[col], errors="coerce").fillna(0.0).sum())
+        for col in [
+            "fgm", "fga", "fg3m", "fg3a", "ftm", "fta", "oreb", "dreb", "tov", "pts",
+            "opp_fgm", "opp_fga", "opp_fg3m", "opp_fg3a", "opp_ftm", "opp_fta",
+            "opp_oreb", "opp_dreb", "opp_tov", "opp_pts",
+        ]
+        if col in filtered_df.columns
+    }
+
+    poss = pd.to_numeric(_resolve_team_possessions(filtered_df), errors="coerce").fillna(0.0)
+    opp_poss = pd.to_numeric(_resolve_opp_possessions(filtered_df), errors="coerce").fillna(0.0)
+    total_poss = float(poss.sum())
+    total_opp_poss = float(opp_poss.sum())
+
+    league_averages = {
+        "games": round(total_team_games / team_count, 1),
+        "wins": round(total_wins / team_count, 1),
+        "losses": round((total_team_games - total_wins) / team_count, 1),
+        "win_pct": round(_safe_average(total_wins, total_team_games) * 100, 1),
+        "ppg": round(_safe_average(totals.get("pts", 0.0), total_team_games), 1),
+        "opp_ppg": round(_safe_average(totals.get("opp_pts", 0.0), total_team_games), 1),
+        "fg_pct": round(_safe_percentage(totals.get("fgm", 0.0), totals.get("fga", 0.0)), 1),
+        "fg3_pct": round(_safe_percentage(totals.get("fg3m", 0.0), totals.get("fg3a", 0.0)), 1),
+        "ft_pct": round(_safe_percentage(totals.get("ftm", 0.0), totals.get("fta", 0.0)), 1),
+        "fg2_pct": round(_safe_percentage(
+            totals.get("fgm", 0.0) - totals.get("fg3m", 0.0),
+            totals.get("fga", 0.0) - totals.get("fg3a", 0.0),
+        ), 1),
+        "fg3a_rate": round(_safe_percentage(totals.get("fg3a", 0.0), totals.get("fga", 0.0)), 1),
+        "efg_pct": round(_safe_percentage(
+            totals.get("fgm", 0.0) + 0.5 * totals.get("fg3m", 0.0),
+            totals.get("fga", 0.0),
+        ), 1),
+        "oreb_pct": round(_safe_percentage(
+            totals.get("oreb", 0.0),
+            totals.get("oreb", 0.0) + totals.get("opp_dreb", 0.0),
+        ), 1),
+        "dreb_pct": round(_safe_percentage(
+            totals.get("dreb", 0.0),
+            totals.get("dreb", 0.0) + totals.get("opp_oreb", 0.0),
+        ), 1),
+        "tov_pct": round(_safe_percentage(totals.get("tov", 0.0), total_poss), 1),
+        "ball_handling": round(100.0 - _safe_percentage(totals.get("tov", 0.0), total_poss), 1),
+        "ft_rate": round(_safe_percentage(totals.get("ftm", 0.0), totals.get("fga", 0.0)), 1),
+        "off_rating": round(_safe_percentage(totals.get("pts", 0.0), total_poss), 1),
+        "def_rating": round(_safe_percentage(totals.get("opp_pts", 0.0), total_opp_poss), 1),
+        "opp_efg_pct": round(_safe_percentage(
+            totals.get("opp_fgm", 0.0) + 0.5 * totals.get("opp_fg3m", 0.0),
+            totals.get("opp_fga", 0.0),
+        ), 1),
+        "opp_ft_pct": round(_safe_percentage(totals.get("opp_ftm", 0.0), totals.get("opp_fta", 0.0)), 1),
+        "opp_fg2_pct": round(_safe_percentage(
+            totals.get("opp_fgm", 0.0) - totals.get("opp_fg3m", 0.0),
+            totals.get("opp_fga", 0.0) - totals.get("opp_fg3a", 0.0),
+        ), 1),
+        "opp_fg3_pct": round(_safe_percentage(totals.get("opp_fg3m", 0.0), totals.get("opp_fg3a", 0.0)), 1),
+        "opp_fg3a_rate": round(_safe_percentage(totals.get("opp_fg3a", 0.0), totals.get("opp_fga", 0.0)), 1),
+        "opp_tov_pct": round(_safe_percentage(totals.get("opp_tov", 0.0), total_opp_poss), 1),
+        "opp_ball_handling": round(100.0 - _safe_percentage(totals.get("opp_tov", 0.0), total_opp_poss), 1),
+        "opp_oreb_pct": round(_safe_percentage(
+            totals.get("opp_oreb", 0.0),
+            totals.get("opp_oreb", 0.0) + totals.get("dreb", 0.0),
+        ), 1),
+        "opp_ft_rate": round(_safe_percentage(totals.get("opp_ftm", 0.0), totals.get("opp_fga", 0.0)), 1),
+    }
+    league_averages["net_rating"] = round(league_averages["off_rating"] - league_averages["def_rating"], 1)
+
+    if {"actual_minutes", "opp_actual_minutes"}.issubset(filtered_df.columns):
+        team_minutes = float(pd.to_numeric(filtered_df["actual_minutes"], errors="coerce").fillna(0.0).sum())
+        opp_minutes = float(pd.to_numeric(filtered_df["opp_actual_minutes"], errors="coerce").fillna(0.0).sum())
+        total_game_minutes = (team_minutes + opp_minutes) / 10.0
+        avg_possessions = (total_poss + total_opp_poss) / 2.0
+        league_averages["pace"] = round(_safe_average(avg_possessions * 48.0, total_game_minutes), 1)
+    else:
+        avg_possessions = (total_poss + total_opp_poss) / 2.0
+        league_averages["pace"] = round(_safe_average(avg_possessions, total_team_games), 1)
+
+    game_weights = pd.to_numeric(team_stats_df.get("games"), errors="coerce").fillna(0.0)
+    league_averages["sos"] = round(_weighted_mean(team_stats_df.get("sos"), game_weights), 1)
+    league_averages["off_sos"] = round(_weighted_mean(team_stats_df.get("off_sos"), game_weights), 1)
+    league_averages["def_sos"] = round(_weighted_mean(team_stats_df.get("def_sos"), game_weights), 1)
+    league_averages["adj_net_rating"] = round(league_averages["net_rating"] + league_averages["sos"], 1)
+    league_averages["adj_off_rating"] = round(league_averages["off_rating"] - league_averages["def_sos"], 1)
+    league_averages["adj_def_rating"] = round(league_averages["def_rating"] - league_averages["off_sos"], 1)
+
+    if scope_metrics_df is not None and not scope_metrics_df.empty:
+        scope_games = pd.to_numeric(scope_metrics_df.get("scope_games"), errors="coerce").fillna(0.0)
+        league_averages["scope_games"] = round(float(scope_games.sum()) / team_count, 1)
+        all_minutes = pd.to_numeric(scope_metrics_df.get("all_minutes"), errors="coerce").fillna(0.0)
+        segment_minutes = pd.to_numeric(scope_metrics_df.get("segment_minutes"), errors="coerce").fillna(0.0)
+        if all_minutes.sum() > 0:
+            league_averages["scope_time_pct"] = round(float(segment_minutes.sum() / all_minutes.sum() * 100.0), 1)
+        else:
+            league_averages["scope_time_pct"] = 0.0
+
+    return league_averages
+
+
 def _apply_league_filters(
     df: pd.DataFrame,
     start_date: Optional[str],
@@ -553,7 +697,7 @@ def compute_scope_time_metrics(
         summary["segment_minutes"] / summary["all_minutes"].replace(0, pd.NA) * 100
     ).fillna(0.0).round(1)
 
-    return summary[["team", "scope_games", "scope_time_pct"]]
+    return summary[["team", "scope_games", "scope_time_pct", "all_minutes", "segment_minutes"]]
 
 def _compute_stat_value(df: pd.DataFrame, stat: str) -> pd.Series:
     """Compute a stat value for each row in the dataframe."""

@@ -25,3 +25,5 @@ Click any game to jump straight to Game Analysis<br>
 Eight-factor team profile at a glance<br>
 Positive and negative contributions separated cleanly<br>
 Top contributing factors with game-by-game mini charts<br>
+
+This project is licensed under the MIT License.

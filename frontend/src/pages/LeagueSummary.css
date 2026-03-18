@@ -128,8 +128,9 @@
 }
 
 .league-summary .table-container {
-  overflow: auto;
-  max-height: min(70vh, 720px);
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: var(--league-summary-table-max-height, none);
   scrollbar-gutter: stable both-edges;
 }
 

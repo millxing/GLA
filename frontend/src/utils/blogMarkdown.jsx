@@ -107,6 +107,24 @@ function isTableSeparator(line) {
   return cells.length > 0 && cells.every((cell) => /^:?-{3,}:?$/.test(cell))
 }
 
+function stripInlineMarkdown(text) {
+  return text
+    .replace(/!\[(.*?)\]\s*\((.*?)\)/g, '$1')
+    .replace(/\[(.*?)\]\s*\((.*?)\)/g, '$1')
+    .replace(/(\*\*|__)(.*?)\1/g, '$2')
+    .replace(/(\*|_)(.*?)\1/g, '$2')
+    .replace(/`(.*?)`/g, '$1')
+    .trim()
+}
+
+function isNumericTableCell(cell) {
+  const value = stripInlineMarkdown(cell)
+
+  if (!value) return false
+
+  return /^[+-]?(?:\d[\d,]*(?:\.\d+)?|\.\d+)%?$/.test(value)
+}
+
 function getYouTubeEmbedUrl(url) {
   try {
     const parsed = new URL(url)
@@ -163,11 +181,15 @@ function parseEmbedDirective(line) {
 
 function renderInlineMarkdown(text, keyPrefix) {
   const tokens = text
-    .split(/(!\[.*?\]\s*\(.*?\)|\*\*.*?\*\*|__.*?__|\*.*?\*|_.*?_|`.*?`|\[.*?\]\s*\(.*?\))/g)
+    .split(/(<br\s*\/?>|!\[.*?\]\s*\(.*?\)|\*\*.*?\*\*|__.*?__|\*.*?\*|_.*?_|`.*?`|\[.*?\]\s*\(.*?\))/g)
     .filter(Boolean)
 
   return tokens.map((token, index) => {
     const key = `${keyPrefix}-${index}`
+
+    if (/^<br\s*\/?>$/.test(token)) {
+      return <br key={key} />
+    }
 
     const imageMatch = token.match(/^!\[(.*?)\]\s*\((.*?)\)$/)
     if (imageMatch) {
@@ -295,13 +317,25 @@ export function renderMarkdownBlocks(content, slug) {
         index += 1
       }
 
+      const numericColumns = headers.map((_, columnIndex) =>
+        rows.length > 0 && rows.every((row) => isNumericTableCell(row[columnIndex] || ''))
+      )
+
       blocks.push(
         <div className="blog-table-wrapper" key={`${slug}-table-${index}`}>
           <table className="blog-table">
+            <colgroup>
+              {headers.map((_, columnIndex) => (
+                <col key={`${slug}-table-col-${columnIndex}`} style={{ width: `${100 / headers.length}%` }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 {headers.map((header, headerIndex) => (
-                  <th key={`${slug}-table-head-${headerIndex}`}>
+                  <th
+                    key={`${slug}-table-head-${headerIndex}`}
+                    className={numericColumns[headerIndex] ? 'blog-table-cell--numeric' : undefined}
+                  >
                     {renderInlineMarkdown(header, `${slug}-table-head-${headerIndex}`)}
                   </th>
                 ))}
@@ -311,7 +345,10 @@ export function renderMarkdownBlocks(content, slug) {
               {rows.map((row, rowIndex) => (
                 <tr key={`${slug}-table-row-${rowIndex}`}>
                   {row.map((cell, cellIndex) => (
-                    <td key={`${slug}-table-cell-${rowIndex}-${cellIndex}`}>
+                    <td
+                      key={`${slug}-table-cell-${rowIndex}-${cellIndex}`}
+                      className={numericColumns[cellIndex] ? 'blog-table-cell--numeric' : undefined}
+                    >
                       {renderInlineMarkdown(cell, `${slug}-table-cell-${rowIndex}-${cellIndex}`)}
                     </td>
                   ))}

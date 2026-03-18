@@ -209,6 +209,9 @@ const resolveTrendStatForColumn = (columnKey) => {
   return TRENDS_FALLBACK_BY_COLUMN[columnKey] || 'net_rating'
 }
 
+const TABLE_VIEWPORT_BOTTOM_GUTTER = 24
+const MIN_TABLE_VIEWPORT_HEIGHT = 320
+
 const GLOSSARY_ITEMS = [
   { term: 'Rank', definition: 'League rank based on the currently selected sort column.' },
   { term: 'Team', definition: 'Team abbreviation.' },
@@ -600,7 +603,9 @@ function LeagueSummary() {
   const [contributorsLoading, setContributorsLoading] = useState(false)
   const [topContributorsNote, setTopContributorsNote] = useState('')
   const [hoverTooltip, setHoverTooltip] = useState(null)
+  const [tableMaxHeight, setTableMaxHeight] = useState(null)
   const hasUserInteractedRef = useRef(false)
+  const tableContainerRef = useRef(null)
   const isCustomDateRangeVisible = dateRangePreset === 'custom'
   const urlSelections = useMemo(() => {
     const season = readSearchParam(searchParams, 'season').trim()
@@ -778,6 +783,43 @@ function LeagueSummary() {
       window.removeEventListener('resize', hideTooltip)
     }
   }, [hoverTooltip])
+
+  useEffect(() => {
+    if (!data) {
+      setTableMaxHeight(null)
+      return undefined
+    }
+
+    let frameId = 0
+
+    const updateTableMaxHeight = () => {
+      frameId = 0
+      const tableNode = tableContainerRef.current
+      if (!tableNode) return
+
+      const { top } = tableNode.getBoundingClientRect()
+      const availableHeight = Math.floor(window.innerHeight - top - TABLE_VIEWPORT_BOTTOM_GUTTER)
+      if (availableHeight <= 0) return
+
+      const nextHeight = Math.max(MIN_TABLE_VIEWPORT_HEIGHT, availableHeight)
+      setTableMaxHeight((prevHeight) => (prevHeight === nextHeight ? prevHeight : nextHeight))
+    }
+
+    const scheduleTableResize = () => {
+      if (frameId) cancelAnimationFrame(frameId)
+      frameId = requestAnimationFrame(updateTableMaxHeight)
+    }
+
+    scheduleTableResize()
+    window.addEventListener('resize', scheduleTableResize)
+    window.addEventListener('orientationchange', scheduleTableResize)
+
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId)
+      window.removeEventListener('resize', scheduleTableResize)
+      window.removeEventListener('orientationchange', scheduleTableResize)
+    }
+  }, [data, isCustomDateRangeVisible, tableView])
 
   const formatUtcDate = (dateObj) => {
     const y = dateObj.getUTCFullYear()
@@ -1224,15 +1266,19 @@ function LeagueSummary() {
   // Compute league averages for the new columns
   const leagueAverages = useMemo(() => {
     if (!data?.teams || data.teams.length === 0) return null
-    const avg = {}
+    const avg = { team: 'Average' }
     activeColumns.forEach(col => {
-      if (col.key === 'team') {
-        avg[col.key] = 'Average'
-      } else {
-        const values = data.teams.map(t => t[col.key]).filter(v => typeof v === 'number')
-        if (values.length > 0) {
-          avg[col.key] = values.reduce((a, b) => a + b, 0) / values.length
-        }
+      if (col.key === 'team') return
+
+      const backendValue = data?.league_averages?.[col.key]
+      if (typeof backendValue === 'number') {
+        avg[col.key] = backendValue
+        return
+      }
+
+      const values = data.teams.map(t => t[col.key]).filter(v => typeof v === 'number')
+      if (values.length > 0) {
+        avg[col.key] = values.reduce((a, b) => a + b, 0) / values.length
       }
     })
     return avg
@@ -1540,7 +1586,11 @@ function LeagueSummary() {
 
       {data && !loading && (
         <div className="card">
-          <div className="table-container">
+          <div
+            ref={tableContainerRef}
+            className="table-container"
+            style={tableMaxHeight ? { '--league-summary-table-max-height': `${tableMaxHeight}px` } : undefined}
+          >
             <table className="summary-table">
               <thead>
                 <tr>

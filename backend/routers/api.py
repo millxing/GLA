@@ -38,6 +38,7 @@ from services.data_loader import (
 )
 from services.calculations import (
     compute_league_aggregates,
+    compute_league_summary_averages,
     compute_scope_time_metrics,
     compute_trend_series,
     compute_league_average,
@@ -1679,6 +1680,7 @@ async def get_league_summary(
         exclude_playoffs=exclude_playoffs,
         last_n_games=last_n_games,
     )
+    scope_metrics_df = None
     if scope != "all" and all_df is not None:
         scope_metrics_df = compute_scope_time_metrics(
             all_df=all_df,
@@ -1738,18 +1740,15 @@ async def get_league_summary(
             scope_time_pct=float(scope_time_pct_num) if scope_time_pct_num is not None else None,
         ))
 
-    numeric_cols = [
-        "win_pct", "ppg", "opp_ppg", "fg_pct", "fg3_pct", "ft_pct", "fg2_pct", "fg3a_rate",
-        "efg_pct", "oreb_pct", "dreb_pct", "tov_pct", "ball_handling",
-        "ft_rate", "off_rating", "def_rating", "net_rating",
-        "opp_efg_pct", "opp_ft_pct", "opp_fg2_pct", "opp_fg3_pct", "opp_fg3a_rate", "opp_tov_pct", "opp_ft_rate", "pace",
-        "sos", "off_sos", "def_sos", "adj_net_rating", "adj_off_rating", "adj_def_rating",
-        "scope_time_pct",
-    ]
-    league_averages = {}
-    for col in numeric_cols:
-        if col in team_stats_df.columns:
-            league_averages[col] = round(team_stats_df[col].mean(), 1)
+    league_averages = compute_league_summary_averages(
+        df=df,
+        team_stats_df=team_stats_df,
+        start_date=start_date,
+        end_date=end_date,
+        exclude_playoffs=exclude_playoffs,
+        last_n_games=last_n_games,
+        scope_metrics_df=scope_metrics_df if scope != "all" else None,
+    )
 
     return LeagueSummaryResponse(
         teams=teams,
