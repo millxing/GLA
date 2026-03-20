@@ -206,13 +206,16 @@ function FourFactor() {
   }
 
   const handleSeasonChange = (value) => {
-    updateUrlFromUserChange({ season: value })
+    updateUrlFromUserChange({ season: value, month: '', gameId: '' })
     setSelectedSeason(value)
+    setSelectedMonth('')
+    setSelectedGame('')
   }
 
   const handleMonthChange = (value) => {
-    updateUrlFromUserChange({ month: value })
+    updateUrlFromUserChange({ month: value, gameId: '' })
     setSelectedMonth(value)
+    setSelectedGame('')
   }
 
   const handleGameChange = (value) => {

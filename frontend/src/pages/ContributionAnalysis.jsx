@@ -130,7 +130,7 @@ function ContributionAnalysis() {
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '2025-26')
   const [selectedDataScope, setSelectedDataScope] = usePersistedState('contribution_datascope', 'all')
-  const [selectedTeam, setSelectedTeam] = usePersistedState('contribution_team', 'BOS')
+  const [selectedTeam, setSelectedTeam] = usePersistedState('contribution_team', 'BOS', { persist: true })
   const [dateRangeType, setDateRangeType] = usePersistedState('contribution_daterange', 'season')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')

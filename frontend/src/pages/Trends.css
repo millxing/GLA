@@ -103,7 +103,7 @@
   background-color: #000000;
 }
 
-.legend-line.ma5 {
+.legend-line.moving-average {
   background: repeating-linear-gradient(
     90deg,
     #2563eb 0px,

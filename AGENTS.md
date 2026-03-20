@@ -52,6 +52,18 @@ Build/preview:
 ## Update Troubleshooting
 - If `backend/admin/cli.py update-data` starts failing (timeouts/errors despite valid commands), check and update `nba_api` first. Current known-good version: `1.11.4`.
 - Keep `NBA_Data/PBPdata/` git-ignored. Raw PBP CSV files can exceed GitHub size limits and can break the daily `commit-and-push` step if staged.
+- If the scheduled overnight update is missed (for example after a reboot), manually run the full scheduler pipeline from the GLA repo root:
+  - `cd /Users/robschoen/Dropbox/CC/GLA`
+  - `SEASON=2025-26 bash backend/admin/scripts/update_and_push.sh`
+- The canonical admin interpreter for that workflow is `/opt/miniconda3/envs/gla_admin/bin/python`. The script checks `nba_api==1.11.4`, `scikit-learn==1.8.0`, and writes a report to `reports/updateYYYYMMDD.txt`.
+- After each successful `NBA_Data` push, the scheduler now waits for the updated files to become visible on GitHub raw and then clears the Render API cache automatically. This avoids the old 30-minute stale-data window after updates.
+- Automatic cache clearing uses `POST https://extrapass-api.onrender.com/api/admin/clear-cache` and requires a matching secret via `CACHE_CLEAR_KEY` or `ADMIN_SECRET_KEY` in the updater environment.
+- Useful variants:
+  - Preview only: `DRY_RUN=1 SEASON=2025-26 bash backend/admin/scripts/update_and_push.sh`
+  - Skip LLM interpretations: `ENABLE_INTERPRETATIONS=0 SEASON=2025-26 bash backend/admin/scripts/update_and_push.sh`
+- If only the narrow season CSV refresh is needed instead of the full nightly workflow:
+  - `cd /Users/robschoen/Dropbox/CC/GLA`
+  - `/opt/miniconda3/envs/gla_admin/bin/python -m backend.admin.cli --repo-dir /Users/robschoen/Dropbox/CC/NBA_Data update-data --season 2025-26`
 
 Notes/assumptions:
 - No explicit test or lint commands are documented in the repo root or `DEPLOYMENT.md`.

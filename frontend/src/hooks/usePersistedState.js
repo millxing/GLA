@@ -15,10 +15,11 @@ function resolveDefaultValue(defaultValue) {
  * @param {any} defaultValue - The default value if nothing is stored
  * @returns {[any, Function]} - Same as useState: [value, setValue]
  */
-export function usePersistedState(key, defaultValue) {
+export function usePersistedState(key, defaultValue, options = {}) {
   const storageKey = STORAGE_PREFIX + key
+  const shouldPersist = options.persist ?? ENABLE_MODULE_STATE_PERSISTENCE
   const [value, setValue] = useState(() => {
-    if (!ENABLE_MODULE_STATE_PERSISTENCE) {
+    if (!shouldPersist) {
       return resolveDefaultValue(defaultValue)
     }
 
@@ -32,7 +33,7 @@ export function usePersistedState(key, defaultValue) {
 
   useEffect(() => {
     try {
-      if (!ENABLE_MODULE_STATE_PERSISTENCE) {
+      if (!shouldPersist) {
         localStorage.removeItem(storageKey)
         return
       }
@@ -41,7 +42,7 @@ export function usePersistedState(key, defaultValue) {
     } catch {
       // Silently fail if localStorage is unavailable
     }
-  }, [storageKey, value])
+  }, [shouldPersist, storageKey, value])
 
   return [value, setValue]
 }

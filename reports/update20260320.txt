@@ -1,0 +1,38 @@
+2026-03-20 07:59:04 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-03-20 07:59:04 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-03-20 07:59:04 | SUCCESS | nba_api version verified (1.11.4)
+2026-03-20 07:59:04 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-03-20 07:59:04 | SUCCESS | Parquet engine available (pyarrow)
+2026-03-20 07:59:04 | INFO | PBP source target for this run: nbastatsv3
+2026-03-20 07:59:04 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-03-20 07:59:54 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-03-20 07:59:54 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-03-20 07:59:58 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-03-20 07:59:58 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-03-20 08:02:28 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=regular)
+2026-03-20 08:02:29 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-03-20 08:02:29 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-03-20 08:02:37 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=regular)
+2026-03-20 08:02:37 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-03-20 08:02:38 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-03-20 08:02:38 | SKIPPED | Build PBP timeline metrics (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-03-20 08:02:38 | START | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-03-20 08:02:47 | SUCCESS | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-03-20 08:02:47 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-03-20))
+2026-03-20 08:02:58 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-03-20))
+2026-03-20 08:02:58 | START | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-03-20 08:02:58 | INFO | Timeline artifacts verified clean/synced (season=2025-26 phase=regular last_touch=f061660 2026-03-20 08:02:49 -0400 Update 2025-26 data (2026-03-20))
+2026-03-20 08:02:58 | SUCCESS | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-03-20 08:02:58 | START | Regenerate contributions (scope=all) for 2025-26
+2026-03-20 08:03:00 | SUCCESS | Regenerate contributions (scope=all) for 2025-26
+2026-03-20 08:03:00 | START | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-03-20 08:03:01 | SUCCESS | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-03-20 08:03:01 | START | Regenerate contributions (scope=clutch) for 2025-26
+2026-03-20 08:03:03 | SUCCESS | Regenerate contributions (scope=clutch) for 2025-26
+2026-03-20 08:03:03 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-03-20))
+2026-03-20 08:03:04 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-03-20))
+2026-03-20 08:03:04 | START | Generate LLM interpretations for 2025-26
+2026-03-20 08:03:39 | SUCCESS | Generate LLM interpretations for 2025-26
+2026-03-20 08:03:39 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-03-20))
+2026-03-20 08:03:40 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-03-20))
+2026-03-20 08:03:40 | SUCCESS | Daily update finished successfully

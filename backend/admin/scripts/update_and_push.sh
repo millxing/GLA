@@ -16,6 +16,10 @@ REPORTS_DIR="$PROJECT_DIR/reports"
 PBP_TARGET_SOURCE="nbastatsv3"
 PBP_SOURCE_FOR_STATES="nbastatsv3"
 ENABLE_INTERPRETATIONS="${ENABLE_INTERPRETATIONS:-1}"
+GITHUB_RAW_BASE_URL="${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com/millxing/NBA_Data/main}"
+RENDER_API_BASE_URL="${RENDER_API_BASE_URL:-https://extrapass-api.onrender.com}"
+REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS="${REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS:-180}"
+REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS="${REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS:-5}"
 # --------------------------
 
 cd "$PROJECT_DIR"
@@ -46,6 +50,127 @@ run_step() {
     report_line "START" "$label"
     "$@"
     report_line "SUCCESS" "$label"
+}
+
+wait_for_github_raw_match() {
+    local label="$1"
+    shift
+
+    if [ "$DRY_RUN" = "1" ]; then
+        report_line "SKIPPED" "Wait for GitHub raw publish skipped for $label due to dry run"
+        return 0
+    fi
+
+    local timeout="$REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS"
+    local interval="$REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS"
+    local deadline=$(( $(date +%s) + timeout ))
+    local rel expected tmp_url tmp_file
+
+    echo "[run] Waiting for GitHub raw publish: $label"
+    report_line "START" "Wait for GitHub raw publish ($label)"
+
+    while true; do
+        local all_matched=1
+        for rel in "$@"; do
+            expected="$REPO_DIR/$rel"
+            if [ ! -f "$expected" ]; then
+                echo "[warn] Cannot verify GitHub raw publish; missing local file: $expected"
+                report_line "WARN" "Wait for GitHub raw publish ($label) skipped; local file missing: $expected"
+                return 1
+            fi
+
+            tmp_url="${GITHUB_RAW_BASE_URL%/}/$rel"
+            tmp_file="$(mktemp)"
+            if curl --fail --silent --show-error --location "$tmp_url" -o "$tmp_file"; then
+                if cmp -s "$expected" "$tmp_file"; then
+                    rm -f "$tmp_file"
+                    continue
+                fi
+            fi
+            rm -f "$tmp_file"
+            all_matched=0
+            break
+        done
+
+        if [ "$all_matched" -eq 1 ]; then
+            echo "[ok] GitHub raw now reflects $label"
+            report_line "SUCCESS" "Wait for GitHub raw publish completed ($label)"
+            return 0
+        fi
+
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "[warn] Timed out waiting for GitHub raw to reflect $label"
+            report_line "WARN" "Timed out waiting for GitHub raw publish ($label)"
+            return 1
+        fi
+
+        sleep "$interval"
+    done
+}
+
+clear_render_api_cache() {
+    local label="$1"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        report_line "SKIPPED" "Render API cache clear skipped for $label due to dry run"
+        return 0
+    fi
+
+    local cache_clear_url="${CACHE_CLEAR_URL:-${RENDER_API_BASE_URL%/}/api/admin/clear-cache}"
+    local cache_clear_key="${CACHE_CLEAR_KEY:-${ADMIN_SECRET_KEY:-}}"
+
+    if [ -z "$cache_clear_url" ]; then
+        echo "[run] No cache clear URL configured; skipping Render cache clear for $label"
+        report_line "SKIPPED" "Render API cache clear skipped for $label; CACHE_CLEAR_URL/RENDER_API_BASE_URL not configured"
+        return 0
+    fi
+
+    if [ -z "$cache_clear_key" ]; then
+        echo "[run] No cache clear key configured; skipping Render cache clear for $label"
+        report_line "SKIPPED" "Render API cache clear skipped for $label; CACHE_CLEAR_KEY/ADMIN_SECRET_KEY not configured"
+        return 0
+    fi
+
+    echo "[run] Clearing Render API cache for $label"
+    report_line "START" "Render API cache clear ($label)"
+
+    local response
+    set +e
+    response="$(
+        curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --request POST \
+            --get \
+            --data-urlencode "key=$cache_clear_key" \
+            "$cache_clear_url" 2>&1
+    )"
+    local rc=$?
+    set -e
+
+    if [ "$rc" -eq 0 ]; then
+        echo "[ok] Render API cache cleared for $label"
+        report_line "SUCCESS" "Render API cache clear completed ($label)"
+        return 0
+    fi
+
+    echo "[warn] Failed to clear Render API cache for $label: $response"
+    report_line "WARN" "Render API cache clear failed ($label): $response"
+    return 1
+}
+
+refresh_render_cache_after_publish() {
+    local label="$1"
+    shift
+
+    if wait_for_github_raw_match "$label" "$@"; then
+        clear_render_api_cache "$label" || true
+    else
+        echo "[warn] Skipping Render cache clear because GitHub raw is not updated yet for $label"
+        report_line "WARN" "Render API cache clear skipped because GitHub raw was not yet updated ($label)"
+    fi
 }
 
 if [ ! -x "$ENV_PYTHON" ]; then
@@ -373,6 +498,18 @@ run_step \
     "Commit and push data updates to GitHub (message: $MSG)" \
     "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$MSG" $([ "$DRY_RUN" = "1" ] && echo "--dry-run")
 
+if [ "$DRY_RUN" != "1" ]; then
+    refresh_render_cache_after_publish \
+        "data updates for $SEASON" \
+        "team_game_logs_${SEASON}.csv" \
+        "linescores_${SEASON}.csv" \
+        "box_score_advanced_${SEASON}.csv" \
+        "team_game_logs_garbage_filtered_${SEASON}.csv" \
+        "team_game_logs_clutch_${SEASON}.csv" \
+        "box_score_advanced_garbage_filtered_${SEASON}.csv" \
+        "box_score_advanced_clutch_${SEASON}.csv"
+fi
+
 if [ "$DRY_RUN" != "1" ] && [ "$PBP_EXIT" -eq 0 ]; then
     run_step \
         "Verify timeline artifacts are committed and pushed (regular) for $SEASON" \
@@ -407,6 +544,14 @@ run_step \
     "Commit and push contribution updates to GitHub (message: $CONTRIB_MSG)" \
     "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" commit-and-push --message "$CONTRIB_MSG" $([ "$DRY_RUN" = "1" ] && echo "--dry-run")
 
+if [ "$DRY_RUN" != "1" ]; then
+    refresh_render_cache_after_publish \
+        "contribution updates for $SEASON" \
+        "contributions/contributions_${SEASON}.json" \
+        "contributions/contributions_garbage_filtered_${SEASON}.json" \
+        "contributions/contributions_clutch_${SEASON}.json"
+fi
+
 INTERP_EXIT=0
 INTERP_COMMIT_EXIT=0
 if [ "$ENABLE_INTERPRETATIONS" = "1" ]; then
@@ -437,6 +582,11 @@ if [ "$ENABLE_INTERPRETATIONS" = "1" ]; then
     set -e
     if [ "$INTERP_COMMIT_EXIT" -eq 0 ]; then
         report_line "SUCCESS" "$CURRENT_STEP"
+        if [ "$DRY_RUN" != "1" ]; then
+            refresh_render_cache_after_publish \
+                "interpretation updates for $SEASON" \
+                "interpretations/gamesummaries_${SEASON}_2018-25.json"
+        fi
     else
         report_line "FAILED" "${CURRENT_STEP} failed (exit=${INTERP_COMMIT_EXIT})"
         report_line "WARN" "Continuing despite interpretation commit/push failure; core morning update already completed"

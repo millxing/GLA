@@ -76,8 +76,10 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Data' },
   { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
 ]
+const MOVING_AVERAGE_OPTIONS = [3, 4, 5, 10, 15, 20, 25, 30]
 const VALID_STAT_OPTIONS = new Set(STAT_OPTIONS.map((option) => option.value))
 const VALID_DATA_SCOPE_OPTIONS = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
+const VALID_MOVING_AVERAGE_OPTIONS = new Set(MOVING_AVERAGE_OPTIONS)
 const normalizeGameId = (value) => {
   const text = String(value ?? '').trim()
   if (!text) return ''
@@ -124,6 +126,11 @@ function normalizeStatParam(value) {
   return aliases[token] || ''
 }
 
+function normalizeMovingAverageParam(value) {
+  const parsed = Number.parseInt(String(value ?? '').trim(), 10)
+  return VALID_MOVING_AVERAGE_OPTIONS.has(parsed) ? parsed : null
+}
+
 function Trends() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -132,8 +139,9 @@ function Trends() {
   const [teams, setTeams] = useState([])
   const [selectedSeason, setSelectedSeason] = usePersistedState('trends_season', '')
   const [selectedDataScope, setSelectedDataScope] = usePersistedState('trends_datascope', 'all')
-  const [selectedTeam, setSelectedTeam] = usePersistedState('trends_team', '')
+  const [selectedTeam, setSelectedTeam] = usePersistedState('trends_team', '', { persist: true })
   const [selectedStat, setSelectedStat] = usePersistedState('trends_stat', 'net_rating')
+  const [selectedMovingAverage, setSelectedMovingAverage] = usePersistedState('trends_moving_average', 5)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(false)
@@ -145,6 +153,7 @@ function Trends() {
     team: readSearchParam(searchParams, 'team').trim().toUpperCase(),
     stat: normalizeStatParam(readSearchParam(searchParams, 'stat', 'metric')),
     dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
+    movingAverage: normalizeMovingAverageParam(readSearchParam(searchParams, 'ma', 'moving_average', 'movingAverage')),
   }), [searchParams])
 
   const buildSearchParamsFromState = (overrides = {}) => {
@@ -153,6 +162,7 @@ function Trends() {
       team: selectedTeam,
       stat: selectedStat,
       dataScope: selectedDataScope,
+      movingAverage: selectedMovingAverage,
       ...overrides,
     }
 
@@ -161,6 +171,7 @@ function Trends() {
     if (nextState.team) nextParams.set('team', nextState.team)
     if (nextState.stat) nextParams.set('stat', nextState.stat)
     if (nextState.dataScope) nextParams.set('scope', nextState.dataScope)
+    if (nextState.movingAverage) nextParams.set('ma', String(nextState.movingAverage))
     return nextParams
   }
 
@@ -190,6 +201,13 @@ function Trends() {
   const handleStatChange = (value) => {
     updateUrlFromUserChange({ stat: value })
     setSelectedStat(value)
+  }
+
+  const handleMovingAverageChange = (value) => {
+    const nextValue = Number.parseInt(value, 10)
+    if (!VALID_MOVING_AVERAGE_OPTIONS.has(nextValue)) return
+    updateUrlFromUserChange({ movingAverage: nextValue })
+    setSelectedMovingAverage(nextValue)
   }
 
   useEffect(() => {
@@ -223,10 +241,22 @@ function Trends() {
   }, [selectedStat, setSelectedStat, urlSelections.stat])
 
   useEffect(() => {
+    if (urlSelections.movingAverage && urlSelections.movingAverage !== selectedMovingAverage) {
+      setSelectedMovingAverage(urlSelections.movingAverage)
+    }
+  }, [selectedMovingAverage, setSelectedMovingAverage, urlSelections.movingAverage])
+
+  useEffect(() => {
     if (!DATA_SCOPE_OPTIONS.some((option) => option.value === selectedDataScope)) {
       setSelectedDataScope('all')
     }
   }, [selectedDataScope, setSelectedDataScope])
+
+  useEffect(() => {
+    if (!VALID_MOVING_AVERAGE_OPTIONS.has(selectedMovingAverage)) {
+      setSelectedMovingAverage(5)
+    }
+  }, [selectedMovingAverage, setSelectedMovingAverage])
 
   useEffect(() => {
     let isCurrent = true
@@ -237,7 +267,6 @@ function Trends() {
         setSeasons(res.seasons)
         // Keep persisted season if valid, otherwise default to first
         setSelectedSeason(prev => {
-          if (urlSelections.season && res.seasons.includes(urlSelections.season)) return urlSelections.season
           if (prev && res.seasons.includes(prev)) return prev
           return res.seasons.length > 0 ? res.seasons[0] : ''
         })
@@ -247,7 +276,7 @@ function Trends() {
     }
     loadSeasons()
     return () => { isCurrent = false }
-  }, [setSelectedSeason, urlSelections.season])
+  }, [setSelectedSeason])
 
   useEffect(() => {
     if (urlSelections.season && seasons.includes(urlSelections.season) && selectedSeason !== urlSelections.season) {
@@ -267,7 +296,6 @@ function Trends() {
         setTeams(res.teams)
         // Keep persisted team if valid, otherwise default to BOS or first team
         setSelectedTeam(prev => {
-          if (urlSelections.team && res.teams.includes(urlSelections.team)) return urlSelections.team
           if (prev && res.teams.includes(prev)) return prev
           if (res.teams.includes('BOS')) return 'BOS'
           if (res.teams.length > 0) return res.teams[0]
@@ -281,7 +309,7 @@ function Trends() {
     }
     loadTeams()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedDataScope, setSelectedTeam, urlSelections.team])
+  }, [selectedSeason, selectedDataScope, setSelectedTeam])
 
   useEffect(() => {
     if (urlSelections.team && teams.includes(urlSelections.team) && selectedTeam !== urlSelections.team) {
@@ -298,6 +326,7 @@ function Trends() {
   }, [
     searchParams,
     selectedDataScope,
+    selectedMovingAverage,
     selectedSeason,
     selectedStat,
     selectedTeam,
@@ -326,12 +355,27 @@ function Trends() {
   // Prepare chart data with x-axis labels
   const chartData = useMemo(() => {
     if (!data?.data) return []
-    return data.data.map(game => ({
-      ...game,
-      game_id: normalizeGameId(game.game_id),
-      xLabel: `${game.home_away === 'road' ? '@' : ''}${game.opponent} on ${game.game_date}`,
-    }))
-  }, [data])
+    let rollingSum = 0
+
+    return data.data.map((game, index, series) => {
+      const value = Number(game.value ?? 0)
+      rollingSum += value
+
+      if (index >= selectedMovingAverage) {
+        rollingSum -= Number(series[index - selectedMovingAverage].value ?? 0)
+      }
+
+      const windowSize = Math.min(index + 1, selectedMovingAverage)
+      const movingAverage = Number((rollingSum / windowSize).toFixed(1))
+
+      return {
+        ...game,
+        game_id: normalizeGameId(game.game_id),
+        xLabel: `${game.home_away === 'road' ? '@' : ''}${game.opponent} on ${game.game_date}`,
+        moving_average: movingAverage,
+      }
+    })
+  }, [data, selectedMovingAverage])
 
   // Calculate Y-axis ticks at multiples of 2
   const yAxisConfig = useMemo(() => {
@@ -356,9 +400,9 @@ function Trends() {
 
   // Table data sorted by most recent first
   const tableData = useMemo(() => {
-    if (!data?.data) return []
-    return [...data.data].reverse()
-  }, [data])
+    if (!chartData.length) return []
+    return [...chartData].reverse()
+  }, [chartData])
 
   const CustomTooltip = ({ active, payload }) => {
     if (!active || !payload || !payload.length) return null
@@ -376,7 +420,7 @@ function Trends() {
         </p>
         <div className="tooltip-stats">
           <p><strong>Value:</strong> {entry.value?.toFixed(1)}</p>
-          <p><strong>5-Game Avg:</strong> {entry.ma_5?.toFixed(1)}</p>
+          <p><strong>{selectedMovingAverage}-Game Avg:</strong> {entry.moving_average?.toFixed(1)}</p>
         </div>
         <p className="tooltip-hint">Click bar to open Game Analysis</p>
       </div>
@@ -479,6 +523,19 @@ function Trends() {
               ))}
             </select>
           </div>
+
+          <div className="form-group">
+            <label className="form-label">Moving Average</label>
+            <select
+              className="form-select"
+              value={selectedMovingAverage}
+              onChange={(e) => handleMovingAverageChange(e.target.value)}
+            >
+              {MOVING_AVERAGE_OPTIONS.map((windowSize) => (
+                <option key={windowSize} value={windowSize}>{windowSize} games</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
@@ -506,7 +563,7 @@ function Trends() {
                 <span className="legend-line league-avg"></span> League Average
               </span>
               <span className="legend-item">
-                <span className="legend-line ma5"></span> 5-Game Avg
+                <span className="legend-line moving-average"></span> {selectedMovingAverage}-Game Avg
               </span>
             </div>
             <div className="chart-container">
@@ -566,8 +623,8 @@ function Trends() {
                   </Bar>
                   <Line
                     type="monotone"
-                    dataKey="ma_5"
-                    name="5-Game Avg"
+                    dataKey="moving_average"
+                    name={`${selectedMovingAverage}-Game Avg`}
                     stroke="#2563eb"
                     strokeWidth={2}
                     strokeDasharray="4 4"
@@ -613,7 +670,7 @@ function Trends() {
                     <th>Opponent</th>
                     <th>Result</th>
                     <th className="text-right">Value</th>
-                    <th className="text-right">5-Game Avg</th>
+                    <th className="text-right">{selectedMovingAverage}-Game Avg</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -628,7 +685,7 @@ function Trends() {
                         {game.wl}
                       </td>
                       <td className="text-right">{game.value.toFixed(1)}</td>
-                      <td className="text-right">{game.ma_5.toFixed(1)}</td>
+                      <td className="text-right">{game.moving_average.toFixed(1)}</td>
                     </tr>
                   ))}
                 </tbody>
