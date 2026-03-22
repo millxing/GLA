@@ -12,7 +12,18 @@ STAT_COLUMNS = [
     "fgm", "fga", "fg3m", "fg3a", "ftm", "fta",
     "oreb", "dreb", "tov", "pts", "plus_minus"
 ]
-VALID_DATA_SCOPES = {"all", "garbage_filtered", "clutch"}
+VALID_DATA_SCOPES = {
+    "all",
+    "garbage_filtered",
+    "clutch",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+    "ot",
+    "h1",
+    "h2",
+}
 
 
 def normalize_data_scope(value: Optional[str]) -> str:
@@ -25,6 +36,20 @@ def normalize_data_scope(value: Optional[str]) -> str:
         "garbage_time": "garbage_filtered",
         "garbage_time_filtered": "garbage_filtered",
         "clutch": "clutch",
+        "q1": "q1",
+        "q2": "q2",
+        "q3": "q3",
+        "q4": "q4",
+        "ot": "ot",
+        "overtime": "ot",
+        "h1": "h1",
+        "first_half": "h1",
+        "h2": "h2",
+        "second_half": "h2",
+        "h2_incl_ot": "h2",
+        "h2_including_ot": "h2",
+        "second_half_incl_ot": "h2",
+        "second_half_including_ot": "h2",
     }
     normalized = aliases.get(text, text)
     if normalized not in VALID_DATA_SCOPES:
@@ -49,6 +74,8 @@ def _scoped_contributions_name(season: str, data_scope: str) -> str:
 
 def _resolve_local_path_from_url(url: str) -> Optional[Path]:
     """Map canonical raw GitHub URLs to local NBA_Data files when present."""
+    if os.getenv("RENDER"):
+        return None
     try:
         parsed = urlparse(url)
         base = urlparse(DATA_BASE_URL)

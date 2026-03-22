@@ -101,6 +101,50 @@ class GameTimelineResponse(BaseModel):
     validation_match: Optional[bool] = None
 
 
+class GameRun(BaseModel):
+    rank: int
+    run_side: Optional[str] = None
+    run_team: Optional[str] = None
+    start_possession_index: int
+    end_possession_index: int
+    possession_count: int
+    start_event_index: Optional[int] = None
+    end_event_index: Optional[int] = None
+    start_period: Optional[int] = None
+    start_clock: Optional[str] = None
+    end_period: Optional[int] = None
+    end_clock: Optional[str] = None
+    start_description: str = ""
+    end_description: str = ""
+    home_win_prob_start: Optional[float] = None
+    home_win_prob_end: Optional[float] = None
+    delta_home_win_prob: float
+    run_score: float
+    abs_run_score: float
+    home_score_start: Optional[int] = None
+    road_score_start: Optional[int] = None
+    home_score_end: Optional[int] = None
+    road_score_end: Optional[int] = None
+    home_points_scored: Optional[int] = None
+    road_points_scored: Optional[int] = None
+    score_margin_delta: Optional[int] = None
+
+
+class GameRunsResponse(BaseModel):
+    season: str
+    phase: str
+    game_id: str
+    game_date: Optional[str] = None
+    game_type: Optional[str] = None
+    home_team: str
+    road_team: str
+    max_possessions: Optional[int] = None
+    min_possessions: int
+    min_margin: int
+    run_alpha: float
+    runs: List[GameRun]
+
+
 class TeamStats(BaseModel):
     team: str
     games: int

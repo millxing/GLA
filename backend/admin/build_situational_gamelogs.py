@@ -5,8 +5,22 @@ Build persisted situational datasets from packed PBP game-state artifacts.
 Outputs per season:
   - team_game_logs_garbage_filtered_<season>.csv
   - team_game_logs_clutch_<season>.csv
+  - team_game_logs_q1_<season>.csv
+  - team_game_logs_q2_<season>.csv
+  - team_game_logs_q3_<season>.csv
+  - team_game_logs_q4_<season>.csv
+  - team_game_logs_ot_<season>.csv
+  - team_game_logs_h1_<season>.csv
+  - team_game_logs_h2_<season>.csv
   - box_score_advanced_garbage_filtered_<season>.csv
   - box_score_advanced_clutch_<season>.csv
+  - box_score_advanced_q1_<season>.csv
+  - box_score_advanced_q2_<season>.csv
+  - box_score_advanced_q3_<season>.csv
+  - box_score_advanced_q4_<season>.csv
+  - box_score_advanced_ot_<season>.csv
+  - box_score_advanced_h1_<season>.csv
+  - box_score_advanced_h2_<season>.csv
 
 Definitions (post-event state):
   - Garbage state (stateful latch):
@@ -55,7 +69,17 @@ from config import get_available_seasons
 
 
 CLOCK_RE = re.compile(r"^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$")
-DATA_SCOPES = ("garbage_filtered", "clutch")
+DATA_SCOPES = (
+    "garbage_filtered",
+    "clutch",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+    "ot",
+    "h1",
+    "h2",
+)
 DEFAULT_SCOPE_STATE_MODE = "pre"
 VALID_SCOPE_STATE_MODES = {"pre", "post"}
 DEFAULT_GARBAGE_WP_ON = 0.95
@@ -339,6 +363,28 @@ def _classify_clutch_event(event: dict[str, Any]) -> bool:
     return is_clutch
 
 
+def _include_quarter_half_scopes(period: Optional[int]) -> dict[str, bool]:
+    if period is None or period <= 0:
+        return {
+            "q1": False,
+            "q2": False,
+            "q3": False,
+            "q4": False,
+            "ot": False,
+            "h1": False,
+            "h2": False,
+        }
+    return {
+        "q1": period == 1,
+        "q2": period == 2,
+        "q3": period == 3,
+        "q4": period == 4,
+        "ot": period > 4,
+        "h1": period in {1, 2},
+        "h2": period >= 3,
+    }
+
+
 def _should_enter_garbage(event: dict[str, Any], garbage_wp_on: float) -> bool:
     period, pts_home, pts_road, home_wp, _seconds_left = _event_context(event)
     if period is None:
@@ -505,12 +551,14 @@ def _build_rows_for_game(
         else:
             include_garbage_filtered = not is_garbage
             include_clutch = is_clutch
+        include_quarter_half = _include_quarter_half_scopes(period)
         annotated_events.append({
             "event": event,
             "elapsed": elapsed,
             "include_by_scope": {
                 "garbage_filtered": include_garbage_filtered,
                 "clutch": include_clutch,
+                **include_quarter_half,
             },
         })
         prev_is_garbage = is_garbage

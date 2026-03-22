@@ -51,6 +51,7 @@ from services.llm import (
     get_runtime_interpretation_model,
     is_llm_configured,
 )
+from services.game_runs import extract_timeline_possessions, rank_non_overlapping_runs
 from services.data_loader import get_game_interpretation
 from schemas.models import (
     SeasonResponse,
@@ -74,6 +75,8 @@ from schemas.models import (
     GameTimelineResponse,
     GameTimelineEvent,
     GameTimelineState,
+    GameRunsResponse,
+    GameRun,
 )
 
 _SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -135,6 +138,20 @@ REMOTE_FETCH_TIMEOUT_SECONDS = max(
 
 LEAGUE_SUMMARY_SCOPE_ALIASES = {
     "all": "all",
+    "q1": "q1",
+    "q2": "q2",
+    "q3": "q3",
+    "q4": "q4",
+    "ot": "ot",
+    "overtime": "ot",
+    "h1": "h1",
+    "first_half": "h1",
+    "h2": "h2",
+    "second_half": "h2",
+    "h2_incl_ot": "h2",
+    "h2_including_ot": "h2",
+    "second_half_incl_ot": "h2",
+    "second_half_including_ot": "h2",
     "non_garbage_time": "garbage_filtered",
     "non_garbage": "garbage_filtered",
     "garbage_filtered": "garbage_filtered",
@@ -145,7 +162,31 @@ LEAGUE_SUMMARY_SCOPE_ALIASES = {
     "non_clutch_time": "non_clutch_time",
     "non_clutch": "non_clutch_time",
 }
-LEAGUE_SUMMARY_VALID_SCOPES = {"all", "garbage_filtered", "garbage_time", "clutch", "non_clutch_time"}
+LEAGUE_SUMMARY_VALID_SCOPES = {
+    "all",
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+    "ot",
+    "h1",
+    "h2",
+    "garbage_filtered",
+    "garbage_time",
+    "clutch",
+    "non_clutch_time",
+}
+LEAGUE_SUMMARY_PERSISTED_SCOPES = {
+    "q1",
+    "q2",
+    "q3",
+    "q4",
+    "ot",
+    "h1",
+    "h2",
+    "garbage_filtered",
+    "clutch",
+}
 INTERPRETATION_ENABLED_SEASON = "2025-26"
 INTERPRETATION_ENABLED_SCOPE = "all"
 
@@ -234,12 +275,8 @@ async def _resolve_league_summary_scope_df(season: str, scope: str) -> tuple[Opt
     if scope == "all":
         return all_df, all_df
 
-    if scope == "garbage_filtered":
-        scoped = await get_normalized_data_with_possessions(season, data_scope="garbage_filtered")
-        return scoped, all_df
-
-    if scope == "clutch":
-        scoped = await get_normalized_data_with_possessions(season, data_scope="clutch")
+    if scope in LEAGUE_SUMMARY_PERSISTED_SCOPES:
+        scoped = await get_normalized_data_with_possessions(season, data_scope=scope)
         return scoped, all_df
 
     if scope == "garbage_time":
@@ -682,6 +719,185 @@ def _timeline_possession_numeric(event: dict[str, Any], home_team: str, road_tea
     return 0
 
 
+def _resolve_timeline_payload_for_game(
+    season: str,
+    game_id: str,
+    game_type: Optional[str] = None,
+    home_team: Optional[str] = None,
+    road_team: Optional[str] = None,
+) -> tuple[dict[str, Any], str, Optional[Path]]:
+    game_id_norm = _normalize_game_id_for_timeline(game_id)
+    if not game_id_norm:
+        raise HTTPException(status_code=400, detail="Invalid game_id")
+
+    phase: Optional[str] = None
+    timeline_path: Optional[Path] = None
+    payload: Optional[dict[str, Any]] = None
+
+    parquet_errors: list[str] = []
+    phase_candidates = _timeline_phase_candidates(game_type)
+    for candidate_phase in phase_candidates:
+        parquet_path = _find_timeline_parquet_file(season=season, phase=candidate_phase)
+        if parquet_path is None:
+            continue
+
+        try:
+            candidate_payload = _timeline_payload_from_parquet(
+                parquet_path=parquet_path,
+                game_id=game_id_norm,
+                home_team=home_team,
+                road_team=road_team,
+            )
+        except Exception as exc:
+            parquet_errors.append(f"{candidate_phase}: {exc}")
+            continue
+
+        if candidate_payload is not None:
+            payload = candidate_payload
+            phase = candidate_phase
+            if candidate_phase != phase_candidates[0]:
+                logger.warning(
+                    "Timeline phase fallback used: season=%s game_id=%s requested_game_type=%s phase=%s",
+                    season,
+                    game_id_norm,
+                    game_type,
+                    candidate_phase,
+                )
+            break
+
+    if payload is None:
+        timeline_path, phase = _find_timeline_json_file(
+            season=season,
+            game_id=game_id_norm,
+            game_type=game_type,
+            home_team=home_team,
+            road_team=road_team,
+        )
+        if timeline_path is None or phase is None:
+            if parquet_errors:
+                logger.error(
+                    "Timeline parquet failed for all phase candidates: season=%s game_id=%s requested_game_type=%s errors=%s",
+                    season,
+                    game_id_norm,
+                    game_type,
+                    " | ".join(parquet_errors),
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to read timeline data",
+                )
+            raise HTTPException(
+                status_code=404,
+                detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
+            )
+        logger.warning(
+            "Timeline JSON fallback used: season=%s game_id=%s requested_game_type=%s file=%s",
+            season,
+            game_id_norm,
+            game_type,
+            timeline_path,
+        )
+
+        try:
+            loaded = json.loads(timeline_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            logger.exception("Failed to read timeline JSON: %s", exc)
+            raise HTTPException(status_code=500, detail="Failed to read timeline data")
+        payload = loaded if isinstance(loaded, dict) else None
+
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=500, detail="Invalid timeline payload")
+
+    return payload, str(phase or ""), timeline_path
+
+
+def _populate_missing_home_win_prob(
+    raw_events: list[dict[str, Any]],
+    season: str,
+    phase: str,
+    home_team: str,
+    road_team: str,
+) -> None:
+    wp_states: list[dict[str, Any]] = []
+    wp_event_positions: list[int] = []
+
+    for idx, event in enumerate(raw_events):
+        period = _to_int_or_none(event.get("period"))
+        clock = str(event.get("clock") or "")
+        state = event.get("game_log_state")
+        if not isinstance(state, dict):
+            state = {}
+
+        pts_home = _to_int_or_none(state.get("pts_home"))
+        pts_road = _to_int_or_none(state.get("pts_road"))
+        seconds_left = _clock_to_seconds_left(clock, period)
+        if (
+            _to_float_or_none(event.get("home_win_prob")) is None
+            and period
+            and seconds_left is not None
+            and pts_home is not None
+            and pts_road is not None
+        ):
+            wp_states.append(
+                {
+                    "quarter": period,
+                    "seconds_left": seconds_left,
+                    "differential": pts_home - pts_road,
+                    "possession_numeric": _timeline_possession_numeric(
+                        event=event,
+                        home_team=home_team,
+                        road_team=road_team,
+                    ),
+                }
+            )
+            wp_event_positions.append(idx)
+
+    if not wp_states:
+        return
+
+    from admin.winprob_models import DEFAULT_OUTPUT_ROOT, predict_home_winprob_batch
+
+    try:
+        wp_probs = predict_home_winprob_batch(
+            season=season,
+            output_root=str(DEFAULT_OUTPUT_ROOT),
+            phase=phase,
+            states=wp_states,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                f"Failed to compute timeline win probability: {exc} "
+                f"(runtime scikit-learn={_get_pkg_version('scikit-learn')}, "
+                f"numpy={_get_pkg_version('numpy')}, pandas={_get_pkg_version('pandas')})"
+            ),
+        )
+
+    for event_idx, p_home in zip(wp_event_positions, wp_probs):
+        if p_home is not None:
+            raw_events[event_idx]["home_win_prob"] = float(p_home)
+
+
+def _parse_maxposs(value: Optional[str]) -> Optional[int]:
+    text = str(value or "").strip().lower()
+    if not text or text in {"inf", "infinity", "none", "all", "max"}:
+        return None
+    try:
+        parsed = int(text)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid maxposs. Use a positive integer or 'inf'.",
+        )
+    if parsed <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid maxposs. Use a positive integer or 'inf'.",
+        )
+    return parsed
+
+
 def _get_git_commit() -> str:
     """Get the current git commit hash."""
     try:
@@ -1117,86 +1333,13 @@ async def get_game_timeline(
     if road_team:
         validate_team(road_team)
     game_id_norm = _normalize_game_id_for_timeline(game_id)
-    if not game_id_norm:
-        raise HTTPException(status_code=400, detail="Invalid game_id")
-
-    phase: Optional[str] = None
-    timeline_path: Optional[Path] = None
-    payload: Optional[dict[str, Any]] = None
-
-    parquet_errors: list[str] = []
-    phase_candidates = _timeline_phase_candidates(game_type)
-    for candidate_phase in phase_candidates:
-        parquet_path = _find_timeline_parquet_file(season=season, phase=candidate_phase)
-        if parquet_path is None:
-            continue
-
-        try:
-            candidate_payload = _timeline_payload_from_parquet(
-                parquet_path=parquet_path,
-                game_id=game_id_norm,
-                home_team=home_team,
-                road_team=road_team,
-            )
-        except Exception as exc:
-            parquet_errors.append(f"{candidate_phase}: {exc}")
-            continue
-
-        if candidate_payload is not None:
-            payload = candidate_payload
-            phase = candidate_phase
-            if candidate_phase != phase_candidates[0]:
-                logger.warning(
-                    "Timeline phase fallback used: season=%s game_id=%s requested_game_type=%s phase=%s",
-                    season,
-                    game_id_norm,
-                    game_type,
-                    candidate_phase,
-                )
-            break
-
-    if payload is None:
-        timeline_path, phase = _find_timeline_json_file(
-            season=season,
-            game_id=game_id_norm,
-            game_type=game_type,
-            home_team=home_team,
-            road_team=road_team,
-        )
-        if timeline_path is None or phase is None:
-            if parquet_errors:
-                logger.error(
-                    "Timeline parquet failed for all phase candidates: season=%s game_id=%s requested_game_type=%s errors=%s",
-                    season,
-                    game_id_norm,
-                    game_type,
-                    " | ".join(parquet_errors),
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to read timeline data",
-                )
-            raise HTTPException(
-                status_code=404,
-                detail=f"Timeline not found for season={season}, game_id={game_id_norm}",
-            )
-        logger.warning(
-            "Timeline JSON fallback used: season=%s game_id=%s requested_game_type=%s file=%s",
-            season,
-            game_id_norm,
-            game_type,
-            timeline_path,
-        )
-
-        try:
-            loaded = json.loads(timeline_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logger.exception("Failed to read timeline JSON: %s", exc)
-            raise HTTPException(status_code=500, detail="Failed to read timeline data")
-        payload = loaded if isinstance(loaded, dict) else None
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=500, detail="Invalid timeline payload")
+    payload, phase, timeline_path = _resolve_timeline_payload_for_game(
+        season=season,
+        game_id=game_id,
+        game_type=game_type,
+        home_team=home_team,
+        road_team=road_team,
+    )
 
     raw_events = payload.get("events")
     if not isinstance(raw_events, list):
@@ -1207,10 +1350,15 @@ async def get_game_timeline(
     resolved_phase = str(payload.get("phase") or phase or "regular")
     resolved_home = str(payload.get("home_team") or home_team or file_home)
     resolved_road = str(payload.get("road_team") or road_team or file_road)
+    _populate_missing_home_win_prob(
+        raw_events=raw_events,
+        season=resolved_season,
+        phase=resolved_phase,
+        home_team=resolved_home,
+        road_team=resolved_road,
+    )
 
     events: list[GameTimelineEvent] = []
-    wp_states: list[dict[str, Any]] = []
-    wp_event_positions: list[int] = []
     for event in raw_events:
         if not isinstance(event, dict):
             continue
@@ -1221,12 +1369,6 @@ async def get_game_timeline(
         clock = str(event.get("clock") or "")
         pts_home = _to_int_or_none(state.get("pts_home"))
         pts_road = _to_int_or_none(state.get("pts_road"))
-        possession_numeric = _timeline_possession_numeric(
-            event=event,
-            home_team=resolved_home,
-            road_team=resolved_road,
-        )
-
         events.append(
             GameTimelineEvent(
                 event_index=_to_int_or_none(event.get("event_index")),
@@ -1242,48 +1384,6 @@ async def get_game_timeline(
                 ),
             )
         )
-
-        seconds_left = _clock_to_seconds_left(clock, period)
-        if (
-            events[-1].home_win_prob is None
-            and period
-            and seconds_left is not None
-            and pts_home is not None
-            and pts_road is not None
-        ):
-            wp_states.append(
-                {
-                    "quarter": period,
-                    "seconds_left": seconds_left,
-                    "differential": pts_home - pts_road,
-                    "possession_numeric": possession_numeric,
-                }
-            )
-            wp_event_positions.append(len(events) - 1)
-
-    if wp_states:
-        from admin.winprob_models import DEFAULT_OUTPUT_ROOT, predict_home_winprob_batch
-
-        try:
-            wp_probs = predict_home_winprob_batch(
-                season=resolved_season,
-                output_root=str(DEFAULT_OUTPUT_ROOT),
-                phase=resolved_phase,
-                states=wp_states,
-            )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=500,
-                detail=(
-                    f"Failed to compute timeline win probability: {exc} "
-                    f"(runtime scikit-learn={_get_pkg_version('scikit-learn')}, "
-                    f"numpy={_get_pkg_version('numpy')}, pandas={_get_pkg_version('pandas')})"
-                ),
-            )
-
-        for event_idx, p_home in zip(wp_event_positions, wp_probs):
-            if p_home is not None:
-                events[event_idx].home_win_prob = float(p_home)
 
     validation = payload.get("validation")
     validation_match = validation.get("match") if isinstance(validation, dict) else None
@@ -1309,6 +1409,83 @@ async def get_game_timeline(
         comeback_percentile=metrics["comeback_percentile"],
         events=events,
         validation_match=validation_match,
+    )
+
+
+@router.get("/game-runs", response_model=GameRunsResponse)
+async def get_game_runs(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: str = Query(..., description="Game ID"),
+    game_type: Optional[str] = Query(None, description="Game type (regular_season/playoffs/play_in)"),
+    home_team: Optional[str] = Query(None, description="Home team abbreviation"),
+    road_team: Optional[str] = Query(None, description="Road team abbreviation"),
+    maxposs: Optional[str] = Query("inf", description="Maximum run length in possessions, or 'inf' for no cap"),
+    minposs: int = Query(1, ge=1, description="Minimum run length in possessions"),
+    minmargin: int = Query(0, ge=0, description="Minimum absolute score-margin swing for a run"),
+    run_alpha: float = Query(0.6, ge=0.0, description="Run score exponent applied to possessions + 1"),
+    limit: int = Query(4, ge=1, le=10, description="Number of non-overlapping runs to return"),
+):
+    validate_season(season)
+    validate_game_id(game_id)
+    if home_team:
+        validate_team(home_team)
+    if road_team:
+        validate_team(road_team)
+    resolved_maxposs = _parse_maxposs(maxposs)
+
+    payload, phase, timeline_path = _resolve_timeline_payload_for_game(
+        season=season,
+        game_id=game_id,
+        game_type=game_type,
+        home_team=home_team,
+        road_team=road_team,
+    )
+
+    raw_events = [event for event in payload.get("events", []) if isinstance(event, dict)]
+    file_home, file_road = _teams_from_timeline_filename(timeline_path) if timeline_path else ("", "")
+    resolved_season = str(payload.get("season") or season)
+    resolved_phase = str(payload.get("phase") or phase or "regular")
+    resolved_home = str(payload.get("home_team") or home_team or file_home)
+    resolved_road = str(payload.get("road_team") or road_team or file_road)
+    resolved_game_id = _normalize_game_id_for_timeline(str(payload.get("game_id") or game_id))
+
+    _populate_missing_home_win_prob(
+        raw_events=raw_events,
+        season=resolved_season,
+        phase=resolved_phase,
+        home_team=resolved_home,
+        road_team=resolved_road,
+    )
+
+    possessions = extract_timeline_possessions(
+        raw_events=raw_events,
+        home_team=resolved_home,
+        road_team=resolved_road,
+    )
+    ranked_runs = rank_non_overlapping_runs(
+        possessions=possessions,
+        home_team=resolved_home,
+        road_team=resolved_road,
+        max_possessions=resolved_maxposs,
+        run_alpha=run_alpha,
+        min_possessions=minposs,
+        min_margin=minmargin,
+        limit=limit,
+    )
+
+    return GameRunsResponse(
+        season=resolved_season,
+        phase=resolved_phase,
+        game_id=resolved_game_id,
+        game_date=str(payload.get("game_date") or "") or None,
+        game_type=_normalize_game_type_for_timeline(payload.get("game_type") or game_type) or None,
+        home_team=resolved_home,
+        road_team=resolved_road,
+        max_possessions=resolved_maxposs,
+        min_possessions=minposs,
+        min_margin=minmargin,
+        run_alpha=run_alpha,
+        runs=[GameRun(**run) for run in ranked_runs],
     )
 
 
@@ -1655,7 +1832,10 @@ async def get_league_summary(
     last_n_games: Optional[int] = Query(None, description="Use each team's last N games"),
     data_scope: str = Query(
         "all",
-        description="Data scope: all, garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time",
+        description=(
+            "Data scope: all, q1, q2, q3, q4, ot, h1, h2, "
+            "garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time"
+        ),
     ),
 ):
     validate_season(season)
@@ -1938,7 +2118,10 @@ async def get_league_top_contributors(
     last_n_games: Optional[int] = Query(None, description="Use each team's last N games"),
     data_scope: str = Query(
         "all",
-        description="Data scope: all, garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time",
+        description=(
+            "Data scope: all, q1, q2, q3, q4, ot, h1, h2, "
+            "garbage_filtered (non-garbage), garbage_time, clutch, non_clutch_time"
+        ),
     ),
 ):
     """Get top positive and negative contributors to net rating across all teams."""

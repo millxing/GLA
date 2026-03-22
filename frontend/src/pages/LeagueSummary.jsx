@@ -216,8 +216,8 @@ const GLOSSARY_ITEMS = [
   { term: 'Rank', definition: 'League rank based on the currently selected sort column.' },
   { term: 'Team', definition: 'Team abbreviation.' },
   { term: 'GP', definition: 'Games Played' },
-  { term: 'G', definition: 'Games containing the selected situational segment (garbage time or clutch time).' },
-  { term: '% of Time', definition: 'Share of total game time spent in the selected situational segment.' },
+  { term: 'G', definition: 'Games containing the selected data-scope segment.' },
+  { term: '% of Time', definition: 'Share of total game time spent in the selected data-scope segment.' },
   { term: 'W', definition: 'Wins' },
   { term: 'L', definition: 'Losses' },
   { term: 'ORtg', definition: 'Offensive Rating - Points scored per 100 possessions' },
@@ -310,6 +310,13 @@ const DATE_RANGE_OPTIONS = [
 ]
 const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Data' },
+  { value: 'q1', label: 'Q1' },
+  { value: 'q2', label: 'Q2' },
+  { value: 'q3', label: 'Q3' },
+  { value: 'q4', label: 'Q4' },
+  { value: 'ot', label: 'OT' },
+  { value: 'h1', label: 'H1' },
+  { value: 'h2', label: 'H2 (incl OT)' },
   { value: 'garbage_filtered', label: 'Non-Garbage Time' },
   { value: 'garbage_time', label: 'Garbage Time' },
   { value: 'clutch', label: 'Clutch Time' },
@@ -339,6 +346,20 @@ const DATE_RANGE_ALIASES = {
 }
 
 const DATA_SCOPE_ALIASES = {
+  q1: 'q1',
+  q2: 'q2',
+  q3: 'q3',
+  q4: 'q4',
+  ot: 'ot',
+  overtime: 'ot',
+  h1: 'h1',
+  first_half: 'h1',
+  h2: 'h2',
+  second_half: 'h2',
+  h2_incl_ot: 'h2',
+  h2_including_ot: 'h2',
+  second_half_incl_ot: 'h2',
+  second_half_including_ot: 'h2',
   non_garbage: 'garbage_filtered',
   non_garbage_time: 'garbage_filtered',
   garbage_filtered: 'garbage_filtered',
@@ -1010,7 +1031,11 @@ function LeagueSummary() {
         // Silently fail for contributors - don't show error to user
         if (isCurrent) {
           setTopContributors(null)
-          setTopContributorsNote('')
+          setTopContributorsNote(
+            selectedDataScope === 'all'
+              ? ''
+              : 'Top contributors are currently unavailable for this data scope.'
+          )
         }
       } finally {
         if (isCurrent) setContributorsLoading(false)
@@ -1130,7 +1155,9 @@ function LeagueSummary() {
   const handleOpenTrendFromCell = (teamAbbr, columnKey) => {
     if (!teamAbbr || !selectedSeason) return
     const stat = resolveTrendStatForColumn(columnKey)
-    const trendsScope = selectedDataScope === 'garbage_filtered' ? 'garbage_filtered' : 'all'
+    const trendsScope = selectedDataScope === 'garbage_filtered' || selectedDataScope === 'clutch'
+      ? selectedDataScope
+      : 'all'
     navigate('/trends', {
       state: {
         season: selectedSeason,
