@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -34,7 +35,18 @@ POINT_FILL = "#c8beb2"
 GEORGIA = Path("/System/Library/Fonts/Supplemental/Georgia.ttf")
 GEORGIA_BOLD = Path("/System/Library/Fonts/Supplemental/Georgia Bold.ttf")
 MONO = Path("/System/Library/Fonts/Menlo.ttc")
-DEFAULT_REPO_DIR = Path("/Users/robschoen/Dropbox/CC/NBA_Data").resolve()
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.config import (  # type: ignore
+    DEFAULT_NBA_DATA_REPO_DIR,
+    build_data_filename,
+    resolve_data_file_path,
+)
+
+
+DEFAULT_REPO_DIR = DEFAULT_NBA_DATA_REPO_DIR
 
 
 def _font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont:
@@ -165,17 +177,17 @@ def _season_summary(df: pd.DataFrame) -> dict[str, float]:
 
 def _load_context(repo_dir: Path, team: str, season: str) -> dict[str, object]:
     full = _build_team_rows(
-        repo_dir / f"team_game_logs_{season}.csv",
-        repo_dir / f"box_score_advanced_{season}.csv",
-        repo_dir / f"linescores_{season}.csv",
+        resolve_data_file_path(build_data_filename("team_game_logs", season), repo_dir=repo_dir),
+        resolve_data_file_path(build_data_filename("box_score_advanced", season), repo_dir=repo_dir),
+        resolve_data_file_path(build_data_filename("linescores", season), repo_dir=repo_dir),
     )
     non_garbage = _build_team_rows(
-        repo_dir / f"team_game_logs_garbage_filtered_{season}.csv",
-        repo_dir / f"box_score_advanced_garbage_filtered_{season}.csv",
+        resolve_data_file_path(build_data_filename("team_game_logs", season, "garbage_filtered"), repo_dir=repo_dir),
+        resolve_data_file_path(build_data_filename("box_score_advanced", season, "garbage_filtered"), repo_dir=repo_dir),
     )
     clutch = _build_team_rows(
-        repo_dir / f"team_game_logs_clutch_{season}.csv",
-        repo_dir / f"box_score_advanced_clutch_{season}.csv",
+        resolve_data_file_path(build_data_filename("team_game_logs", season, "clutch"), repo_dir=repo_dir),
+        resolve_data_file_path(build_data_filename("box_score_advanced", season, "clutch"), repo_dir=repo_dir),
     )
 
     full_team = full[full["team"] == team].copy().sort_values("game_date")

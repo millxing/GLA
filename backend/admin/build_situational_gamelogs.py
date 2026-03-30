@@ -65,7 +65,12 @@ from cli import (
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import get_available_seasons
+from config import (
+    build_data_filename,
+    get_available_seasons,
+    get_canonical_data_file_path,
+    resolve_data_file_path,
+)
 
 
 CLOCK_RE = re.compile(r"^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$")
@@ -194,11 +199,11 @@ def _period_total_seconds(max_period: int) -> float:
 
 
 def _scope_game_logs_filename(season: str, scope: str) -> str:
-    return f"team_game_logs_{scope}_{season}.csv"
+    return build_data_filename("team_game_logs", season, scope)
 
 
 def _scope_advanced_filename(season: str, scope: str) -> str:
-    return f"box_score_advanced_{scope}_{season}.csv"
+    return build_data_filename("box_score_advanced", season, scope)
 
 
 def _states_parquet_path(repo_dir: Path, season: str, phase: str) -> Path:
@@ -738,7 +743,7 @@ def build_situational_files_for_season(
     garbage_wp_off = _validate_garbage_wp_threshold(garbage_wp_off, "garbage_wp_off")
     _validate_garbage_wp_pair(garbage_wp_on=garbage_wp_on, garbage_wp_off=garbage_wp_off)
 
-    game_logs_path = repo_dir / _season_to_filename(season)
+    game_logs_path = resolve_data_file_path(_season_to_filename(season), repo_dir=repo_dir)
     if not game_logs_path.exists():
         print(f"[situational] Skip {season}: missing {game_logs_path.name}")
         return 0
@@ -753,7 +758,7 @@ def build_situational_files_for_season(
         for _, row in base_game_df.iterrows()
     }
 
-    base_adv_path = repo_dir / _advanced_filename(season)
+    base_adv_path = resolve_data_file_path(_advanced_filename(season), repo_dir=repo_dir)
     base_adv_lookup: Dict[str, Dict[str, Any]] = {}
     if base_adv_path.exists():
         try:
@@ -796,8 +801,16 @@ def build_situational_files_for_season(
         return 0
 
     for scope in DATA_SCOPES:
-        output_game_path = repo_dir / _scope_game_logs_filename(season, scope)
-        output_adv_path = repo_dir / _scope_advanced_filename(season, scope)
+        output_game_path = get_canonical_data_file_path(
+            _scope_game_logs_filename(season, scope),
+            repo_dir=repo_dir,
+        )
+        output_adv_path = get_canonical_data_file_path(
+            _scope_advanced_filename(season, scope),
+            repo_dir=repo_dir,
+        )
+        output_game_path.parent.mkdir(parents=True, exist_ok=True)
+        output_adv_path.parent.mkdir(parents=True, exist_ok=True)
 
         new_game_df = pd.DataFrame(game_rows_by_scope[scope], columns=EXPECTED_COLUMNS)
         new_adv_df = pd.DataFrame(adv_rows_by_scope[scope], columns=ADVANCED_COLUMNS)

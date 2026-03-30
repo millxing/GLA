@@ -5,7 +5,7 @@ Standalone admin CLI for the NBA_Data repository.
 
 Responsibilities:
 - Ensure the NBA_Data repo exists locally (clone if missing)
-- Update/download season CSVs in NBA_Data repo root in *game-level* schema
+- Update/download season CSVs in nested NBA_Data family folders in *game-level* schema
   (one row per game with *_home and *_road columns)
 - Generate/update contribution JSONs and interpretation artifacts
 - Show git status and optionally commit+push changes from NBA_Data repo
@@ -52,7 +52,16 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from services.calculations import compute_four_factors, compute_game_ratings
 from services.llm import generate_interpretation_sync, LLM_MODELS
-from config import get_current_season, PBP_WINPROB_BASE_ROOT, PBP_WINPROB_MODELS_ROOT
+from config import (
+    DEFAULT_NBA_DATA_REPO_DIR,
+    PBP_WINPROB_BASE_ROOT,
+    PBP_WINPROB_MODELS_ROOT,
+    build_data_filename,
+    get_canonical_data_file_path,
+    get_current_season,
+    iter_data_family_files,
+    resolve_data_file_path,
+)
 
 PARQUET_BRIDGE_PYTHON = sys.executable or "python3"
 
@@ -61,7 +70,7 @@ NBA_DATA_REPO_URL = "https://github.com/millxing/NBA_Data"
 
 # Default: use the user's canonical NBA_Data folder.
 # This keeps GLA_Admin fully separate from any NBA/ NBA_alpha folders.
-DEFAULT_REPO_DIR = Path("/Users/robschoen/Dropbox/CC/NBA_Data").resolve()
+DEFAULT_REPO_DIR = DEFAULT_NBA_DATA_REPO_DIR
 DEFAULT_SHUF_DATASETS_DIR = Path(__file__).resolve().parents[2] / "shuf_datasets"
 PBP_ROOT_DIRNAME = "PBPdata"
 PBP_MANIFEST_FILENAME = "manifest.csv"
@@ -419,15 +428,23 @@ def ensure_data_repo(repo_dir: Path) -> Path:
 # ------------------------- schema utilities -------------------------
 
 def _season_to_filename(season: str) -> str:
-    return f"team_game_logs_{season}.csv"
+    return build_data_filename("team_game_logs", season)
 
 
 def _linescore_filename(season: str) -> str:
-    return f"linescores_{season}.csv"
+    return build_data_filename("linescores", season)
 
 
 def _advanced_filename(season: str) -> str:
-    return f"box_score_advanced_{season}.csv"
+    return build_data_filename("box_score_advanced", season)
+
+
+def _canonical_repo_data_path(repo_dir: Path, filename: str) -> Path:
+    return get_canonical_data_file_path(filename, repo_dir=repo_dir)
+
+
+def _resolve_repo_data_path(repo_dir: Path, filename: str) -> Path:
+    return resolve_data_file_path(filename, repo_dir=repo_dir)
 
 
 def _snake_case(x: object) -> str:
@@ -1396,11 +1413,11 @@ def _build_game_metadata_from_local_gamelog(
     season: str,
     season_type: str,
 ) -> Dict[str, Dict[str, str]]:
-    """Build game metadata from local team_game_logs_YYYY-YY.csv.
+    """Build game metadata from local team_game_logs family data.
 
     This fallback is used when league game-list API calls time out.
     """
-    csv_path = repo_dir / _season_to_filename(season)
+    csv_path = _resolve_repo_data_path(repo_dir, _season_to_filename(season))
     if not csv_path.exists():
         return {}
 
@@ -2131,7 +2148,7 @@ def _discover_state_seasons(repo_dir: Path, input_root: Optional[str], phase: st
                     seasons.add(m.group(1))
 
     if not seasons:
-        for p in repo_dir.glob("team_game_logs_????-??.csv"):
+        for p in iter_data_family_files(repo_dir, "team_game_logs", "team_game_logs_????-??.csv"):
             season = p.stem.replace("team_game_logs_", "", 1)
             if re.match(r"^\d{4}-\d{2}$", season):
                 seasons.add(season)
@@ -2198,6 +2215,57 @@ def pack_pbp_game_states_cmd(
     return 0
 
 
+def check_pbp_completeness_cmd(
+    season: str,
+    repo_dir: Path,
+    phase: str = "regular",
+    pbp_source: str = "nbastatsv3",
+    list_limit: int = 20,
+) -> int:
+    from admin.pbp_game_states import check_pbp_completeness
+
+    summary = check_pbp_completeness(
+        season=season,
+        repo_dir=repo_dir,
+        phase=phase,
+        source=pbp_source,
+    )
+    print(
+        f"[pbp-check] Season={summary['season']} phase={summary['phase']} "
+        f"source={summary['source']}"
+    )
+    print(f"[pbp-check] Path={summary['path']}")
+    print(f"[pbp-check] Expected games={summary['expected_game_count']}")
+    print(f"[pbp-check] PBP games={summary['pbp_game_count']}")
+    print(f"[pbp-check] Missing expected games={summary['missing_game_count']}")
+    print(f"[pbp-check] Extra PBP games={summary['extra_game_count']}")
+
+    if not summary["file_exists"]:
+        print("[pbp-check] Status=MISSING_FILE")
+        return 1
+
+    print(f"[pbp-check] Status={'COMPLETE' if summary['complete'] else 'INCOMPLETE'}")
+
+    limit = max(0, int(list_limit))
+    if summary["missing_game_ids"]:
+        shown = summary["missing_game_ids"][:limit] if limit else []
+        if shown:
+            print(f"[pbp-check] Missing game IDs (first {len(shown)}): {', '.join(shown)}")
+        remaining = len(summary["missing_game_ids"]) - len(shown)
+        if remaining > 0:
+            print(f"[pbp-check] Missing game IDs not shown: {remaining}")
+
+    if summary["extra_game_ids"]:
+        shown = summary["extra_game_ids"][:limit] if limit else []
+        if shown:
+            print(f"[pbp-check] Extra game IDs (first {len(shown)}): {', '.join(shown)}")
+        remaining = len(summary["extra_game_ids"]) - len(shown)
+        if remaining > 0:
+            print(f"[pbp-check] Extra game IDs not shown: {remaining}")
+
+    return 0 if summary["complete"] else 1
+
+
 def build_pbp_timeline_metrics_cmd(
     season: str,
     repo_dir: Path,
@@ -2257,7 +2325,8 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
     start = time.time()
     try:
         repo_dir = ensure_data_repo(repo_dir)
-        csv_path = repo_dir / _season_to_filename(season)
+        csv_path = _canonical_repo_data_path(repo_dir, _season_to_filename(season))
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
 
         existing_raw = _load_existing_season_csv(csv_path)
         existing: Optional[pd.DataFrame]
@@ -2370,8 +2439,10 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
         merged.to_csv(csv_path, index=False)
 
         # ---- Fetch linescore and advanced stats for new games ----
-        linescore_path = repo_dir / _linescore_filename(season)
-        advanced_path = repo_dir / _advanced_filename(season)
+        linescore_path = _canonical_repo_data_path(repo_dir, _linescore_filename(season))
+        advanced_path = _canonical_repo_data_path(repo_dir, _advanced_filename(season))
+        linescore_path.parent.mkdir(parents=True, exist_ok=True)
+        advanced_path.parent.mkdir(parents=True, exist_ok=True)
 
         ls_added = 0
         adv_added = 0
@@ -2656,7 +2727,7 @@ def generate_interpretations(
             print(f"[interp] Loaded {len(existing_data.get('interpretations', {}))} existing interpretations")
 
         # Load season data
-        csv_path = repo_dir / _season_to_filename(season)
+        csv_path = _resolve_repo_data_path(repo_dir, _season_to_filename(season))
         if not csv_path.exists():
             print(f"[error] Season CSV not found: {csv_path}")
             return 1
@@ -2667,7 +2738,7 @@ def generate_interpretations(
         print(f"[interp] Loaded {len(df)} games from {csv_path.name}")
 
         # Merge actual possessions from advanced stats
-        adv_path = repo_dir / _advanced_filename(season)
+        adv_path = _resolve_repo_data_path(repo_dir, _advanced_filename(season))
         if adv_path.exists():
             adv_df = pd.read_csv(adv_path, dtype={"game_id": "string"})
             adv_df["game_id"] = adv_df["game_id"].map(_normalize_game_id)
@@ -2998,8 +3069,8 @@ Example:
   python admin/cli.py update-data --season 2025-26
 
 This fetches the latest game logs from the NBA API for the specified season
-and updates team_game_logs_YYYY-YY.csv, linescores_YYYY-YY.csv, and
-box_score_advanced_YYYY-YY.csv in the NBA_Data repo.
+and updates the team_game_logs, linescores, and box_score_advanced
+family folders in the NBA_Data repo.
 """,
     )
     p_update.add_argument("--season", required=True, help="Season like 2025-26")
@@ -3016,7 +3087,7 @@ Examples:
   python admin/cli.py download-data --start 2015-16 --end 2015-16  # single season
 
 Downloads or updates game logs for all seasons in the specified range.
-Each season creates/updates three CSV files in the NBA_Data repo.
+Each season creates/updates three CSV files under the NBA_Data family folders.
 """,
     )
     p_dl.add_argument("--start", required=True, help="Start season like 2019-20")
@@ -3223,7 +3294,7 @@ Examples:
   python admin/cli.py build-pbp-game-states --season 2023-24 --game-id 0022300001 --overwrite
 
 Writes one JSON per game, with a full cumulative game-log state after each PBP row.
-Final event state is validated against team_game_logs_YYYY-YY.csv totals.
+Final event state is validated against team_game_logs season totals.
 """,
     )
     p_build_states.add_argument("--season", required=True, help="Season like 2023-24")
@@ -3238,14 +3309,45 @@ Final event state is validated against team_game_logs_YYYY-YY.csv totals.
         choices=["auto", "nbastatsv3", "api_pbpv3"],
         default="auto",
         help=(
-            "PBP source to parse. 'auto' prefers nbastatsv3 first, "
-            "then falls back to api_pbpv3 when needed."
+            "PBP source to parse. 'auto' prefers nbastatsv3 first, verifies "
+            "coverage, and only falls back to api_pbpv3 when nbastatsv3 is incomplete."
         ),
     )
     p_build_states.add_argument("--output-root", default=None, help="Optional root directory for output JSON files")
     p_build_states.add_argument("--max-games", type=int, default=None, help="Optional max number of games to process")
     p_build_states.add_argument("--game-id", default=None, help="Optional specific game_id to process")
     p_build_states.add_argument("--overwrite", action="store_true", help="Overwrite existing per-game output files")
+
+    p_check_pbp = sub.add_parser(
+        "check-pbp-completeness",
+        help="Check whether a stored raw PBP source covers every expected game in team_game_logs",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py check-pbp-completeness --season 2025-26 --phase regular
+  python admin/cli.py check-pbp-completeness --season 2025-26 --phase playoffs --pbp-source nbastatsv3
+  python admin/cli.py check-pbp-completeness --season 2025-26 --phase regular --pbp-source api_pbpv3
+""",
+    )
+    p_check_pbp.add_argument("--season", required=True, help="Season like 2025-26")
+    p_check_pbp.add_argument(
+        "--phase",
+        choices=["regular", "playoffs"],
+        default="regular",
+        help="Which phase to inspect (default: regular)",
+    )
+    p_check_pbp.add_argument(
+        "--pbp-source",
+        choices=["nbastatsv3", "api_pbpv3"],
+        default="nbastatsv3",
+        help="Stored raw PBP source to check (default: nbastatsv3)",
+    )
+    p_check_pbp.add_argument(
+        "--list-limit",
+        type=int,
+        default=20,
+        help="Maximum number of missing/extra game IDs to print (default: 20)",
+    )
 
     p_pack_states = sub.add_parser(
         "pack-pbp-game-states",
@@ -3584,6 +3686,15 @@ def main(argv: Optional[list[str]] = None) -> int:
             max_games=args.max_games,
             game_id=args.game_id,
             overwrite=args.overwrite,
+        )
+
+    if args.command == "check-pbp-completeness":
+        return check_pbp_completeness_cmd(
+            season=args.season,
+            repo_dir=repo_dir,
+            phase=args.phase,
+            pbp_source=args.pbp_source,
+            list_limit=args.list_limit,
         )
 
     if args.command == "pack-pbp-game-states":

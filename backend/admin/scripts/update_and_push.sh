@@ -443,8 +443,9 @@ HAS_POSTSEASON="$(
 "$ENV_PYTHON" - <<PY
 import pandas as pd
 from pathlib import Path
+from backend.config import build_data_filename, get_canonical_data_relative_path
 
-csv_path = Path(r"$REPO_DIR") / "team_game_logs_$SEASON.csv"
+csv_path = Path(r"$REPO_DIR") / get_canonical_data_relative_path(build_data_filename("team_game_logs", "$SEASON"))
 if not csv_path.exists():
     print("0")
     raise SystemExit(0)
@@ -501,13 +502,13 @@ run_step \
 if [ "$DRY_RUN" != "1" ]; then
     refresh_render_cache_after_publish \
         "data updates for $SEASON" \
-        "team_game_logs_${SEASON}.csv" \
-        "linescores_${SEASON}.csv" \
-        "box_score_advanced_${SEASON}.csv" \
-        "team_game_logs_garbage_filtered_${SEASON}.csv" \
-        "team_game_logs_clutch_${SEASON}.csv" \
-        "box_score_advanced_garbage_filtered_${SEASON}.csv" \
-        "box_score_advanced_clutch_${SEASON}.csv"
+        "team_game_logs/team_game_logs_${SEASON}.csv" \
+        "linescores/linescores_${SEASON}.csv" \
+        "box_score_advanced/box_score_advanced_${SEASON}.csv" \
+        "team_game_logs/team_game_logs_garbage_filtered_${SEASON}.csv" \
+        "team_game_logs/team_game_logs_clutch_${SEASON}.csv" \
+        "box_score_advanced/box_score_advanced_garbage_filtered_${SEASON}.csv" \
+        "box_score_advanced/box_score_advanced_clutch_${SEASON}.csv"
 fi
 
 if [ "$DRY_RUN" != "1" ] && [ "$PBP_EXIT" -eq 0 ]; then

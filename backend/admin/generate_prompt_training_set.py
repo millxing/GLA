@@ -21,6 +21,7 @@ import pandas as pd
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from config import build_data_filename, resolve_data_file_path
 from services.calculations import compute_four_factors, compute_game_ratings
 from services.llm import _build_interpretation_prompt
 
@@ -148,7 +149,10 @@ def main():
     repo_dir = Path(args.repo_dir)
 
     # Load game data
-    csv_path = repo_dir / f"team_game_logs_{args.season}.csv"
+    csv_path = resolve_data_file_path(
+        build_data_filename("team_game_logs", args.season),
+        repo_dir=repo_dir,
+    )
     if not csv_path.exists():
         print(f"Error: CSV not found: {csv_path}")
         return 1
@@ -157,7 +161,10 @@ def main():
     print(f"Loaded {len(df)} games from {csv_path.name}")
 
     # Merge actual possessions from advanced stats
-    adv_path = repo_dir / f"box_score_advanced_{args.season}.csv"
+    adv_path = resolve_data_file_path(
+        build_data_filename("box_score_advanced", args.season),
+        repo_dir=repo_dir,
+    )
     if adv_path.exists():
         adv_df = pd.read_csv(adv_path)
         adv_df["game_id"] = adv_df["game_id"].astype(str).map(

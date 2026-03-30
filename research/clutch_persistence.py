@@ -29,7 +29,12 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 BACKEND_DIR = ROOT_DIR / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from config import DEFAULT_NBA_DATA_REPO_DIR, get_available_seasons  # type: ignore  # noqa: E402
+from config import (  # type: ignore  # noqa: E402
+    DEFAULT_NBA_DATA_REPO_DIR,
+    build_data_filename,
+    get_available_seasons,
+    resolve_data_file_path,
+)
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / "research" / "outputs" / "clutch_persistence"
@@ -172,9 +177,12 @@ def _read_csv(path: Path) -> pd.DataFrame:
 
 
 def _load_scope_frames(season: str, repo_dir: Path, scope: str) -> tuple[pd.DataFrame, pd.DataFrame]:
-    game_name = f"team_game_logs_{season}.csv" if scope == "all" else f"team_game_logs_{scope}_{season}.csv"
-    adv_name = f"box_score_advanced_{season}.csv" if scope == "all" else f"box_score_advanced_{scope}_{season}.csv"
-    return _read_csv(repo_dir / game_name), _read_csv(repo_dir / adv_name)
+    game_name = build_data_filename("team_game_logs", season, scope)
+    adv_name = build_data_filename("box_score_advanced", season, scope)
+    return (
+        _read_csv(resolve_data_file_path(game_name, repo_dir=repo_dir)),
+        _read_csv(resolve_data_file_path(adv_name, repo_dir=repo_dir)),
+    )
 
 
 def _prepare_merged_games(

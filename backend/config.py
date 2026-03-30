@@ -14,6 +14,13 @@ ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
 
 DATA_BASE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{DATA_REPO}/{GITHUB_BRANCH}"
 
+DATA_FAMILY_DIRECTORIES = {
+    "team_game_logs": "team_game_logs",
+    "linescores": "linescores",
+    "box_score_advanced": "box_score_advanced",
+    "box_score_traditional": "box_score_traditional",
+}
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 # Default: ../NBA_Data relative to project root (sibling directory).
 # Override with NBA_DATA_REPO_DIR env var for other machines/deployments.
@@ -71,6 +78,117 @@ def get_available_seasons() -> list:
         season_str = f"{start_year}-{str(end_year)[-2:]}"
         seasons.append(season_str)
     return seasons
+
+
+def detect_data_family(filename: str | Path) -> str:
+    basename = Path(filename).name
+    for family in DATA_FAMILY_DIRECTORIES:
+        if basename.startswith(f"{family}_"):
+            return family
+    raise ValueError(f"Unsupported NBA_Data family for filename: {basename}")
+
+
+def build_data_filename(family: str, season: str, data_scope: str = "all") -> str:
+    if family not in DATA_FAMILY_DIRECTORIES:
+        raise ValueError(f"Unsupported NBA_Data family: {family}")
+
+    scope = str(data_scope or "all").strip()
+    if family in {"team_game_logs", "box_score_advanced"}:
+        if scope == "all":
+            return f"{family}_{season}.csv"
+        return f"{family}_{scope}_{season}.csv"
+
+    if scope != "all":
+        raise ValueError(f"{family} does not support data_scope={data_scope!r}")
+    return f"{family}_{season}.csv"
+
+
+def build_box_score_traditional_filename(kind: str, season: str) -> str:
+    kind_norm = str(kind or "").strip().lower()
+    valid_kinds = {"players", "teams", "starter_bench"}
+    if kind_norm not in valid_kinds:
+        raise ValueError(f"Unsupported box_score_traditional kind: {kind}")
+    return f"box_score_traditional_v3_{kind_norm}_{season}.csv"
+
+
+def get_legacy_data_relative_path(filename: str | Path) -> Path:
+    return Path(Path(filename).name)
+
+
+def get_canonical_data_relative_path(filename: str | Path) -> Path:
+    basename = Path(filename).name
+    family = detect_data_family(basename)
+    return Path(DATA_FAMILY_DIRECTORIES[family]) / basename
+
+
+def get_canonical_data_file_path(
+    filename: str | Path,
+    repo_dir: Path = NBA_DATA_REPO_DIR,
+) -> Path:
+    return Path(repo_dir) / get_canonical_data_relative_path(filename)
+
+
+def get_legacy_data_file_path(
+    filename: str | Path,
+    repo_dir: Path = NBA_DATA_REPO_DIR,
+) -> Path:
+    return Path(repo_dir) / get_legacy_data_relative_path(filename)
+
+
+def get_data_file_candidates(
+    filename: str | Path,
+    repo_dir: Path = NBA_DATA_REPO_DIR,
+) -> list[Path]:
+    canonical = get_canonical_data_file_path(filename, repo_dir=repo_dir)
+    legacy = get_legacy_data_file_path(filename, repo_dir=repo_dir)
+    if canonical == legacy:
+        return [canonical]
+    return [canonical, legacy]
+
+
+def resolve_data_file_path(
+    filename: str | Path,
+    repo_dir: Path = NBA_DATA_REPO_DIR,
+) -> Path:
+    for candidate in get_data_file_candidates(filename, repo_dir=repo_dir):
+        if candidate.exists():
+            return candidate
+    return get_canonical_data_file_path(filename, repo_dir=repo_dir)
+
+
+def build_data_file_url(filename: str | Path, base_url: str | None = None) -> str:
+    rel_path = get_canonical_data_relative_path(filename).as_posix()
+    base = (base_url or DATA_BASE_URL).rstrip("/")
+    return f"{base}/{rel_path}"
+
+
+def iter_data_family_files(
+    repo_dir: Path,
+    family: str,
+    pattern: str = "*.csv",
+) -> list[Path]:
+    if family not in DATA_FAMILY_DIRECTORIES:
+        raise ValueError(f"Unsupported NBA_Data family: {family}")
+
+    seen: set[str] = set()
+    matches: list[Path] = []
+    canonical_dir = Path(repo_dir) / DATA_FAMILY_DIRECTORIES[family]
+    if canonical_dir.exists():
+        for path in sorted(canonical_dir.glob(pattern)):
+            seen.add(path.name)
+            matches.append(path)
+
+    for path in sorted(Path(repo_dir).glob(pattern)):
+        if path.name in seen:
+            continue
+        try:
+            if detect_data_family(path.name) != family:
+                continue
+        except ValueError:
+            continue
+        matches.append(path)
+
+    return matches
 
 # LLM configuration for interpretation generation
 LLM_MODELS = {

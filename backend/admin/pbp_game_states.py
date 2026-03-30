@@ -7,12 +7,19 @@ import re
 import subprocess
 import tempfile
 import shutil
+import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 import pandas as pd
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from backend.config import build_data_filename, resolve_data_file_path  # type: ignore
 
 TRACKED_STATS = [
     "fgm",
@@ -1043,7 +1050,10 @@ def _normalize_game_type(value: Any) -> str:
 
 
 def _load_gamelogs(repo_dir: Path, season: str, phase: str) -> pd.DataFrame:
-    csv_path = repo_dir / f"team_game_logs_{season}.csv"
+    csv_path = resolve_data_file_path(
+        build_data_filename("team_game_logs", season),
+        repo_dir=repo_dir,
+    )
     if not csv_path.exists():
         raise FileNotFoundError(f"Missing game log file: {csv_path}")
 
@@ -1117,6 +1127,72 @@ def _load_pbp_df(pbp_path: Path) -> pd.DataFrame:
 
     d = d[d["game_id_norm"] != ""].copy()
     return d
+
+
+def _summarize_pbp_completeness(
+    season: str,
+    phase: str,
+    pbp_source: str,
+    pbp_path: Path,
+    game_logs: pd.DataFrame,
+    pbp_game_ids: set[str],
+) -> dict[str, Any]:
+    expected_game_ids = {
+        _normalize_game_id(value)
+        for value in game_logs.get("game_id_norm", pd.Series(dtype="string")).tolist()
+        if _normalize_game_id(value)
+    }
+    missing_game_ids = sorted(expected_game_ids - pbp_game_ids)
+    extra_game_ids = sorted(pbp_game_ids - expected_game_ids)
+    return {
+        "season": season,
+        "phase": phase,
+        "source": pbp_source,
+        "path": str(pbp_path),
+        "file_exists": pbp_path.exists(),
+        "expected_game_count": len(expected_game_ids),
+        "pbp_game_count": len(pbp_game_ids),
+        "missing_game_count": len(missing_game_ids),
+        "extra_game_count": len(extra_game_ids),
+        "missing_game_ids": missing_game_ids,
+        "extra_game_ids": extra_game_ids,
+        "complete": len(missing_game_ids) == 0,
+    }
+
+
+def check_pbp_completeness(
+    season: str,
+    repo_dir: Path,
+    phase: str = "regular",
+    source: str = "nbastatsv3",
+) -> dict[str, Any]:
+    phase_norm = _normalize_phase(phase)
+    source_norm = source.strip().lower()
+    if source_norm not in {"nbastatsv3", "api_pbpv3"}:
+        raise ValueError(f"Invalid source: {source!r}. Expected nbastatsv3|api_pbpv3.")
+
+    game_logs = _load_gamelogs(repo_dir, season, phase_norm)
+    pbp_path, pbp_source = _build_pbp_path(repo_dir, season, phase_norm, source=source_norm)
+    if not pbp_path.exists():
+        return _summarize_pbp_completeness(
+            season=season,
+            phase=phase_norm,
+            pbp_source=pbp_source,
+            pbp_path=pbp_path,
+            game_logs=game_logs,
+            pbp_game_ids=set(),
+        )
+
+    pbp_df = _load_pbp_df(pbp_path)
+    pbp_game_ids = set(pbp_df["game_id_norm"].dropna().astype(str).tolist()) if not pbp_df.empty else set()
+    return _summarize_pbp_completeness(
+        season=season,
+        phase=phase_norm,
+        pbp_source=pbp_source,
+        pbp_path=pbp_path,
+        game_logs=game_logs,
+        pbp_game_ids=pbp_game_ids,
+    )
 
 
 def _initial_state() -> dict[str, dict[str, int]]:
@@ -2200,6 +2276,7 @@ def build_pbp_game_states(
     if game_logs.empty:
         print(f"[pbp-state] No games found in game logs for {season} ({phase_norm})")
         return 1
+    season_game_logs = game_logs.copy()
 
     if game_id:
         gid_filter = _normalize_game_id(game_id)
@@ -2215,6 +2292,14 @@ def build_pbp_game_states(
 
     pbp_grouped = pbp_df.groupby("game_id_norm", sort=False)
     pbp_game_ids = set(pbp_grouped.indices.keys())
+    completeness = _summarize_pbp_completeness(
+        season=season,
+        phase=phase_norm,
+        pbp_source=pbp_source,
+        pbp_path=pbp_path,
+        game_logs=season_game_logs,
+        pbp_game_ids=pbp_game_ids,
+    )
     fallback_pbp_path: Optional[Path] = None
     fallback_pbp_source: Optional[str] = None
     fallback_pbp_grouped = None
@@ -2223,14 +2308,23 @@ def build_pbp_game_states(
     fallback_hits = 0
 
     if source_norm == "auto":
-        alt_source = "api_pbpv3" if pbp_source == "nbastatsv3" else "nbastatsv3"
-        alt_path, alt_label = _build_pbp_path(repo_dir, season, phase_norm, source=alt_source)
-        if alt_path.exists() and alt_path != pbp_path:
-            fallback_pbp_path = alt_path
-            fallback_pbp_source = alt_label
+        if pbp_source == "nbastatsv3" and completeness["complete"]:
+            print("[pbp-state] nbastatsv3 completeness verified; api_pbpv3 fallback disabled")
+        else:
+            alt_source = "api_pbpv3" if pbp_source == "nbastatsv3" else "nbastatsv3"
+            alt_path, alt_label = _build_pbp_path(repo_dir, season, phase_norm, source=alt_source)
+            if alt_path.exists() and alt_path != pbp_path:
+                fallback_pbp_path = alt_path
+                fallback_pbp_source = alt_label
 
     print(f"[pbp-state] Season={season} phase={phase_norm}")
     print(f"[pbp-state] PBP source={pbp_path} ({pbp_source})")
+    print(
+        "[pbp-state] Source coverage="
+        f"{completeness['pbp_game_count']}/{completeness['expected_game_count']} "
+        f"expected games, missing={completeness['missing_game_count']}, "
+        f"extra={completeness['extra_game_count']}"
+    )
     if fallback_pbp_path is not None and fallback_pbp_source is not None:
         print(f"[pbp-state] Fallback source={fallback_pbp_path} ({fallback_pbp_source})")
     print(f"[pbp-state] Output dir={output_dir}")

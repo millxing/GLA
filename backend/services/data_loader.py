@@ -5,7 +5,15 @@ import json
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 from typing import Optional, List, Dict
-from config import DATA_BASE_URL, INTERPRETATIONS_BASE_URL, NBA_DATA_REPO_DIR, get_available_seasons
+from config import (
+    DATA_BASE_URL,
+    INTERPRETATIONS_BASE_URL,
+    NBA_DATA_REPO_DIR,
+    build_data_file_url,
+    build_data_filename,
+    get_available_seasons,
+    get_legacy_data_relative_path,
+)
 from services.cache import get_cache_key, get_cached, set_cached
 
 STAT_COLUMNS = [
@@ -91,10 +99,15 @@ def _resolve_local_path_from_url(url: str) -> Optional[Path]:
         if not rel or ".." in rel.split("/"):
             return None
         resolved = (NBA_DATA_REPO_DIR / rel).resolve()
-        # Ensure resolved path is still inside the repo directory
-        if not str(resolved).startswith(str(NBA_DATA_REPO_DIR.resolve()) + os.sep) and resolved != NBA_DATA_REPO_DIR.resolve():
+        repo_root = NBA_DATA_REPO_DIR.resolve()
+        if not str(resolved).startswith(str(repo_root) + os.sep) and resolved != repo_root:
             return None
-        return resolved
+        if resolved.exists():
+            return resolved
+        legacy_resolved = (repo_root / get_legacy_data_relative_path(Path(rel).name)).resolve()
+        if not str(legacy_resolved).startswith(str(repo_root) + os.sep) and legacy_resolved != repo_root:
+            return None
+        return legacy_resolved
     except Exception:
         return None
 
@@ -149,7 +162,7 @@ async def fetch_json(url: str) -> Optional[dict]:
 
 async def load_season_data(season: str, data_scope: str = "all") -> Optional[pd.DataFrame]:
     scope = normalize_data_scope(data_scope)
-    url = f"{DATA_BASE_URL}/{_scoped_csv_name('team_game_logs', season, scope)}"
+    url = build_data_file_url(build_data_filename("team_game_logs", season, scope))
     return await fetch_csv(url)
 
 
@@ -164,12 +177,12 @@ async def load_contributions(season: str, data_scope: str = "all") -> Optional[d
 async def load_advanced_stats(season: str, data_scope: str = "all") -> Optional[pd.DataFrame]:
     """Load box score advanced stats for a season (actual possessions, minutes)."""
     scope = normalize_data_scope(data_scope)
-    url = f"{DATA_BASE_URL}/{_scoped_csv_name('box_score_advanced', season, scope)}"
+    url = build_data_file_url(build_data_filename("box_score_advanced", season, scope))
     return await fetch_csv(url)
 
 async def load_linescores(season: str) -> Optional[pd.DataFrame]:
     """Load linescore data for a season (quarter-by-quarter scoring)."""
-    url = f"{DATA_BASE_URL}/linescores_{season}.csv"
+    url = build_data_file_url(build_data_filename("linescores", season))
     return await fetch_csv(url)
 
 def _normalize_game_type(game_type: str) -> str:

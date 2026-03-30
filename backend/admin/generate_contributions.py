@@ -33,9 +33,7 @@ from sklearn.model_selection import train_test_split
 from cli import (
     DEFAULT_REPO_DIR,
     ensure_data_repo,
-    _season_to_filename,
     _linescore_filename,
-    _advanced_filename,
     _load_existing_season_csv,
     _normalize_game_level_df,
 )
@@ -43,7 +41,12 @@ from cli import (
 # Import season helpers
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from config import get_available_seasons, SEASON_START_YEAR
+from config import (
+    SEASON_START_YEAR,
+    build_data_filename,
+    resolve_data_file_path,
+    get_available_seasons,
+)
 
 
 # ---- Game type display names ----
@@ -115,15 +118,11 @@ def _normalize_data_scope(value: Optional[str]) -> str:
 
 
 def _scoped_game_logs_filename(season: str, data_scope: str) -> str:
-    if data_scope == "all":
-        return _season_to_filename(season)
-    return f"team_game_logs_{data_scope}_{season}.csv"
+    return build_data_filename("team_game_logs", season, data_scope)
 
 
 def _scoped_advanced_filename(season: str, data_scope: str) -> str:
-    if data_scope == "all":
-        return _advanced_filename(season)
-    return f"box_score_advanced_{data_scope}_{season}.csv"
+    return build_data_filename("box_score_advanced", season, data_scope)
 
 
 def _scoped_contributions_filename(season: str, data_scope: str) -> str:
@@ -416,9 +415,15 @@ def load_season_data(
 
     Returns (game_df, adv_df, linescore_df) — any may be None if file missing.
     """
-    game_path = repo_dir / _scoped_game_logs_filename(season=season, data_scope=data_scope)
-    adv_path = repo_dir / _scoped_advanced_filename(season=season, data_scope=data_scope)
-    ls_path = repo_dir / _linescore_filename(season)
+    game_path = resolve_data_file_path(
+        _scoped_game_logs_filename(season=season, data_scope=data_scope),
+        repo_dir=repo_dir,
+    )
+    adv_path = resolve_data_file_path(
+        _scoped_advanced_filename(season=season, data_scope=data_scope),
+        repo_dir=repo_dir,
+    )
+    ls_path = resolve_data_file_path(_linescore_filename(season), repo_dir=repo_dir)
 
     game_df = None
     if game_path.exists():
