@@ -17,14 +17,16 @@ Scope rules:
   - `game_id`: numeric game id
   - `game_type`: optional phase hint such as `regular_season`, `playoffs`, `play_in`
   - `home_team`, `road_team`: optional team disambiguators
+  - `numerator`: `dwp` for home win-probability swing or `dscore` for score-margin swing
   - `maxposs`: maximum possession-window length; positive integer or `"inf"` for no cap
   - `minposs`: minimum possession-window length; default `1`
   - `minmargin`: minimum absolute score-margin swing across the run; default `0`
   - `run_alpha`: exponent in the length penalty; default `0.6`
   - `limit`: number of non-overlapping runs to return; default `4`
 - Scoring:
-  - `run_score = delta_home_win_prob / (possession_count + 1) ^ run_alpha`
-  - Ranking uses `abs(run_score)`, then absolute WP swing, then shorter run, then earlier start.
+  - If `numerator=dwp`: `run_score = delta_home_win_prob / (possession_count + 1) ^ run_alpha`
+  - If `numerator=dscore`: `run_score = score_margin_delta / (possession_count + 1) ^ run_alpha`
+  - Ranking uses `abs(run_score)`, then absolute numerator value, then shorter run, then earlier start.
 - Semantics:
   - `possession_count` means total consecutive possessions in the game flow, counting both teams combined.
   - Non-overlap is enforced on possession indices, not event indices.
@@ -57,6 +59,7 @@ Scope rules:
   - `possessions`: output of `extract_timeline_possessions`
   - `home_team`, `road_team`: labels for assigning the benefiting team
   - `max_possessions`: `None` means unbounded
+  - `numerator`: `dwp` or `dscore`
   - `run_alpha`: exponent in the length penalty
   - `min_possessions`: minimum window size
   - `min_margin`: minimum absolute score swing

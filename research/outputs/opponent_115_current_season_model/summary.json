@@ -1,0 +1,10 @@
+{
+  "season": "2025-26",
+  "repo_dir": "/Users/robschoen/Dropbox/CC/NBA_Data",
+  "rows": 120,
+  "teams": 30,
+  "split_types": [
+    "opp_def_rating",
+    "opp_off_rating"
+  ]
+}

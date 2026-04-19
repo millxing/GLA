@@ -298,6 +298,14 @@ function formatPercentile(value) {
   return `${clipped.toFixed(1)}%`
 }
 
+function formatTimeRemaining(secondsLeft) {
+  if (!Number.isFinite(secondsLeft)) return ''
+  const totalSeconds = Math.max(0, Math.floor(secondsLeft))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
 export default function GameTimeline({ timeline }) {
   const [chartMode, setChartMode] = useState('both')
   const [selectedEventIndex, setSelectedEventIndex] = useState(null)
@@ -701,7 +709,7 @@ export default function GameTimeline({ timeline }) {
                 <th>#</th>
                 <th>Play</th>
                 <th>Quarter</th>
-                <th>Seconds Left</th>
+                <th>Time Remaining</th>
                 <th className="num">{homeTeam}</th>
                 <th className="num">{roadTeam}</th>
                 <th className="num">Differential</th>
@@ -722,7 +730,7 @@ export default function GameTimeline({ timeline }) {
                   <td className="row-index">{Number.isFinite(row.eventIndex) ? row.eventIndex : idx + 1}</td>
                   <td className="play-desc">{row.description}</td>
                   <td>{row.periodLabel}</td>
-                  <td>{Number.isFinite(row.secondsLeft) ? row.secondsLeft : ''}</td>
+                  <td>{formatTimeRemaining(row.secondsLeft)}</td>
                   <td className="num">{Number.isFinite(row.home) ? row.home : ''}</td>
                   <td className="num">{Number.isFinite(row.road) ? row.road : ''}</td>
                   <td className="num">{Number.isFinite(row.diff) ? row.diff : ''}</td>

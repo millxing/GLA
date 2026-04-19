@@ -898,6 +898,16 @@ def _parse_maxposs(value: Optional[str]) -> Optional[int]:
     return parsed
 
 
+def _parse_run_numerator(value: Optional[str]) -> str:
+    text = str(value or "dwp").strip().lower()
+    if text in {"dwp", "dscore"}:
+        return text
+    raise HTTPException(
+        status_code=400,
+        detail="Invalid numerator. Use 'dwp' or 'dscore'.",
+    )
+
+
 def _get_git_commit() -> str:
     """Get the current git commit hash."""
     try:
@@ -1422,6 +1432,7 @@ async def get_game_runs(
     maxposs: Optional[str] = Query("inf", description="Maximum run length in possessions, or 'inf' for no cap"),
     minposs: int = Query(1, ge=1, description="Minimum run length in possessions"),
     minmargin: int = Query(0, ge=0, description="Minimum absolute score-margin swing for a run"),
+    numerator: str = Query("dwp", description="Run-score numerator: dwp or dscore"),
     run_alpha: float = Query(0.6, ge=0.0, description="Run score exponent applied to possessions + 1"),
     limit: int = Query(4, ge=1, le=10, description="Number of non-overlapping runs to return"),
 ):
@@ -1432,6 +1443,7 @@ async def get_game_runs(
     if road_team:
         validate_team(road_team)
     resolved_maxposs = _parse_maxposs(maxposs)
+    resolved_numerator = _parse_run_numerator(numerator)
 
     payload, phase, timeline_path = _resolve_timeline_payload_for_game(
         season=season,
@@ -1470,6 +1482,7 @@ async def get_game_runs(
         run_alpha=run_alpha,
         min_possessions=minposs,
         min_margin=minmargin,
+        numerator=resolved_numerator,
         limit=limit,
     )
 
@@ -1485,6 +1498,7 @@ async def get_game_runs(
         min_possessions=minposs,
         min_margin=minmargin,
         run_alpha=run_alpha,
+        numerator=resolved_numerator,
         runs=[GameRun(**run) for run in ranked_runs],
     )
 

@@ -1,0 +1,53 @@
+2026-04-06 06:00:05 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-04-06 06:00:05 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-04-06 06:00:05 | SUCCESS | nba_api version verified (1.11.4)
+2026-04-06 06:00:05 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-04-06 06:00:05 | SUCCESS | Parquet engine available (pyarrow)
+2026-04-06 06:00:05 | INFO | PBP source target for this run: nbastatsv3
+2026-04-06 06:00:05 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-04-06 06:01:18 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-04-06 06:01:18 | START | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-04-06 06:02:27 | SUCCESS | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-04-06 06:02:27 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-04-06 06:02:32 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-04-06 06:02:32 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-04-06 06:07:24 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=regular)
+2026-04-06 06:07:24 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-04-06 06:07:24 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-04-06 06:07:36 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=regular)
+2026-04-06 06:07:36 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-04-06 06:07:41 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-04-06 06:07:41 | SKIPPED | Build PBP timeline metrics (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-04-06 06:07:41 | START | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-04-06 06:08:05 | SUCCESS | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-04-06 06:08:05 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-04-06))
+2026-04-06 06:08:55 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-04-06))
+2026-04-06 06:08:55 | START | Wait for GitHub raw publish (data updates for 2025-26)
+2026-04-06 06:08:57 | SUCCESS | Wait for GitHub raw publish completed (data updates for 2025-26)
+2026-04-06 06:08:57 | START | Render API cache clear (data updates for 2025-26)
+2026-04-06 06:08:57 | SUCCESS | Render API cache clear completed (data updates for 2025-26)
+2026-04-06 06:08:57 | START | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-04-06 06:08:57 | INFO | Timeline artifacts verified clean/synced (season=2025-26 phase=regular last_touch=c1c4fa7 2026-04-06 06:08:33 -0400 Update 2025-26 data (2026-04-06))
+2026-04-06 06:08:57 | SUCCESS | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-04-06 06:08:57 | START | Regenerate contributions (scope=all) for 2025-26
+2026-04-06 06:08:58 | SUCCESS | Regenerate contributions (scope=all) for 2025-26
+2026-04-06 06:08:58 | START | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-04-06 06:09:00 | SUCCESS | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-04-06 06:09:00 | START | Regenerate contributions (scope=clutch) for 2025-26
+2026-04-06 06:09:01 | SUCCESS | Regenerate contributions (scope=clutch) for 2025-26
+2026-04-06 06:09:01 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-04-06))
+2026-04-06 06:09:03 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-04-06))
+2026-04-06 06:09:03 | START | Wait for GitHub raw publish (contribution updates for 2025-26)
+2026-04-06 06:09:04 | SUCCESS | Wait for GitHub raw publish completed (contribution updates for 2025-26)
+2026-04-06 06:09:04 | START | Render API cache clear (contribution updates for 2025-26)
+2026-04-06 06:09:04 | SUCCESS | Render API cache clear completed (contribution updates for 2025-26)
+2026-04-06 06:09:04 | START | Generate LLM interpretations for 2025-26
+2026-04-06 06:09:47 | FAILED | Generate LLM interpretations for 2025-26 failed (exit=2)
+2026-04-06 06:09:47 | WARN | Continuing despite interpretation generation failure so data/contribution updates remain published
+2026-04-06 06:09:47 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-04-06))
+2026-04-06 06:09:49 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-04-06))
+2026-04-06 06:09:49 | START | Wait for GitHub raw publish (interpretation updates for 2025-26)
+2026-04-06 06:09:49 | SUCCESS | Wait for GitHub raw publish completed (interpretation updates for 2025-26)
+2026-04-06 06:09:49 | START | Render API cache clear (interpretation updates for 2025-26)
+2026-04-06 06:09:49 | SUCCESS | Render API cache clear completed (interpretation updates for 2025-26)
+2026-04-06 06:09:49 | WARN | Daily update finished with interpretation warnings (generation_exit=2 commit_exit=0)

@@ -16,6 +16,7 @@ REPORTS_DIR="$PROJECT_DIR/reports"
 PBP_TARGET_SOURCE="nbastatsv3"
 PBP_SOURCE_FOR_STATES="nbastatsv3"
 ENABLE_INTERPRETATIONS="${ENABLE_INTERPRETATIONS:-1}"
+ENABLE_BOX_SCORE_TRADITIONAL_V3="${ENABLE_BOX_SCORE_TRADITIONAL_V3:-1}"
 GITHUB_RAW_BASE_URL="${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com/millxing/NBA_Data/main}"
 RENDER_API_BASE_URL="${RENDER_API_BASE_URL:-https://extrapass-api.onrender.com}"
 REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS="${REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS:-180}"
@@ -397,6 +398,21 @@ else
     run_step \
         "Update season data (team_game_logs/linescores/box_score_advanced) for $SEASON" \
         "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" update-data --season "$SEASON"
+fi
+
+if [ "$ENABLE_BOX_SCORE_TRADITIONAL_V3" = "1" ]; then
+    echo "[run] Updating BoxScoreTraditionalV3 data for $SEASON"
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "[dry-run] Skipping BoxScoreTraditionalV3 update"
+        report_line "SKIPPED" "BoxScoreTraditionalV3 update skipped due to dry run"
+    else
+        run_step \
+            "Update BoxScoreTraditionalV3 (players/teams/starter_bench) for $SEASON" \
+            "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/download_boxscore_traditional_v3.py" --season "$SEASON" --repo-dir "$REPO_DIR"
+    fi
+else
+    echo "[run] BoxScoreTraditionalV3 update disabled; skipping"
+    report_line "SKIPPED" "BoxScoreTraditionalV3 update skipped (ENABLE_BOX_SCORE_TRADITIONAL_V3=$ENABLE_BOX_SCORE_TRADITIONAL_V3)"
 fi
 
 echo "[run] Updating raw PBP for $SEASON (regular + playoffs)"

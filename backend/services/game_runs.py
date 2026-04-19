@@ -179,6 +179,7 @@ def rank_non_overlapping_runs(
     run_alpha: float = 0.6,
     min_possessions: int = 1,
     min_margin: int = 0,
+    numerator: str = "dwp",
     limit: int = 4,
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
@@ -189,6 +190,8 @@ def rank_non_overlapping_runs(
     if min_margin < 0:
         return candidates
     if max_possessions is not None and max_possessions <= 0:
+        return candidates
+    if numerator not in {"dwp", "dscore"}:
         return candidates
 
     for start_idx in range(len(possessions)):
@@ -206,10 +209,6 @@ def rank_non_overlapping_runs(
             if possession_count < min_possessions:
                 continue
             delta_home_wp = float(end_wp - start_wp)
-            run_score = delta_home_wp / math.pow(possession_count + 1, run_alpha)
-            abs_run_score = abs(run_score)
-            if abs_run_score <= 0.0:
-                continue
 
             start_poss = possessions[start_idx]
             end_poss = possessions[end_idx]
@@ -234,11 +233,16 @@ def rank_non_overlapping_runs(
             )
             if score_margin_delta is None or abs(score_margin_delta) < min_margin:
                 continue
+            numerator_value = float(delta_home_wp if numerator == "dwp" else score_margin_delta)
+            run_score = numerator_value / math.pow(possession_count + 1, run_alpha)
+            abs_run_score = abs(run_score)
+            if abs_run_score <= 0.0:
+                continue
 
             candidates.append(
                 {
-                    "run_side": "home" if delta_home_wp > 0 else "road" if delta_home_wp < 0 else None,
-                    "run_team": home_team if delta_home_wp > 0 else road_team if delta_home_wp < 0 else None,
+                    "run_side": "home" if numerator_value > 0 else "road" if numerator_value < 0 else None,
+                    "run_team": home_team if numerator_value > 0 else road_team if numerator_value < 0 else None,
                     "start_possession_index": start_idx,
                     "end_possession_index": end_idx,
                     "possession_count": possession_count,
@@ -253,6 +257,7 @@ def rank_non_overlapping_runs(
                     "home_win_prob_start": start_wp,
                     "home_win_prob_end": end_wp,
                     "delta_home_win_prob": delta_home_wp,
+                    "run_score_numerator_value": numerator_value,
                     "run_score": run_score,
                     "abs_run_score": abs_run_score,
                     "home_score_start": home_score_start,
@@ -268,7 +273,7 @@ def rank_non_overlapping_runs(
     candidates.sort(
         key=lambda row: (
             -float(row["abs_run_score"]),
-            -abs(float(row["delta_home_win_prob"])),
+            -abs(float(row["run_score_numerator_value"])),
             int(row["possession_count"]),
             int(row["start_possession_index"]),
             int(row["end_possession_index"]),

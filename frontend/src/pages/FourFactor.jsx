@@ -310,6 +310,13 @@ function FourFactor() {
     if (navSeason) {
       setSelectedSeason(navSeason)
     }
+    const nextParams = new URLSearchParams()
+    if (navSeason) nextParams.set('season', navSeason)
+    nextParams.set('game', navGameId)
+    nextParams.set('scope', 'all')
+    nextParams.set('factors', 'eight_factors')
+    nextParams.set('view', 'factor')
+    setSearchParams(nextParams, { replace: true })
     setPendingNavigationSelection({
       season: navSeason,
       gameId: navGameId,
@@ -319,8 +326,9 @@ function FourFactor() {
       homeAway: typeof navState.homeAway === 'string' ? navState.homeAway : '',
     })
     setSelectedDataScope('all')
+    setFactorType('eight_factors')
     setAnalysisView('factor')
-  }, [location.key, location.state])
+  }, [location.key, location.state, setSearchParams])
 
   useEffect(() => {
     let isCurrent = true

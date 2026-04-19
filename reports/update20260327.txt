@@ -1,0 +1,47 @@
+2026-03-27 06:00:00 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-03-27 06:00:00 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-03-27 06:00:00 | SUCCESS | nba_api version verified (1.11.4)
+2026-03-27 06:00:00 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-03-27 06:00:00 | SUCCESS | Parquet engine available (pyarrow)
+2026-03-27 06:00:00 | INFO | PBP source target for this run: nbastatsv3
+2026-03-27 06:00:00 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-03-27 06:00:04 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-03-27 06:00:04 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-03-27 06:00:07 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-03-27 06:00:07 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-03-27 06:04:55 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=regular)
+2026-03-27 06:04:56 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-03-27 06:04:56 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-03-27 06:05:07 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=regular)
+2026-03-27 06:05:07 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-03-27 06:05:12 | SKIPPED | Build PBP Analyze game states (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-03-27 06:05:12 | SKIPPED | Build PBP timeline metrics (playoffs) skipped; no playoff/play-in games for 2025-26
+2026-03-27 06:05:12 | START | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-03-27 06:05:37 | SUCCESS | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-03-27 06:05:37 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-03-27))
+2026-03-27 06:06:28 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-03-27))
+2026-03-27 06:06:28 | START | Wait for GitHub raw publish (data updates for 2025-26)
+2026-03-27 06:06:30 | SUCCESS | Wait for GitHub raw publish completed (data updates for 2025-26)
+2026-03-27 06:06:30 | SKIPPED | Render API cache clear skipped for data updates for 2025-26; CACHE_CLEAR_KEY/ADMIN_SECRET_KEY not configured
+2026-03-27 06:06:30 | START | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-03-27 06:06:30 | INFO | Timeline artifacts verified clean/synced (season=2025-26 phase=regular last_touch=ef5a8d3 2026-03-27 06:06:13 -0400 Update 2025-26 data (2026-03-27))
+2026-03-27 06:06:30 | SUCCESS | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-03-27 06:06:30 | START | Regenerate contributions (scope=all) for 2025-26
+2026-03-27 06:06:31 | SUCCESS | Regenerate contributions (scope=all) for 2025-26
+2026-03-27 06:06:31 | START | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-03-27 06:06:33 | SUCCESS | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-03-27 06:06:33 | START | Regenerate contributions (scope=clutch) for 2025-26
+2026-03-27 06:06:34 | SUCCESS | Regenerate contributions (scope=clutch) for 2025-26
+2026-03-27 06:06:34 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-03-27))
+2026-03-27 06:06:35 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-03-27))
+2026-03-27 06:06:35 | START | Wait for GitHub raw publish (contribution updates for 2025-26)
+2026-03-27 06:06:37 | SUCCESS | Wait for GitHub raw publish completed (contribution updates for 2025-26)
+2026-03-27 06:06:37 | SKIPPED | Render API cache clear skipped for contribution updates for 2025-26; CACHE_CLEAR_KEY/ADMIN_SECRET_KEY not configured
+2026-03-27 06:06:37 | START | Generate LLM interpretations for 2025-26
+2026-03-27 06:06:37 | SUCCESS | Generate LLM interpretations for 2025-26
+2026-03-27 06:06:37 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-03-27))
+2026-03-27 06:06:38 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-03-27))
+2026-03-27 06:06:38 | START | Wait for GitHub raw publish (interpretation updates for 2025-26)
+2026-03-27 06:06:38 | SUCCESS | Wait for GitHub raw publish completed (interpretation updates for 2025-26)
+2026-03-27 06:06:38 | SKIPPED | Render API cache clear skipped for interpretation updates for 2025-26; CACHE_CLEAR_KEY/ADMIN_SECRET_KEY not configured
+2026-03-27 06:06:38 | SUCCESS | Daily update finished successfully

@@ -177,6 +177,7 @@ class GameRunsAlgorithmTest(unittest.TestCase):
 
         self.assertEqual((first["start_possession_index"], first["end_possession_index"]), (0, 1))
         self.assertEqual(first["run_team"], "OKC")
+        self.assertAlmostEqual(first["run_score_numerator_value"], 0.82 - 0.50)
         self.assertAlmostEqual(first["run_score"], (0.82 - 0.50) / math.pow(3, run_alpha))
 
         self.assertEqual((second["start_possession_index"], second["end_possession_index"]), (3, 3))
@@ -378,6 +379,79 @@ class GameRunsAlgorithmTest(unittest.TestCase):
         self.assertEqual(len(runs), 1)
         self.assertEqual((runs[0]["start_possession_index"], runs[0]["end_possession_index"]), (0, 1))
         self.assertEqual(runs[0]["score_margin_delta"], 8)
+
+    def test_rank_non_overlapping_runs_supports_dscore_numerator(self):
+        runs = rank_non_overlapping_runs(
+            [
+                {
+                    "side": "home",
+                    "team": "OKC",
+                    "start_event_index": 1,
+                    "end_event_index": 2,
+                    "start_period": 1,
+                    "end_period": 1,
+                    "start_clock": "PT12M00.00S",
+                    "end_clock": "PT11M30.00S",
+                    "start_description": "start 0",
+                    "end_description": "end 0",
+                    "start_home_win_prob": 0.50,
+                    "end_home_win_prob": 0.80,
+                    "start_home_score": 0,
+                    "start_road_score": 0,
+                    "end_home_score": 3,
+                    "end_road_score": 0,
+                },
+                {
+                    "side": "road",
+                    "team": "HOU",
+                    "start_event_index": 2,
+                    "end_event_index": 3,
+                    "start_period": 1,
+                    "end_period": 1,
+                    "start_clock": "PT11M30.00S",
+                    "end_clock": "PT11M00.00S",
+                    "start_description": "start 1",
+                    "end_description": "end 1",
+                    "start_home_win_prob": 0.80,
+                    "end_home_win_prob": 0.20,
+                    "start_home_score": 3,
+                    "start_road_score": 0,
+                    "end_home_score": 3,
+                    "end_road_score": 2,
+                },
+                {
+                    "side": "home",
+                    "team": "OKC",
+                    "start_event_index": 3,
+                    "end_event_index": 4,
+                    "start_period": 1,
+                    "end_period": 1,
+                    "start_clock": "PT11M00.00S",
+                    "end_clock": "PT10M30.00S",
+                    "start_description": "start 2",
+                    "end_description": "end 2",
+                    "start_home_win_prob": 0.20,
+                    "end_home_win_prob": 0.70,
+                    "start_home_score": 3,
+                    "start_road_score": 2,
+                    "end_home_score": 9,
+                    "end_road_score": 2,
+                },
+            ],
+            home_team="OKC",
+            road_team="HOU",
+            max_possessions=None,
+            min_possessions=1,
+            min_margin=0,
+            run_alpha=0.5,
+            numerator="dscore",
+            limit=2,
+        )
+
+        self.assertEqual((runs[0]["start_possession_index"], runs[0]["end_possession_index"]), (2, 2))
+        self.assertEqual(runs[0]["run_team"], "OKC")
+        self.assertEqual(runs[0]["run_score_numerator_value"], 6.0)
+        self.assertAlmostEqual(runs[0]["run_score"], 6.0 / math.sqrt(2.0))
 
 
 if __name__ == "__main__":

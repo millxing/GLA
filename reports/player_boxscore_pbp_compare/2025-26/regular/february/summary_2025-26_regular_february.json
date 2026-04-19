@@ -1,0 +1,89 @@
+{
+  "season": "2025-26",
+  "phase": "regular",
+  "month": 2,
+  "month_name": "february",
+  "built_at_utc": "2026-03-23T03:08:01+00:00",
+  "games_total": 166,
+  "supported_stats": [
+    "fgm",
+    "fga",
+    "fg3m",
+    "fg3a",
+    "ftm",
+    "fta",
+    "oreb",
+    "dreb",
+    "reb",
+    "ast",
+    "stl",
+    "blk",
+    "tov",
+    "pf",
+    "pts"
+  ],
+  "unsupported_compare_stats": [
+    "minutes",
+    "plus_minus"
+  ],
+  "official_endpoint_usage": {
+    "BoxScoreTraditionalV3": 166
+  },
+  "live_pbp_fetches": 166,
+  "live_pbp_source_usage": {
+    "live_nba_api": 166
+  },
+  "games_missing_pbp": 0,
+  "games_with_assist_alias_issues": 8,
+  "stat_match_counts": {
+    "fgm": 4307,
+    "fga": 4307,
+    "fg3m": 4307,
+    "fg3a": 4307,
+    "ftm": 4304,
+    "fta": 4307,
+    "oreb": 4307,
+    "dreb": 4307,
+    "reb": 4307,
+    "ast": 4299,
+    "stl": 4307,
+    "blk": 4304,
+    "tov": 4293,
+    "pf": 4306,
+    "pts": 4304
+  },
+  "stat_total_counts": {
+    "fgm": 4307,
+    "fga": 4307,
+    "fg3m": 4307,
+    "fg3a": 4307,
+    "ftm": 4307,
+    "fta": 4307,
+    "oreb": 4307,
+    "dreb": 4307,
+    "reb": 4307,
+    "ast": 4307,
+    "stl": 4307,
+    "blk": 4307,
+    "tov": 4307,
+    "pf": 4307,
+    "pts": 4307
+  },
+  "stat_match_rates": {
+    "fgm": 1.0,
+    "fga": 1.0,
+    "fg3m": 1.0,
+    "fg3a": 1.0,
+    "ftm": 0.9993,
+    "fta": 1.0,
+    "oreb": 1.0,
+    "dreb": 1.0,
+    "reb": 1.0,
+    "ast": 0.9981,
+    "stl": 1.0,
+    "blk": 0.9993,
+    "tov": 0.9967,
+    "pf": 0.9998,
+    "pts": 0.9993
+  }
+}

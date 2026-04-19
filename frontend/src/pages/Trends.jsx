@@ -443,7 +443,15 @@ function Trends() {
     const gameIdValue = gameEntry?.game_id
     const gameId = normalizeGameId(gameIdValue)
     if (!selectedSeason || !gameId) return
+    const nextParams = new URLSearchParams({
+      season: selectedSeason,
+      game: gameId,
+      scope: 'all',
+      factors: 'eight_factors',
+      view: 'factor',
+    })
     navigate('/four-factor', {
+      search: `?${nextParams.toString()}`,
       state: {
         season: selectedSeason,
         gameId,

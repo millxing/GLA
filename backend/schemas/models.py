@@ -119,6 +119,7 @@ class GameRun(BaseModel):
     home_win_prob_start: Optional[float] = None
     home_win_prob_end: Optional[float] = None
     delta_home_win_prob: float
+    run_score_numerator_value: float
     run_score: float
     abs_run_score: float
     home_score_start: Optional[int] = None
@@ -142,6 +143,7 @@ class GameRunsResponse(BaseModel):
     min_possessions: int
     min_margin: int
     run_alpha: float
+    numerator: str
     runs: List[GameRun]
 
 
