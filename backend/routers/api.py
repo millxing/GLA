@@ -52,6 +52,16 @@ from services.llm import (
     is_llm_configured,
 )
 from services.game_runs import extract_timeline_possessions, rank_non_overlapping_runs
+from services.pbp_boxscore import compute_pbp_traditional_boxscore, normalize_boxscore_segment
+from services.player_game_facts import build_player_game_facts_payload
+from services.player_shots import (
+    PLAYER_SHOT_CLASSIFICATIONS,
+    PLAYER_SHOTS_GAME_TYPES,
+    PLAYER_SHOT_TYPES,
+    build_player_shot_streakiness_payload,
+    build_player_shots_payload,
+    list_player_shot_players,
+)
 from services.data_loader import get_game_interpretation
 from schemas.models import (
     SeasonResponse,
@@ -77,6 +87,11 @@ from schemas.models import (
     GameTimelineState,
     GameRunsResponse,
     GameRun,
+    PBPTraditionalBoxScoreResponse,
+    PlayerGameFactsResponse,
+    PlayerShotsResponse,
+    PlayerShotPlayersResponse,
+    PlayerShotStreakinessResponse,
 )
 
 _SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
@@ -123,6 +138,7 @@ router = APIRouter(prefix="/api")
 logger = logging.getLogger(__name__)
 WINPROB_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_wizard_app.html").resolve()
 WINPROB_HYPOTHETICAL_APP_PATH = (Path(__file__).resolve().parents[1] / "winprob_hypothetical_app.html").resolve()
+PLAYER_SHOT_SEQUENCES_APP_PATH = (Path(__file__).resolve().parents[1] / "player_shot_sequences_app.html").resolve()
 STATES_PARQUET_FILENAME_TEMPLATE = "_states_{season}_{phase}.parquet"
 TIMELINE_METRICS_FILENAME_TEMPLATE = "_timeline_metrics_{season}_{phase}.json"
 HOME_WIN_PROB_BY_EVENT_JSON_COLUMN = "home_win_prob_by_event_json"
@@ -1260,6 +1276,13 @@ async def get_winprob_hypothetical_app():
     return FileResponse(str(WINPROB_HYPOTHETICAL_APP_PATH), media_type="text/html")
 
 
+@router.get("/player-shot-sequences/app", response_class=HTMLResponse)
+async def get_player_shot_sequences_app():
+    if not PLAYER_SHOT_SEQUENCES_APP_PATH.exists():
+        raise HTTPException(status_code=404, detail=f"Player shot sequences app file not found: {PLAYER_SHOT_SEQUENCES_APP_PATH}")
+    return FileResponse(str(PLAYER_SHOT_SEQUENCES_APP_PATH), media_type="text/html")
+
+
 STAT_LABELS = {
     "pts": "Points",
     "fg_pct": "FG%",
@@ -1501,6 +1524,188 @@ async def get_game_runs(
         numerator=resolved_numerator,
         runs=[GameRun(**run) for run in ranked_runs],
     )
+
+
+@router.get("/pbp-boxscore-traditional", response_model=PBPTraditionalBoxScoreResponse)
+async def get_pbp_boxscore_traditional(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: str = Query(..., description="Game ID"),
+    segment: str = Query("game", description="Box score segment: game, q1, q2, q3, q4, ot, h1, h2, no_garbage, garbage, clutch"),
+):
+    validate_season(season)
+    validate_game_id(game_id)
+    try:
+        segment_norm = normalize_boxscore_segment(segment)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        payload = compute_pbp_traditional_boxscore(season=season, game_id=game_id, segment=segment_norm)
+        return PBPTraditionalBoxScoreResponse(**payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to compute PBP traditional box score: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to compute PBP traditional box score") from exc
+
+
+@router.get("/player-game-facts", response_model=PlayerGameFactsResponse)
+async def get_player_game_facts(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_id: Optional[str] = Query(None, description="Optional 10-digit game ID filter"),
+    player_id: Optional[int] = Query(None, description="Optional NBA player ID filter"),
+    team_id: Optional[int] = Query(None, description="Optional NBA team ID filter"),
+    include_dnp: bool = Query(False, description="Include 0-minute DNP/DND/NWT rows"),
+):
+    validate_season(season)
+    if game_id is not None:
+        validate_game_id(game_id)
+    if player_id is not None and int(player_id) <= 0:
+        raise HTTPException(status_code=400, detail="player_id must be a positive integer")
+    if team_id is not None and int(team_id) <= 0:
+        raise HTTPException(status_code=400, detail="team_id must be a positive integer")
+
+    try:
+        payload = build_player_game_facts_payload(
+            season=season,
+            game_id=game_id,
+            player_id=player_id,
+            team_id=team_id,
+            include_dnp=include_dnp,
+        )
+        return PlayerGameFactsResponse(**payload)
+    except Exception as exc:
+        logger.exception("Failed to build player game facts: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build player game facts") from exc
+
+
+@router.get("/player-shot-players", response_model=PlayerShotPlayersResponse)
+async def get_player_shot_players(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_type: Optional[str] = Query(None, description="Optional game type: regular_season, playoffs, play_in, nba_cup_semi, nba_cup_final"),
+):
+    validate_season(season)
+    game_type_norm = str(game_type).strip().lower() if game_type is not None else None
+    if game_type_norm is not None and game_type_norm not in PLAYER_SHOTS_GAME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="game_type must be one of regular_season, playoffs, play_in, nba_cup_semi, nba_cup_final",
+        )
+
+    try:
+        players = list_player_shot_players(season, game_type=game_type_norm)
+        return PlayerShotPlayersResponse(
+            season=season,
+            game_type=game_type_norm,
+            player_count=len(players),
+            players=players,
+        )
+    except Exception as exc:
+        logger.exception("Failed to list player shot players: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to list player shot players") from exc
+
+
+@router.get("/player-shots", response_model=PlayerShotsResponse)
+async def get_player_shots(
+    player_id: Optional[int] = Query(None, description="Optional NBA player ID filter"),
+    player_name: Optional[str] = Query(None, description="Optional case-insensitive player name search"),
+    start_season: Optional[str] = Query(None, description="Optional first season in format YYYY-YY"),
+    end_season: Optional[str] = Query(None, description="Optional final season in format YYYY-YY"),
+    game_type: Optional[str] = Query(None, description="Optional game type: regular_season, playoffs, play_in, nba_cup_semi, nba_cup_final"),
+    shot_type: Optional[str] = Query(None, description="Optional shot type: fta, 2ptfga, or 3ptfga"),
+    result: Optional[str] = Query(None, description="Optional result: make or miss"),
+    team: Optional[str] = Query(None, description="Optional team abbreviation"),
+    opponent: Optional[str] = Query(None, description="Optional opponent abbreviation"),
+    limit: int = Query(5000, ge=1, le=50000, description="Maximum rows returned"),
+    offset: int = Query(0, ge=0, description="Rows to skip after sorting by career sequence"),
+):
+    if player_id is None and not player_name:
+        raise HTTPException(status_code=400, detail="player_id or player_name is required")
+    if player_id is not None and int(player_id) <= 0:
+        raise HTTPException(status_code=400, detail="player_id must be a positive integer")
+    if start_season is not None:
+        validate_season(start_season)
+    if end_season is not None:
+        validate_season(end_season)
+
+    game_type_norm = str(game_type).strip().lower() if game_type is not None else None
+    if game_type_norm is not None and game_type_norm not in PLAYER_SHOTS_GAME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="game_type must be one of regular_season, playoffs, play_in, nba_cup_semi, nba_cup_final",
+        )
+    if shot_type is not None and str(shot_type).strip().lower() not in {"fta", "2ptfga", "3ptfga"}:
+        raise HTTPException(status_code=400, detail="shot_type must be one of fta, 2ptfga, 3ptfga")
+    if result is not None and str(result).strip().lower() not in {"make", "miss"}:
+        raise HTTPException(status_code=400, detail="result must be make or miss")
+    if team is not None:
+        validate_team(team.upper())
+    if opponent is not None:
+        validate_team(opponent.upper())
+
+    try:
+        return PlayerShotsResponse(
+            **build_player_shots_payload(
+                player_id=player_id,
+                player_name=player_name,
+                start_season=start_season,
+                end_season=end_season,
+                game_type=game_type_norm,
+                shot_type=str(shot_type).strip().lower() if shot_type else None,
+                result=str(result).strip().lower() if result else None,
+                team=team.upper() if team else None,
+                opponent=opponent.upper() if opponent else None,
+                limit=limit,
+                offset=offset,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Failed to build player shots: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build player shots") from exc
+
+
+@router.get("/player-shot-streakiness", response_model=PlayerShotStreakinessResponse)
+async def get_player_shot_streakiness(
+    season: str = Query(..., description="Season in format YYYY-YY"),
+    game_type: Optional[str] = Query(None, description="Optional game type; defaults to regular_season"),
+    shot_type: Optional[str] = Query(None, description="Optional shot type: fta, 2ptfga, or 3ptfga"),
+    min_attempts: int = Query(100, ge=1, le=2000, description="Minimum attempts for leaderboard inclusion"),
+    simulations: int = Query(1000, ge=100, le=5000, description="Number of make-preserving random shuffles"),
+    classification: Optional[str] = Query(None, description="Optional classification filter"),
+):
+    validate_season(season)
+    game_type_norm = str(game_type or "regular_season").strip().lower()
+    if game_type_norm not in PLAYER_SHOTS_GAME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="game_type must be one of regular_season, playoffs, play_in, nba_cup_semi, nba_cup_final",
+        )
+    shot_type_norm = str(shot_type).strip().lower() if shot_type else None
+    if shot_type_norm is not None and shot_type_norm not in PLAYER_SHOT_TYPES:
+        raise HTTPException(status_code=400, detail="shot_type must be one of fta, 2ptfga, 3ptfga")
+    classification_norm = str(classification).strip().lower() if classification else None
+    if classification_norm is not None and classification_norm not in PLAYER_SHOT_CLASSIFICATIONS:
+        raise HTTPException(
+            status_code=400,
+            detail="classification must be one of consistent, streaky, volatile, alternating, ordinary",
+        )
+
+    try:
+        return PlayerShotStreakinessResponse(
+            **build_player_shot_streakiness_payload(
+                season=season,
+                game_type=game_type_norm,
+                shot_type=shot_type_norm,
+                min_attempts=min_attempts,
+                simulations=simulations,
+                classification=classification_norm,
+            )
+        )
+    except Exception as exc:
+        logger.exception("Failed to build player shot streakiness: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build player shot streakiness") from exc
 
 
 @router.get("/decomposition", response_model=DecompositionResponse)

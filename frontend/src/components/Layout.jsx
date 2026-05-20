@@ -4,6 +4,7 @@ import './Layout.css'
 function Layout() {
   const location = useLocation()
   const navigate = useNavigate()
+  const isGameAnalysisRoute = location.pathname === '/four-factor'
 
   const handleLogoClick = (e) => {
     if (location.pathname === '/') {
@@ -18,7 +19,7 @@ function Layout() {
   }
 
   return (
-    <div className="layout">
+    <div className={`layout ${isGameAnalysisRoute ? 'layout--ga' : ''}`}>
       <header className="header">
         <div className="header-content">
           <NavLink to="/" className="logo" onClick={handleLogoClick} onContextMenu={handleLogoContextMenu}>

@@ -147,6 +147,188 @@ class GameRunsResponse(BaseModel):
     runs: List[GameRun]
 
 
+class PBPTraditionalBoxScorePlayer(BaseModel):
+    player_id: Optional[int] = None
+    player_name: str
+    is_starter: bool = False
+    team_id: int
+    team_abbreviation: str
+    minutes: str
+    pts: int
+    fgm: int
+    fga: int
+    fg3m: int
+    fg3a: int
+    ftm: int
+    fta: int
+    reb: int
+    ast: int
+    tov: int
+    stl: int
+    blk: int
+    oreb: int
+    dreb: int
+    pf: int
+    plus_minus: int
+
+
+class PBPTraditionalBoxScoreResponse(BaseModel):
+    season: str
+    phase: str
+    game_id: str
+    game_date: Optional[str] = None
+    game_type: Optional[str] = None
+    home_team: str
+    road_team: str
+    source: str
+    minutes_plus_minus_source: Optional[str] = None
+    home_players: List[PBPTraditionalBoxScorePlayer]
+    road_players: List[PBPTraditionalBoxScorePlayer]
+
+
+class PlayerGameFact(BaseModel):
+    game_id: str
+    season: str
+    game_date: Optional[str] = None
+    game_type: Optional[str] = None
+    player_id: int
+    player_name: str
+    team_id: int
+    team_abbreviation: str
+    opponent_team_id: Optional[int] = None
+    opponent_abbreviation: Optional[str] = None
+    home_or_road: str
+    is_starter: Optional[bool] = None
+    position: Optional[str] = None
+    status_comment: Optional[str] = None
+    minutes: str
+    seconds_played: int
+    pts: int
+    fgm: int
+    fga: int
+    fg3m: int
+    fg3a: int
+    ftm: int
+    fta: int
+    oreb: int
+    dreb: int
+    reb: int
+    ast: int
+    stl: int
+    blk: int
+    tov: int
+    pf: int
+    plus_minus: int
+    possessions_team: Optional[float] = None
+    possessions_opp: Optional[float] = None
+    source_boxscore: str
+    source_possessions: Optional[str] = None
+
+
+class PlayerGameFactsResponse(BaseModel):
+    season: str
+    game_id: Optional[str] = None
+    player_id: Optional[int] = None
+    team_id: Optional[int] = None
+    include_dnp: bool = False
+    row_count: int
+    rows: List[PlayerGameFact]
+
+
+class PlayerShot(BaseModel):
+    season: str
+    pbp_phase: str
+    game_id: str
+    game_date: Optional[str] = None
+    game_type: Optional[str] = None
+    team_id: int
+    team: str
+    opponent_id: Optional[int] = None
+    opponent: Optional[str] = None
+    home_road: str
+    player_id: int
+    player_name: str
+    shot_type: str
+    result: str
+    action_number: int
+    action_id: int
+    period: int
+    clock: str
+    description: str
+
+
+class PlayerShotsResponse(BaseModel):
+    player_id: Optional[int] = None
+    player_name: Optional[str] = None
+    start_season: Optional[str] = None
+    end_season: Optional[str] = None
+    game_type: Optional[str] = None
+    shot_type: Optional[str] = None
+    result: Optional[str] = None
+    team: Optional[str] = None
+    opponent: Optional[str] = None
+    limit: int
+    offset: int
+    row_count: int
+    rows: List[PlayerShot]
+
+
+class PlayerShotPlayer(BaseModel):
+    player_id: int
+    player_name: str
+    teams: List[str]
+    attempts: int
+    makes: int
+    three_pa: int
+    two_pa: int
+    fta: int
+
+
+class PlayerShotPlayersResponse(BaseModel):
+    season: str
+    game_type: Optional[str] = None
+    player_count: int
+    players: List[PlayerShotPlayer]
+
+
+class PlayerShotStreakinessRow(BaseModel):
+    season: str
+    game_type: str
+    player_id: int
+    player_name: str
+    teams: List[str]
+    shot_type: str
+    attempts: int
+    makes: int
+    make_pct: float
+    classification: str
+    streakiness_score: Optional[float] = None
+    consistency_score: Optional[float] = None
+    runs: int
+    runs_cluster_percentile: float
+    runs_alternation_percentile: float
+    transition_effect: float
+    transition_percentile: float
+    window_size: Optional[int] = None
+    window_variance: Optional[float] = None
+    window_variance_percentile: Optional[float] = None
+    longest_make_run: int
+    longest_make_run_percentile: float
+    longest_miss_run: int
+    longest_miss_run_percentile: float
+
+
+class PlayerShotStreakinessResponse(BaseModel):
+    season: str
+    game_type: str
+    shot_type: Optional[str] = None
+    min_attempts: int
+    simulations: int
+    classification: Optional[str] = None
+    row_count: int
+    rows: List[PlayerShotStreakinessRow]
+
+
 class TeamStats(BaseModel):
     team: str
     games: int

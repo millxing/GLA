@@ -53,6 +53,31 @@ export async function getGameTimeline(season, gameId, options = {}) {
   return fetchApi(`/api/game-timeline?${params}`)
 }
 
+export async function getPbpTraditionalBoxScore(season, gameId, segment = 'game') {
+  const params = new URLSearchParams({
+    season,
+    game_id: gameId,
+    segment,
+  })
+  return fetchApi(`/api/pbp-boxscore-traditional?${params}`)
+}
+
+export async function getPlayerShots(options = {}) {
+  const params = new URLSearchParams()
+  if (options.playerId) params.append('player_id', options.playerId)
+  if (options.playerName) params.append('player_name', options.playerName)
+  if (options.startSeason) params.append('start_season', options.startSeason)
+  if (options.endSeason) params.append('end_season', options.endSeason)
+  if (options.gameType) params.append('game_type', options.gameType)
+  if (options.shotType) params.append('shot_type', options.shotType)
+  if (options.result) params.append('result', options.result)
+  if (options.team) params.append('team', options.team)
+  if (options.opponent) params.append('opponent', options.opponent)
+  if (options.limit) params.append('limit', options.limit)
+  if (options.offset) params.append('offset', options.offset)
+  return fetchApi(`/api/player-shots?${params}`)
+}
+
 export async function getLeagueSummary(
   season,
   startDate,

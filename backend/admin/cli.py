@@ -861,6 +861,61 @@ def _fetch_advanced_stats(game_id: str, game_date: str, season: str, home_team_i
             return None
 
 
+def _advanced_row_missing_core_values(row: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for field in ("minutes_home", "minutes_road", "possessions_home", "possessions_road"):
+        value = pd.to_numeric(row.get(field), errors="coerce")
+        if pd.isna(value) or float(value) <= 0.0:
+            missing.append(field)
+    return missing
+
+
+def _assert_valid_advanced_row(row: dict[str, Any], *, context: str) -> None:
+    missing = _advanced_row_missing_core_values(row)
+    if missing:
+        game_id = _normalize_game_id(row.get("game_id"))
+        details = ", ".join(f"{field}={row.get(field)!r}" for field in missing)
+        raise ValueError(
+            f"{context}: advanced box score missing core values for game {game_id or '<unknown>'} ({details})"
+        )
+
+
+def _assert_no_invalid_advanced_rows(df: pd.DataFrame, *, context: str) -> None:
+    if df is None or df.empty:
+        return
+
+    invalid_mask = pd.Series(False, index=df.index)
+    for field in ("minutes_home", "minutes_road", "possessions_home", "possessions_road"):
+        values = pd.to_numeric(df[field], errors="coerce")
+        invalid_mask = invalid_mask | values.isna() | (values <= 0.0)
+
+    invalid_rows = df.loc[invalid_mask, [
+        "game_id",
+        "game_date",
+        "team_abbreviation_home",
+        "team_abbreviation_road",
+        "minutes_home",
+        "possessions_home",
+        "minutes_road",
+        "possessions_road",
+    ]]
+    if invalid_rows.empty:
+        return
+
+    sample_lines = []
+    for _, row in invalid_rows.head(5).iterrows():
+        sample_lines.append(
+            f"{row['game_id']} {row['team_abbreviation_road']}@{row['team_abbreviation_home']} "
+            f"mh={row['minutes_home']} ph={row['possessions_home']} "
+            f"mr={row['minutes_road']} pr={row['possessions_road']}"
+        )
+    remainder = len(invalid_rows) - len(sample_lines)
+    sample = "; ".join(sample_lines)
+    if remainder > 0:
+        sample = f"{sample}; ... and {remainder} more"
+    raise ValueError(f"{context}: advanced box score file contains invalid rows: {sample}")
+
+
 def _normalize_linescore_df(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize linescore DataFrame to canonical schema and dtypes."""
     d = df.copy()
@@ -986,10 +1041,13 @@ def _fetch_boxscore_data(
         # Fetch advanced stats (with fallback for known missing games)
         adv_row = _fetch_advanced_stats(gid, game_date, season, home_team_id)
         if adv_row:
+            _assert_valid_advanced_row(adv_row, context="Fetched advanced row")
             advanced_rows.append(adv_row)
             print("ADV:OK")
         elif gid in ADVANCED_FALLBACK_DATA:
-            advanced_rows.append(ADVANCED_FALLBACK_DATA[gid].copy())
+            fallback_row = ADVANCED_FALLBACK_DATA[gid].copy()
+            _assert_valid_advanced_row(fallback_row, context="Fallback advanced row")
+            advanced_rows.append(fallback_row)
             print("ADV:FALLBACK")
         else:
             print("ADV:FAIL")
@@ -1020,6 +1078,7 @@ def _fetch_boxscore_data(
                 else:
                     combined_adv = new_adv
                 combined_adv = _normalize_advanced_df(combined_adv)
+                _assert_no_invalid_advanced_rows(combined_adv, context="Saving advanced box score data")
                 combined_adv.to_csv(advanced_path, index=False)
                 existing_adv = combined_adv  # Update for next iteration
                 adv_total_added += len(advanced_rows)
@@ -2459,6 +2518,11 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
                 existing_ls = pd.read_csv(linescore_path, dtype={"game_id": "string"})
             if advanced_path.exists():
                 existing_adv = pd.read_csv(advanced_path, dtype={"game_id": "string"})
+                existing_adv = _normalize_advanced_df(existing_adv)
+                _assert_no_invalid_advanced_rows(
+                    existing_adv,
+                    context="Existing advanced box score data",
+                )
 
             # Determine which games need boxscore data (excluding today's games)
             today_str = datetime.now().strftime("%Y-%m-%d")
@@ -2514,7 +2578,11 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
 
         # Count final rows in boxscore files
         ls_total = len(pd.read_csv(linescore_path)) if linescore_path.exists() else 0
-        adv_total = len(pd.read_csv(advanced_path)) if advanced_path.exists() else 0
+        adv_total = 0
+        if advanced_path.exists():
+            final_adv = _normalize_advanced_df(pd.read_csv(advanced_path, dtype={"game_id": "string"}))
+            _assert_no_invalid_advanced_rows(final_adv, context="Final advanced box score data")
+            adv_total = len(final_adv)
 
         elapsed = time.time() - start
         latest_date = None
@@ -3349,6 +3417,36 @@ Examples:
         help="Maximum number of missing/extra game IDs to print (default: 20)",
     )
 
+    p_player_shots = sub.add_parser(
+        "build-player-shots",
+        help="Build one-row-per-shot player shooting datasets from raw PBP",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python admin/cli.py build-player-shots --season 2025-26 --phase regular
+  python admin/cli.py build-player-shots --season 2025-26 --phase both --overwrite
+  python admin/cli.py build-player-shots --season all --phase both
+
+Output:
+  NBA_Data/player_shots/player_shots_YYYY-YY.parquet
+""",
+    )
+    p_player_shots.add_argument("--season", required=True, help="Season like 2025-26, or all")
+    p_player_shots.add_argument(
+        "--phase",
+        choices=["regular", "playoffs", "both"],
+        default="both",
+        help="Which phase to process (default: both)",
+    )
+    p_player_shots.add_argument(
+        "--pbp-source",
+        choices=["auto", "nbastatsv3", "api_pbpv3"],
+        default="auto",
+        help="PBP source to parse (default: auto)",
+    )
+    p_player_shots.add_argument("--output-root", default=None, help="Optional root directory for output parquet files")
+    p_player_shots.add_argument("--overwrite", action="store_true", help="Overwrite existing output files")
+
     p_pack_states = sub.add_parser(
         "pack-pbp-game-states",
         help="Pack per-game game-state JSON files into one parquet per season/phase",
@@ -3695,6 +3793,18 @@ def main(argv: Optional[list[str]] = None) -> int:
             phase=args.phase,
             pbp_source=args.pbp_source,
             list_limit=args.list_limit,
+        )
+
+    if args.command == "build-player-shots":
+        from admin.player_shots import build_player_shots
+
+        return build_player_shots(
+            season=args.season,
+            repo_dir=repo_dir,
+            phase=args.phase,
+            pbp_source=args.pbp_source,
+            output_root=args.output_root,
+            overwrite=args.overwrite,
         )
 
     if args.command == "pack-pbp-game-states":

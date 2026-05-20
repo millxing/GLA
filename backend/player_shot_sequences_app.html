@@ -1,0 +1,914 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shot Sequence Lab</title>
+  <style>
+    :root {
+      --ink: #171511;
+      --muted: #6d6558;
+      --paper: #f4ead9;
+      --panel: #fff8ed;
+      --line: #d7c6ad;
+      --green: #1c7c54;
+      --red: #bb3e2f;
+      --gold: #b47b18;
+      --navy: #172232;
+      --shadow: 0 18px 60px rgba(31, 24, 12, 0.16);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 18%, rgba(180, 123, 24, 0.18), transparent 28%),
+        radial-gradient(circle at 82% 4%, rgba(28, 124, 84, 0.16), transparent 24%),
+        linear-gradient(135deg, #f7efe2 0%, #ecdcc2 45%, #f9f1e4 100%);
+      font-family: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.14;
+      background-image:
+        linear-gradient(rgba(23, 21, 17, 0.16) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 21, 17, 0.12) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, black, transparent 88%);
+    }
+
+    .shell {
+      width: min(1320px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 36px 0 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 24px;
+      align-items: end;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(3.4rem, 8vw, 7.5rem);
+      line-height: 0.88;
+      letter-spacing: -0.07em;
+      font-weight: 900;
+      max-width: 900px;
+    }
+
+    .dek {
+      border-left: 3px solid var(--ink);
+      padding-left: 18px;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.5;
+    }
+
+    .controls {
+      background: rgba(255, 248, 237, 0.88);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 18px;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap: 14px;
+      margin-bottom: 22px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.72rem;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 6px;
+      font-weight: 800;
+    }
+
+    select,
+    input,
+    button {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #fffdf7;
+      color: var(--ink);
+      padding: 11px 12px;
+      font: 700 0.95rem "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+      min-height: 43px;
+    }
+
+    select:focus,
+    input:focus {
+      outline: 3px solid rgba(180, 123, 24, 0.22);
+      border-color: var(--gold);
+    }
+
+    button {
+      border: none;
+      background: var(--navy);
+      color: #fff8ed;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      transition: transform 160ms ease, background 160ms ease;
+    }
+
+    button:hover { transform: translateY(-1px); background: #25334a; }
+    button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
+
+    .span-2 { grid-column: span 2; }
+    .span-3 { grid-column: span 3; }
+    .span-4 { grid-column: span 4; }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+
+    .status {
+      min-height: 22px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .dashboard {
+      display: grid;
+      grid-template-columns: 0.82fr 1.18fr;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .card {
+      background: rgba(255, 248, 237, 0.9);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      padding: 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 14px;
+      font-size: 1rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+
+    .metric {
+      padding: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.38);
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 2rem;
+      line-height: 1;
+      letter-spacing: -0.05em;
+    }
+
+    .metric span {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.11em;
+      font-weight: 800;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .tab {
+      width: auto;
+      min-height: 34px;
+      padding: 8px 12px;
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+
+    .tab.active {
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    th {
+      text-align: left;
+      color: var(--muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      border-bottom: 1px solid var(--line);
+      padding: 9px 7px;
+    }
+
+    th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    td {
+      border-bottom: 1px solid rgba(215, 198, 173, 0.7);
+      padding: 9px 7px;
+      vertical-align: top;
+    }
+
+    .hot { color: var(--green); font-weight: 900; }
+    .cold { color: var(--red); font-weight: 900; }
+    .mono { font-family: "Courier New", Courier, monospace; font-size: 0.83rem; }
+    .hidden { display: none; }
+
+    .sequence {
+      display: flex;
+      gap: 3px;
+      flex-wrap: wrap;
+      max-width: 260px;
+    }
+
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      display: inline-block;
+      background: var(--red);
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.14);
+    }
+
+    .dot.make { background: var(--green); }
+
+    @media (max-width: 940px) {
+      .hero,
+      .dashboard,
+      .controls { grid-template-columns: 1fr; }
+
+      .span-2,
+      .span-3,
+      .span-4,
+      .span-5,
+      .span-6 { grid-column: span 1; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <h1>Shot Sequence Lab</h1>
+      </div>
+      <p class="dek">
+        Pick a season and player, then scan make/miss strings for unusually hot or cold windows relative to that player's own baseline.
+        This first version treats every attempt as equal difficulty.
+      </p>
+    </section>
+
+    <section class="controls" aria-label="Shot sequence controls">
+      <div class="span-2">
+        <label for="seasonSelect">Season</label>
+        <select id="seasonSelect"></select>
+      </div>
+      <div class="span-3">
+        <label for="gameTypeSelect">Game Type</label>
+        <select id="gameTypeSelect">
+          <option value="regular_season">Regular season</option>
+          <option value="">All game types</option>
+          <option value="playoffs">Playoffs</option>
+          <option value="play_in">Play-in</option>
+          <option value="nba_cup_semi">NBA Cup semi</option>
+          <option value="nba_cup_final">NBA Cup final</option>
+        </select>
+      </div>
+      <div class="span-5">
+        <label for="playerSelect">Player</label>
+        <select id="playerSelect"></select>
+      </div>
+      <div class="span-2">
+        <label for="shotTypeSelect">Attempt</label>
+        <select id="shotTypeSelect">
+          <option value="3ptfga">3 pointers</option>
+          <option value="2ptfga">2 pointers</option>
+          <option value="fta">Free throws</option>
+        </select>
+      </div>
+      <div class="span-4">
+        <label for="windowInput">Window lengths</label>
+        <input id="windowInput" value="3,4,5,6,8,10,12,15,20,25,30,40,50">
+      </div>
+      <div class="span-2">
+        <label for="topInput">Rows</label>
+        <input id="topInput" type="number" min="3" max="25" value="10">
+      </div>
+      <div class="span-2">
+        <label for="overlapInput">Max Overlap</label>
+        <input id="overlapInput" type="number" min="0" max="100" value="50">
+      </div>
+      <div class="span-2">
+        <label for="apiBaseInput">API base</label>
+        <input id="apiBaseInput" value="" placeholder="Auto: http://localhost:8000 for file pages">
+      </div>
+      <div class="span-2">
+        <label>&nbsp;</label>
+        <button id="analyzeButton">Analyze Sequence</button>
+      </div>
+      <div class="span-2">
+        <label for="minAttemptsInput">Min Attempts</label>
+        <input id="minAttemptsInput" type="number" min="1" max="2000" value="100">
+      </div>
+      <div class="span-2">
+        <label for="simulationsInput">Simulations</label>
+        <input id="simulationsInput" type="number" min="100" max="5000" value="1000">
+      </div>
+      <div class="span-3">
+        <label for="classificationSelect">Shooter Type</label>
+        <select id="classificationSelect">
+          <option value="">All types</option>
+          <option value="streaky">Streaky</option>
+          <option value="consistent">Consistent</option>
+          <option value="volatile">Volatile</option>
+          <option value="alternating">Alternating</option>
+          <option value="ordinary">Ordinary</option>
+        </select>
+      </div>
+      <div class="span-2">
+        <label>&nbsp;</label>
+        <button id="shooterTypesButton">Rank Shooter Types</button>
+      </div>
+    </section>
+
+    <p class="status" id="statusText">Loading seasons...</p>
+
+    <section class="dashboard">
+      <aside class="card">
+        <h2>Baseline</h2>
+        <div class="metrics" id="metrics"></div>
+      </aside>
+
+      <section class="card">
+        <div class="tabs">
+          <button class="tab active" data-tab="hot">Hot Windows</button>
+          <button class="tab" data-tab="cold">Cold Windows</button>
+          <button class="tab" data-tab="streaks">Streaks</button>
+          <button class="tab" data-tab="types">Shooter Types</button>
+        </div>
+        <div id="hotPanel"></div>
+        <div id="coldPanel" class="hidden"></div>
+        <div id="streaksPanel" class="hidden"></div>
+        <div id="shooterTypesPanel" class="hidden"></div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      seasons: [],
+      players: [],
+      activeTab: "hot",
+      shooterRows: [],
+      shooterSort: { key: "streakiness_score", direction: "desc" },
+    };
+
+    const els = {
+      season: document.getElementById("seasonSelect"),
+      gameType: document.getElementById("gameTypeSelect"),
+      player: document.getElementById("playerSelect"),
+      shotType: document.getElementById("shotTypeSelect"),
+      windowInput: document.getElementById("windowInput"),
+      topInput: document.getElementById("topInput"),
+      overlapInput: document.getElementById("overlapInput"),
+      minAttempts: document.getElementById("minAttemptsInput"),
+      simulations: document.getElementById("simulationsInput"),
+      classification: document.getElementById("classificationSelect"),
+      apiBase: document.getElementById("apiBaseInput"),
+      analyze: document.getElementById("analyzeButton"),
+      shooterTypes: document.getElementById("shooterTypesButton"),
+      status: document.getElementById("statusText"),
+      metrics: document.getElementById("metrics"),
+      hotPanel: document.getElementById("hotPanel"),
+      coldPanel: document.getElementById("coldPanel"),
+      streaksPanel: document.getElementById("streaksPanel"),
+      shooterTypesPanel: document.getElementById("shooterTypesPanel"),
+    };
+
+    const FILE_API_BASE = "http://localhost:8000";
+
+    if (!window.location.protocol.startsWith("http")) {
+      els.apiBase.value = FILE_API_BASE;
+    }
+
+    function apiBase() {
+      const manual = els.apiBase.value.trim();
+      if (manual) return manual.replace(/\/$/, "");
+      return window.location.protocol.startsWith("http") ? "" : FILE_API_BASE;
+    }
+
+    async function fetchJson(path) {
+      const response = await fetch(`${apiBase()}${path}`);
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(error.detail || response.statusText);
+      }
+      return response.json();
+    }
+
+    function setStatus(message) {
+      els.status.textContent = message;
+    }
+
+    function pct(value) {
+      return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "n/a";
+    }
+
+    function pctRank(value) {
+      return Number.isFinite(value) ? `${value.toFixed(0)}` : "n/a";
+    }
+
+    function score(value) {
+      return Number.isFinite(value) ? value.toFixed(1) : "n/a";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[char]));
+    }
+
+    function parseWindows() {
+      return [...new Set(
+        els.windowInput.value
+          .split(",")
+          .map(value => Number.parseInt(value.trim(), 10))
+          .filter(value => Number.isFinite(value) && value >= 2)
+      )].sort((a, b) => a - b);
+    }
+
+    async function loadSeasons() {
+      const payload = await fetchJson("/api/seasons");
+      state.seasons = payload.seasons || [];
+      els.season.innerHTML = state.seasons.map(season => `<option value="${season}">${season}</option>`).join("");
+      await loadPlayers();
+    }
+
+    async function loadPlayers() {
+      const season = els.season.value;
+      const gameType = els.gameType.value;
+      if (!season) return;
+      setStatus(`Loading players for ${season}...`);
+      const params = new URLSearchParams({ season });
+      if (gameType) params.append("game_type", gameType);
+      const payload = await fetchJson(`/api/player-shot-players?${params}`);
+      state.players = payload.players || [];
+      els.player.innerHTML = state.players.map(player => {
+        const teams = player.teams.length ? player.teams.join("/") : "NBA";
+        const label = `${player.player_name} (${teams}) - ${player.attempts} attempts`;
+        return `<option value="${player.player_id}">${escapeHtml(label)}</option>`;
+      }).join("");
+      const pritchard = state.players.find(player => /pritchard/i.test(player.player_name));
+      if (pritchard) els.player.value = String(pritchard.player_id);
+      setStatus(`Loaded ${state.players.length} players for ${season}.`);
+    }
+
+    function logFactorials(n) {
+      const logs = new Array(n + 1).fill(0);
+      for (let i = 2; i <= n; i += 1) logs[i] = logs[i - 1] + Math.log(i);
+      return logs;
+    }
+
+    function logChoose(logs, n, k) {
+      if (k < 0 || k > n) return Number.NEGATIVE_INFINITY;
+      return logs[n] - logs[k] - logs[n - k];
+    }
+
+    function logSumExp(values) {
+      const max = Math.max(...values);
+      if (!Number.isFinite(max)) return Number.NEGATIVE_INFINITY;
+      const sum = values.reduce((acc, value) => acc + Math.exp(value - max), 0);
+      return max + Math.log(sum);
+    }
+
+    function binomialTail(n, k, p, side, logs) {
+      if (p <= 0) return side === "hot" ? (k > 0 ? 0 : 1) : 1;
+      if (p >= 1) return side === "cold" ? (k < n ? 0 : 1) : 1;
+      const terms = [];
+      const start = side === "hot" ? k : 0;
+      const end = side === "hot" ? n : k;
+      for (let x = start; x <= end; x += 1) {
+        terms.push(logChoose(logs, n, x) + x * Math.log(p) + (n - x) * Math.log(1 - p));
+      }
+      return Math.min(1, Math.exp(logSumExp(terms)));
+    }
+
+    function overlapShare(a, b) {
+      const start = Math.max(a.start, b.start);
+      const end = Math.min(a.end, b.end);
+      const overlap = Math.max(0, end - start + 1);
+      return overlap / Math.min(a.n, b.n);
+    }
+
+    function selectDistinctWindows(items, topN, maxOverlap) {
+      const selected = [];
+      const suppressed = [];
+
+      for (const item of items) {
+        const overlappingWinner = selected.find(winner => overlapShare(item, winner) > maxOverlap);
+        if (overlappingWinner) {
+          suppressed.push({ ...item, suppressedBy: overlappingWinner });
+          continue;
+        }
+        selected.push(item);
+        if (selected.length >= topN) break;
+      }
+
+      return { selected, suppressed };
+    }
+
+    function analyzeWindows(rows, windows, topN, maxOverlap) {
+      const makes = rows.map(row => row.result === "make" ? 1 : 0);
+      const attempts = makes.length;
+      const totalMakes = makes.reduce((acc, value) => acc + value, 0);
+      const baseline = attempts ? totalMakes / attempts : 0;
+      const prefix = new Array(attempts + 1).fill(0);
+      for (let i = 0; i < attempts; i += 1) prefix[i + 1] = prefix[i] + makes[i];
+      const logs = logFactorials(Math.max(...windows, 1));
+      const hot = [];
+      const cold = [];
+
+      for (const n of windows) {
+        if (n > attempts) continue;
+        for (let start = 0; start <= attempts - n; start += 1) {
+          const end = start + n - 1;
+          const k = prefix[start + n] - prefix[start];
+          const rate = k / n;
+          const side = rate >= baseline ? "hot" : "cold";
+          const probability = Math.max(1e-15, binomialTail(n, k, baseline, side, logs));
+          const item = {
+            start,
+            end,
+            n,
+            k,
+            rate,
+            expected: n * baseline,
+            surprise: -Math.log10(probability),
+            probability,
+            startDate: rows[start].game_date,
+            endDate: rows[end].game_date,
+            startGame: rows[start].game_id,
+            endGame: rows[end].game_id,
+            sequence: makes.slice(start, start + n),
+          };
+          if (side === "hot") hot.push(item);
+          else cold.push(item);
+        }
+      }
+
+      hot.sort((a, b) => b.surprise - a.surprise || Math.abs(b.k - b.expected) - Math.abs(a.k - a.expected) || b.n - a.n);
+      cold.sort((a, b) => b.surprise - a.surprise || Math.abs(b.k - b.expected) - Math.abs(a.k - a.expected) || b.n - a.n);
+
+      const distinctHot = selectDistinctWindows(hot, topN, maxOverlap);
+      const distinctCold = selectDistinctWindows(cold, topN, maxOverlap);
+
+      return {
+        attempts,
+        totalMakes,
+        baseline,
+        hot: distinctHot.selected,
+        cold: distinctCold.selected,
+        suppressedHotCount: distinctHot.suppressed.length,
+        suppressedColdCount: distinctCold.suppressed.length,
+        streaks: computeStreaks(rows, makes),
+      };
+    }
+
+    function computeStreaks(rows, makes) {
+      const streaks = [];
+      let start = 0;
+      while (start < makes.length) {
+        let end = start;
+        while (end + 1 < makes.length && makes[end + 1] === makes[start]) end += 1;
+        streaks.push({
+          type: makes[start] ? "make" : "miss",
+          length: end - start + 1,
+          start,
+          end,
+          startDate: rows[start].game_date,
+          endDate: rows[end].game_date,
+          startGame: rows[start].game_id,
+          endGame: rows[end].game_id,
+          sequence: makes.slice(start, end + 1),
+        });
+        start = end + 1;
+      }
+      return {
+        makes: streaks.filter(item => item.type === "make").sort((a, b) => b.length - a.length).slice(0, 8),
+        misses: streaks.filter(item => item.type === "miss").sort((a, b) => b.length - a.length).slice(0, 8),
+      };
+    }
+
+    function renderMetrics(analysis, playerName, shotType) {
+      const misses = analysis.attempts - analysis.totalMakes;
+      els.metrics.innerHTML = [
+        ["Player", playerName],
+        ["Attempt type", shotType],
+        ["Makes", analysis.totalMakes.toLocaleString()],
+        ["Misses", misses.toLocaleString()],
+        ["Attempts", analysis.attempts.toLocaleString()],
+        ["Baseline", pct(analysis.baseline)],
+      ].map(([label, value]) => `
+        <div class="metric">
+          <strong>${escapeHtml(value)}</strong>
+          <span>${escapeHtml(label)}</span>
+        </div>
+      `).join("");
+    }
+
+    function sequenceDots(sequence) {
+      return `<div class="sequence">${sequence.map(value => `<span class="dot ${value ? "make" : ""}"></span>`).join("")}</div>`;
+    }
+
+    function renderWindowTable(items, kind) {
+      if (!items.length) return "<p>No windows available for these settings.</p>";
+      const className = kind === "hot" ? "hot" : "cold";
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Window</th>
+              <th>Dates</th>
+              <th>Result</th>
+              <th>Pct</th>
+              <th>Expected</th>
+              <th>Surprise</th>
+              <th>Sequence</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${items.map((item, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td class="mono">${item.start + 1}-${item.end + 1}</td>
+                <td>${escapeHtml(item.startDate)} to ${escapeHtml(item.endDate)}</td>
+                <td class="${className}">${item.k}/${item.n}</td>
+                <td>${pct(item.rate)}</td>
+                <td>${item.expected.toFixed(1)}</td>
+                <td>${item.surprise.toFixed(2)}</td>
+                <td>${sequenceDots(item.sequence)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderStreaks(streaks) {
+      const rows = [...streaks.makes, ...streaks.misses].sort((a, b) => b.length - a.length);
+      if (!rows.length) return "<p>No streaks available.</p>";
+      return `
+        <table>
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Length</th>
+              <th>Attempts</th>
+              <th>Dates</th>
+              <th>Sequence</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(item => `
+              <tr>
+                <td class="${item.type === "make" ? "hot" : "cold"}">${item.type}</td>
+                <td>${item.length}</td>
+                <td class="mono">${item.start + 1}-${item.end + 1}</td>
+                <td>${escapeHtml(item.startDate)} to ${escapeHtml(item.endDate)}</td>
+                <td>${sequenceDots(item.sequence)}</td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+    }
+
+    const shooterColumns = [
+      ["player_name", "Player"],
+      ["teams", "Teams"],
+      ["shot_type", "Shot"],
+      ["classification", "Type"],
+      ["attempts", "Attempts"],
+      ["make_pct", "Pct"],
+      ["streakiness_score", "Streak"],
+      ["consistency_score", "Consistent"],
+      ["runs_cluster_percentile", "Runs"],
+      ["transition_percentile", "Transition"],
+      ["window_variance_percentile", "Variance"],
+      ["longest_make_run", "Make Run"],
+      ["longest_miss_run", "Miss Run"],
+    ];
+
+    function shooterCell(row, key) {
+      if (key === "teams") return escapeHtml((row.teams || []).join(", "));
+      if (key === "make_pct") return pct(row.make_pct);
+      if (key.endsWith("percentile")) return pctRank(row[key]);
+      if (key.endsWith("score")) return score(row[key]);
+      if (key === "classification") return `<strong>${escapeHtml(row.classification)}</strong>`;
+      return escapeHtml(row[key]);
+    }
+
+    function sortValue(row, key) {
+      if (key === "teams") return (row.teams || []).join(",");
+      const value = row[key];
+      if (typeof value === "number") return value;
+      if (value === null || value === undefined) return "";
+      return String(value).toLowerCase();
+    }
+
+    function sortedShooterRows() {
+      const { key, direction } = state.shooterSort;
+      const multiplier = direction === "asc" ? 1 : -1;
+      return [...state.shooterRows].sort((a, b) => {
+        const av = sortValue(a, key);
+        const bv = sortValue(b, key);
+        if (typeof av === "number" && typeof bv === "number") return (av - bv) * multiplier;
+        return String(av).localeCompare(String(bv)) * multiplier;
+      });
+    }
+
+    function renderShooterTypesTable() {
+      const rows = sortedShooterRows();
+      if (!rows.length) {
+        els.shooterTypesPanel.innerHTML = "<p>No shooter types matched these filters.</p>";
+        return;
+      }
+      els.shooterTypesPanel.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                ${shooterColumns.map(([key, label]) => {
+                  const active = state.shooterSort.key === key;
+                  const marker = active ? (state.shooterSort.direction === "asc" ? " ↑" : " ↓") : "";
+                  return `<th class="sortable" data-sort="${key}">${escapeHtml(label + marker)}</th>`;
+                }).join("")}
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(row => `
+                <tr>
+                  ${shooterColumns.map(([key]) => `<td>${shooterCell(row, key)}</td>`).join("")}
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+      els.shooterTypesPanel.querySelectorAll("th.sortable").forEach(header => {
+        header.addEventListener("click", () => {
+          const key = header.dataset.sort;
+          if (state.shooterSort.key === key) {
+            state.shooterSort.direction = state.shooterSort.direction === "asc" ? "desc" : "asc";
+          } else {
+            state.shooterSort = {
+              key,
+              direction: ["player_name", "teams", "shot_type", "classification"].includes(key) ? "asc" : "desc",
+            };
+          }
+          renderShooterTypesTable();
+        });
+      });
+    }
+
+    async function loadShooterTypes() {
+      const season = els.season.value;
+      const shotType = els.shotType.value;
+      const gameType = els.gameType.value;
+      const minAttempts = Math.max(1, Math.min(2000, Number.parseInt(els.minAttempts.value, 10) || 100));
+      const simulations = Math.max(100, Math.min(5000, Number.parseInt(els.simulations.value, 10) || 1000));
+      const classification = els.classification.value;
+      if (!season || !shotType) return;
+
+      els.shooterTypes.disabled = true;
+      setStatus(`Ranking ${shotType} shooter types with ${simulations.toLocaleString()} shuffled sequences per player...`);
+
+      try {
+        const params = new URLSearchParams({
+          season,
+          shot_type: shotType,
+          min_attempts: String(minAttempts),
+          simulations: String(simulations),
+        });
+        if (gameType) params.append("game_type", gameType);
+        if (classification) params.append("classification", classification);
+        const payload = await fetchJson(`/api/player-shot-streakiness?${params}`);
+        state.shooterRows = payload.rows || [];
+        renderShooterTypesTable();
+        setTab("types");
+        setStatus(`Ranked ${payload.row_count.toLocaleString()} ${shotType} shooter-type rows for ${payload.game_type.replaceAll("_", " ")}.`);
+      } catch (error) {
+        console.error(error);
+        setStatus(`Error: ${error.message}`);
+      } finally {
+        els.shooterTypes.disabled = false;
+      }
+    }
+
+    async function analyze() {
+      const season = els.season.value;
+      const playerId = els.player.value;
+      const player = state.players.find(item => String(item.player_id) === String(playerId));
+      const shotType = els.shotType.value;
+      const gameType = els.gameType.value;
+      const topN = Math.max(3, Math.min(25, Number.parseInt(els.topInput.value, 10) || 10));
+      const maxOverlap = Math.max(0, Math.min(100, Number.parseFloat(els.overlapInput.value) || 0)) / 100;
+      const windows = parseWindows();
+      if (!season || !playerId || !windows.length) return;
+
+      els.analyze.disabled = true;
+      setStatus(`Fetching ${shotType} attempts for ${player ? player.player_name : playerId} from ${apiBase() || "same-origin API"}...`);
+
+      try {
+        const params = new URLSearchParams({
+          player_id: playerId,
+          start_season: season,
+          end_season: season,
+          shot_type: shotType,
+          limit: "50000",
+        });
+        if (gameType) params.append("game_type", gameType);
+        const payload = await fetchJson(`/api/player-shots?${params}`);
+        const rows = payload.rows || [];
+        if (!rows.length) {
+          setStatus("No attempts found for that selection.");
+          els.metrics.innerHTML = "";
+          els.hotPanel.innerHTML = "";
+          els.coldPanel.innerHTML = "";
+          els.streaksPanel.innerHTML = "";
+          return;
+        }
+
+        const analysis = analyzeWindows(rows, windows, topN, maxOverlap);
+        renderMetrics(analysis, player ? player.player_name : rows[0].player_name, shotType);
+        els.hotPanel.innerHTML = renderWindowTable(analysis.hot, "hot");
+        els.coldPanel.innerHTML = renderWindowTable(analysis.cold, "cold");
+        els.streaksPanel.innerHTML = renderStreaks(analysis.streaks);
+        setTab("hot");
+        setStatus(`Analyzed ${analysis.attempts.toLocaleString()} ${shotType} attempts. Suppressed overlapping windows: ${analysis.suppressedHotCount.toLocaleString()} hot, ${analysis.suppressedColdCount.toLocaleString()} cold. Surprise is raw one-sided binomial rarity, not scan-adjusted yet.`);
+      } catch (error) {
+        console.error(error);
+        setStatus(`Error: ${error.message}`);
+      } finally {
+        els.analyze.disabled = false;
+      }
+    }
+
+    function setTab(tab) {
+      state.activeTab = tab;
+      document.querySelectorAll(".tab").forEach(button => button.classList.toggle("active", button.dataset.tab === tab));
+      els.hotPanel.classList.toggle("hidden", tab !== "hot");
+      els.coldPanel.classList.toggle("hidden", tab !== "cold");
+      els.streaksPanel.classList.toggle("hidden", tab !== "streaks");
+      els.shooterTypesPanel.classList.toggle("hidden", tab !== "types");
+    }
+
+    els.season.addEventListener("change", loadPlayers);
+    els.gameType.addEventListener("change", loadPlayers);
+    els.analyze.addEventListener("click", analyze);
+    els.shooterTypes.addEventListener("click", loadShooterTypes);
+    document.querySelectorAll(".tab").forEach(button => button.addEventListener("click", () => setTab(button.dataset.tab)));
+
+    loadSeasons().catch(error => {
+      console.error(error);
+      setStatus(`Error loading app: ${error.message}. Make sure the backend is running, or open http://localhost:8000/api/player-shot-sequences/app directly.`);
+    });
+  </script>
+</body>
+</html>

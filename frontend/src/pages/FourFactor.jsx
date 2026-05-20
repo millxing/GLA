@@ -7,6 +7,7 @@ import {
   getDecomposition,
   getInterpretation,
   getGameTimeline,
+  getPbpTraditionalBoxScore,
   getInterpretationPrompt,
 } from '../api'
 import GameTimeline from '../components/GameTimeline'
@@ -46,12 +47,45 @@ const DATA_SCOPE_OPTIONS = [
   { value: 'clutch', label: 'Clutch Time' },
 ]
 const VALID_DATA_SCOPE_OPTIONS = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
-const VALID_FACTOR_TYPES = new Set(['four_factors', 'eight_factors'])
-const VALID_ANALYSIS_VIEWS = new Set(['factor', 'timeline'])
+const VALID_ANALYSIS_VIEWS = new Set(['boxscore', 'factor', 'timeline'])
 const HIDDEN_SAVE_OPTION_MS = 8000
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
+]
+const SIDEBAR_VIEWS = [
+  { value: 'boxscore', label: 'Traditional Box Score' },
+  { value: 'factor', label: 'Factor Analysis' },
+  { value: 'timeline', label: 'Game Timeline' },
+]
+const BOX_SCORE_COLUMNS = [
+  { key: 'minutes', label: 'MIN', className: 'boxscore-minutes' },
+  { key: 'pts', label: 'PTS' },
+  { key: 'fgmFga', label: 'FG' },
+  { key: 'fg3mFg3a', label: '3PT' },
+  { key: 'ftmFta', label: 'FT' },
+  { key: 'oreb', label: 'OREB' },
+  { key: 'dreb', label: 'DREB' },
+  { key: 'reb', label: 'REB' },
+  { key: 'ast', label: 'AST' },
+  { key: 'stl', label: 'STL' },
+  { key: 'blk', label: 'BLK' },
+  { key: 'tov', label: 'TOV' },
+  { key: 'pf', label: 'PF' },
+  { key: 'plusMinus', label: '+/-', className: 'boxscore-plus-minus' },
+]
+const BOX_SCORE_SEGMENTS = [
+  { label: 'Game', value: 'game' },
+  { label: 'Q1', value: 'q1' },
+  { label: 'Q2', value: 'q2' },
+  { label: 'Q3', value: 'q3' },
+  { label: 'Q4', value: 'q4' },
+  { label: 'OT', value: 'ot' },
+  { label: 'H1', value: 'h1' },
+  { label: 'H2', value: 'h2' },
+  { label: 'No Garbage', value: 'no_garbage' },
+  { label: 'Garbage', value: 'garbage' },
+  { label: 'Clutch', value: 'clutch' },
 ]
 
 const getMonthKeyFromDate = (dateStr) => {
@@ -120,26 +154,97 @@ function normalizeDataScopeParam(value) {
   return ''
 }
 
-function normalizeFactorTypeParam(value) {
-  const token = normalizeQueryToken(value)
-  if (!token) return ''
-  if (VALID_FACTOR_TYPES.has(token)) return token
-  if (token === 'four' || token === 'four_factor') return 'four_factors'
-  if (token === 'eight' || token === 'eight_factor') return 'eight_factors'
-  return ''
-}
-
 function normalizeAnalysisViewParam(value) {
   const token = normalizeQueryToken(value)
   if (!token) return ''
   if (VALID_ANALYSIS_VIEWS.has(token)) return token
+  if (token === 'traditional' || token === 'traditional_box' || token === 'traditional_box_score') return 'boxscore'
   if (token === 'factors') return 'factor'
   return ''
+}
+
+function parseMinutesToSeconds(value) {
+  if (typeof value !== 'string') return 0
+  const [minutesText, secondsText = '0'] = value.split(':')
+  const minutes = Number(minutesText)
+  const seconds = Number(secondsText)
+  if (!Number.isFinite(minutes) || !Number.isFinite(seconds)) return 0
+  return (minutes * 60) + seconds
+}
+
+function formatSecondsAsMinutes(value) {
+  if (!Number.isFinite(value) || value <= 0) return '-'
+  const minutes = Math.floor(value / 60)
+  const seconds = Math.round(value % 60)
+  return `${minutes}:${String(seconds).padStart(2, '0')}`
+}
+
+function formatPlusMinus(value) {
+  if (!Number.isFinite(value)) return '-'
+  return value > 0 ? `+${value}` : String(value)
+}
+
+function formatBoxScoreCell(player, key) {
+  switch (key) {
+    case 'minutes':
+      return player.minutes || '-'
+    case 'fgmFga':
+      return `${player.fgm}-${player.fga}`
+    case 'fg3mFg3a':
+      return `${player.fg3m}-${player.fg3a}`
+    case 'ftmFta':
+      return `${player.ftm}-${player.fta}`
+    case 'plusMinus':
+      return formatPlusMinus(player.plus_minus)
+    default:
+      return player[key] ?? '-'
+  }
+}
+
+function buildBoxScoreTotals(players) {
+  return players.reduce((totals, player) => ({
+    minutes: totals.minutes + parseMinutesToSeconds(player.minutes),
+    pts: totals.pts + (player.pts || 0),
+    fgm: totals.fgm + (player.fgm || 0),
+    fga: totals.fga + (player.fga || 0),
+    fg3m: totals.fg3m + (player.fg3m || 0),
+    fg3a: totals.fg3a + (player.fg3a || 0),
+    ftm: totals.ftm + (player.ftm || 0),
+    fta: totals.fta + (player.fta || 0),
+    oreb: totals.oreb + (player.oreb || 0),
+    dreb: totals.dreb + (player.dreb || 0),
+    reb: totals.reb + (player.reb || 0),
+    ast: totals.ast + (player.ast || 0),
+    stl: totals.stl + (player.stl || 0),
+    blk: totals.blk + (player.blk || 0),
+    tov: totals.tov + (player.tov || 0),
+    pf: totals.pf + (player.pf || 0),
+    plus_minus: totals.plus_minus + (player.plus_minus || 0),
+  }), {
+    minutes: 0,
+    pts: 0,
+    fgm: 0,
+    fga: 0,
+    fg3m: 0,
+    fg3a: 0,
+    ftm: 0,
+    fta: 0,
+    oreb: 0,
+    dreb: 0,
+    reb: 0,
+    ast: 0,
+    stl: 0,
+    blk: 0,
+    tov: 0,
+    pf: 0,
+    plus_minus: 0,
+  })
 }
 
 function FourFactor() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
+  const layoutRef = useRef(null)
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
@@ -147,9 +252,12 @@ function FourFactor() {
   const [selectedDataScope, setSelectedDataScope] = useState('all')
   const [selectedGame, setSelectedGame] = useState('')
   const [pendingNavigationSelection, setPendingNavigationSelection] = useState(null)
-  const [factorType, setFactorType] = useState('eight_factors')
-  const [analysisView, setAnalysisView] = useState('factor')
+  const factorType = 'eight_factors'
+  const [analysisView, setAnalysisView] = useState('boxscore')
   const [decomposition, setDecomposition] = useState(null)
+  const [boxScore, setBoxScore] = useState(null)
+  const [boxScoreLoading, setBoxScoreLoading] = useState(false)
+  const [boxScoreError, setBoxScoreError] = useState(null)
   const [loading, setLoading] = useState(false)
   const [initializing, setInitializing] = useState(false)
   const [error, setError] = useState(null)
@@ -159,12 +267,14 @@ function FourFactor() {
   const [timelineData, setTimelineData] = useState(null)
   const [timelineLoading, setTimelineLoading] = useState(false)
   const [timelineError, setTimelineError] = useState(null)
+  const [boxScoreSegment, setBoxScoreSegment] = useState('game')
   const [scopeNotice, setScopeNotice] = useState('')
   const [scopeMinutesByScope, setScopeMinutesByScope] = useState({})
   const [showSingleGameSaveOption, setShowSingleGameSaveOption] = useState(false)
   const [singleGameSaveMessage, setSingleGameSaveMessage] = useState('')
   const [singleGameSaveError, setSingleGameSaveError] = useState(false)
   const [singleGameSaving, setSingleGameSaving] = useState(false)
+  const [layoutHeight, setLayoutHeight] = useState(null)
   const singleGameSaveTimerRef = useRef(null)
   const hasUserInteractedRef = useRef(false)
   const urlSelections = useMemo(() => ({
@@ -172,7 +282,6 @@ function FourFactor() {
     month: readSearchParam(searchParams, 'month').trim(),
     gameId: normalizeGameId(readSearchParam(searchParams, 'game', 'game_id', 'gameId')),
     dataScope: normalizeDataScopeParam(readSearchParam(searchParams, 'scope', 'data_scope', 'dataScope')),
-    factorType: normalizeFactorTypeParam(readSearchParam(searchParams, 'factors', 'factor_type', 'factorType')),
     analysisView: normalizeAnalysisViewParam(readSearchParam(searchParams, 'view', 'analysis_view', 'analysisView')),
   }), [searchParams])
 
@@ -182,7 +291,6 @@ function FourFactor() {
       month: selectedMonth,
       gameId: selectedGame,
       dataScope: selectedDataScope,
-      factorType,
       analysisView,
       ...overrides,
     }
@@ -192,7 +300,6 @@ function FourFactor() {
     if (nextState.month) nextParams.set('month', nextState.month)
     if (nextState.gameId) nextParams.set('game', normalizeGameId(nextState.gameId))
     if (nextState.dataScope) nextParams.set('scope', nextState.dataScope)
-    if (nextState.factorType) nextParams.set('factors', nextState.factorType)
     if (nextState.analysisView) nextParams.set('view', nextState.analysisView)
     return nextParams
   }
@@ -221,11 +328,6 @@ function FourFactor() {
   const handleGameChange = (value) => {
     updateUrlFromUserChange({ gameId: value })
     setSelectedGame(value)
-  }
-
-  const handleFactorTypeChange = (value) => {
-    updateUrlFromUserChange({ factorType: value })
-    setFactorType(value)
   }
 
   const handleAnalysisViewChange = (value) => {
@@ -279,12 +381,6 @@ function FourFactor() {
   }, [selectedDataScope, urlSelections.dataScope])
 
   useEffect(() => {
-    if (urlSelections.factorType && factorType !== urlSelections.factorType) {
-      setFactorType(urlSelections.factorType)
-    }
-  }, [factorType, urlSelections.factorType])
-
-  useEffect(() => {
     if (urlSelections.analysisView && analysisView !== urlSelections.analysisView) {
       setAnalysisView(urlSelections.analysisView)
     }
@@ -296,6 +392,24 @@ function FourFactor() {
         clearTimeout(singleGameSaveTimerRef.current)
       }
     }
+  }, [])
+
+  useEffect(() => {
+    const updateLayoutHeight = () => {
+      const node = layoutRef.current
+      if (!node || typeof window === 'undefined') return
+      if (window.innerWidth <= 768) {
+        setLayoutHeight(null)
+        return
+      }
+      const rect = node.getBoundingClientRect()
+      const nextHeight = Math.max(360, Math.floor(window.innerHeight - rect.top - 12))
+      setLayoutHeight(nextHeight)
+    }
+
+    updateLayoutHeight()
+    window.addEventListener('resize', updateLayoutHeight)
+    return () => window.removeEventListener('resize', updateLayoutHeight)
   }, [])
 
   useEffect(() => {
@@ -314,8 +428,7 @@ function FourFactor() {
     if (navSeason) nextParams.set('season', navSeason)
     nextParams.set('game', navGameId)
     nextParams.set('scope', 'all')
-    nextParams.set('factors', 'eight_factors')
-    nextParams.set('view', 'factor')
+    nextParams.set('view', 'boxscore')
     setSearchParams(nextParams, { replace: true })
     setPendingNavigationSelection({
       season: navSeason,
@@ -326,8 +439,7 @@ function FourFactor() {
       homeAway: typeof navState.homeAway === 'string' ? navState.homeAway : '',
     })
     setSelectedDataScope('all')
-    setFactorType('eight_factors')
-    setAnalysisView('factor')
+    setAnalysisView('boxscore')
   }, [location.key, location.state, setSearchParams])
 
   useEffect(() => {
@@ -476,7 +588,6 @@ function FourFactor() {
     }
   }, [
     analysisView,
-    factorType,
     searchParams,
     selectedDataScope,
     selectedGame,
@@ -488,7 +599,13 @@ function FourFactor() {
   useEffect(() => {
     let isCurrent = true
     async function loadDecomposition() {
-      if (!selectedSeason || !selectedGame) return
+      if (!selectedSeason || !selectedGame) {
+        if (isCurrent) {
+          setDecomposition(null)
+          setLoading(false)
+        }
+        return
+      }
       setLoading(true)
       if (isCurrent) {
         setError(null)
@@ -517,6 +634,42 @@ function FourFactor() {
     loadDecomposition()
     return () => { isCurrent = false }
   }, [selectedSeason, selectedGame, factorType, selectedDataScope])
+
+  useEffect(() => {
+    let isCurrent = true
+
+    async function loadBoxScore() {
+      if (!selectedSeason || !selectedGame) {
+        if (isCurrent) {
+          setBoxScore(null)
+          setBoxScoreError(null)
+          setBoxScoreLoading(false)
+        }
+        return
+      }
+
+      setBoxScoreLoading(true)
+      if (isCurrent) {
+        setBoxScore(null)
+        setBoxScoreError(null)
+      }
+
+      try {
+        const data = await getPbpTraditionalBoxScore(selectedSeason, selectedGame, boxScoreSegment)
+        if (isCurrent) setBoxScore(data)
+      } catch (err) {
+        if (isCurrent) {
+          setBoxScore(null)
+          setBoxScoreError(err.message)
+        }
+      } finally {
+        if (isCurrent) setBoxScoreLoading(false)
+      }
+    }
+
+    loadBoxScore()
+    return () => { isCurrent = false }
+  }, [boxScoreSegment, selectedSeason, selectedGame])
 
   useEffect(() => {
     let isCurrent = true
@@ -604,7 +757,7 @@ function FourFactor() {
 
   useEffect(() => {
     if (!selectedGame) return
-    const nextView = urlSelections.analysisView || 'factor'
+    const nextView = urlSelections.analysisView || 'boxscore'
     if (analysisView !== nextView) {
       setAnalysisView(nextView)
     }
@@ -836,6 +989,73 @@ function FourFactor() {
     return Number.isInteger(rounded) ? `${rounded} min` : `${rounded.toFixed(1)} min`
   }
 
+  const roadBoxScoreTotals = useMemo(
+    () => buildBoxScoreTotals(boxScore?.road_players || []),
+    [boxScore]
+  )
+
+  const homeBoxScoreTotals = useMemo(
+    () => buildBoxScoreTotals(boxScore?.home_players || []),
+    [boxScore]
+  )
+
+  const renderBoxScoreTable = (players, totals, teamLabel) => (
+    <section className="boxscore-team-card card" key={teamLabel}>
+      <div className="boxscore-team-header">
+        <h2 className="card-title">{teamLabel}</h2>
+      </div>
+      <div className="boxscore-table-wrap">
+        <table className="boxscore-table">
+          <thead>
+            <tr>
+              <th className="player-column">Player</th>
+              {BOX_SCORE_COLUMNS.map((column) => (
+                <th
+                  key={column.key}
+                  className={column.className || ''}
+                >
+                  {column.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {players.map((player) => (
+              <tr key={`${player.team_abbreviation}-${player.player_id ?? player.player_name}`}>
+                <td className="player-column">
+                  {player.player_name}
+                  {player.is_starter ? ' (s)' : ''}
+                </td>
+                {BOX_SCORE_COLUMNS.map((column) => (
+                  <td key={column.key} className={column.className || ''}>
+                    {formatBoxScoreCell(player, column.key)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            <tr className="boxscore-totals-row">
+              <td className="player-column">Totals</td>
+              <td className="boxscore-minutes"></td>
+              <td>{totals.pts}</td>
+              <td>{`${totals.fgm}-${totals.fga}`}</td>
+              <td>{`${totals.fg3m}-${totals.fg3a}`}</td>
+              <td>{`${totals.ftm}-${totals.fta}`}</td>
+              <td>{totals.oreb}</td>
+              <td>{totals.dreb}</td>
+              <td>{totals.reb}</td>
+              <td>{totals.ast}</td>
+              <td>{totals.stl}</td>
+              <td>{totals.blk}</td>
+              <td>{totals.tov}</td>
+              <td>{totals.pf}</td>
+              <td className="boxscore-plus-minus"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+
   const scheduleSingleGameSaveOptionHide = () => {
     if (singleGameSaveTimerRef.current) {
       clearTimeout(singleGameSaveTimerRef.current)
@@ -903,212 +1123,238 @@ function FourFactor() {
 
   return (
     <div className="four-factor container">
-      <div className="page-header">
-        <div className="page-title-row">
-          <h1 className="page-title" onContextMenu={handlePageTitleContextMenu}>
-            Game Analysis
-          </h1>
-          <p className="page-description">
-            Analyze how each of Dean Oliver's Four Factors contributed to the game outcome.
-          </p>
-        </div>
-        {showSingleGameSaveOption && (
-          <div className="hidden-save-option" role="status" aria-live="polite">
-            <button
-              type="button"
-              className="hidden-save-button"
-              onClick={handleSaveSingleGameJson}
-              disabled={!selectedSeason || !selectedGame || singleGameSaving}
-              title={!selectedGame ? 'Select a game first' : 'Download the exact prompt sent to the LLM for this game'}
-            >
-              {singleGameSaving ? 'Saving…' : 'Save LLM Prompt'}
-            </button>
-            {singleGameSaveMessage && (
-              <span className={`hidden-save-message ${singleGameSaveError ? 'error' : ''}`}>
-                {singleGameSaveMessage}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="controls card">
-        <div className="form-row">
-          <div className="form-group season-control">
-            <label className="form-label">Season</label>
-            <select
-              className="form-select"
-              value={selectedSeason}
-              onChange={(e) => handleSeasonChange(e.target.value)}
-            >
-              <option value="">Select season...</option>
-              {seasons.map((season) => (
-                <option key={season} value={season}>{season}</option>
-              ))}
-            </select>
+      <div
+        ref={layoutRef}
+        className="ga-layout"
+        style={layoutHeight ? { '--ga-layout-height': `${layoutHeight}px` } : undefined}
+      >
+        <aside className="ga-sidebar card">
+          <div className="ga-sidebar-header">
+            <h1 className="ga-sidebar-title" onContextMenu={handlePageTitleContextMenu}>
+              Game Analysis
+            </h1>
           </div>
 
-          <div className="form-group month-control">
-            <label className="form-label">Month</label>
-            <select
-              className="form-select"
-              value={selectedMonth}
-              onChange={(e) => handleMonthChange(e.target.value)}
-              disabled={!selectedSeason || monthOptions.length === 0}
-            >
-              <option value="">Select month...</option>
-              {monthOptions.map((month) => (
-                <option key={month.value} value={month.value}>{month.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group game-control">
-            <label className="form-label">Game</label>
-            <select
-              className="form-select"
-              value={selectedGame}
-              onChange={(e) => handleGameChange(e.target.value)}
-              disabled={!selectedSeason || !selectedMonth || filteredGames.length === 0}
-            >
-              <option value="">Select game...</option>
-              {filteredGames.map((game) => (
-                <option key={game.game_id} value={game.game_id}>{formatGameOptionLabel(game)}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label className="form-label">Factor Type</label>
-            <select
-              className="form-select"
-              value={factorType}
-              onChange={(e) => handleFactorTypeChange(e.target.value)}
-            >
-              <option value="four_factors">Four Factors</option>
-              <option value="eight_factors">Eight Factors</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {error && <div className="error">{error}</div>}
-
-      {(loading || initializing) && (
-        <div className="loading">
-          <div className="loading-spinner"></div>
-          Loading analysis...
-        </div>
-      )}
-
-      {!loading && !initializing && selectedGame && (
-        <div className="results">
-          {decomposition && (
-            <div className="game-header card">
-              <div className="game-header-content">
-                <div className="matchup-left">
-                  <div className="team road-team">
-                    <span className="team-abbr">{toCityName(decomposition.road_team)}</span>
-                    <span className="team-score">{decomposition.road_pts}</span>
-                  </div>
-                  <div className="at-symbol">@</div>
-                  <div className="team home-team">
-                    <span className="team-abbr">{toCityName(decomposition.home_team)}</span>
-                    <span className="team-score">{decomposition.home_pts}</span>
-                  </div>
-                </div>
-                {decomposition.linescore && (
-                  <div className="linescore-center">
-                    <table className="linescore-table">
-                      <thead>
-                        <tr>
-                          <th></th>
-                          <th>Q1</th>
-                          <th>Q2</th>
-                          <th>Q3</th>
-                          <th>Q4</th>
-                          {decomposition.is_overtime && <th>OT</th>}
-                          <th>Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr>
-                          <td className="team-cell">{decomposition.road_team}</td>
-                          <td>{decomposition.linescore.road.q1}</td>
-                          <td>{decomposition.linescore.road.q2}</td>
-                          <td>{decomposition.linescore.road.q3}</td>
-                          <td>{decomposition.linescore.road.q4}</td>
-                          {decomposition.is_overtime && <td>{decomposition.linescore.road.ot}</td>}
-                          <td className="total-cell">{decomposition.road_pts}</td>
-                        </tr>
-                        <tr>
-                          <td className="team-cell">{decomposition.home_team}</td>
-                          <td>{decomposition.linescore.home.q1}</td>
-                          <td>{decomposition.linescore.home.q2}</td>
-                          <td>{decomposition.linescore.home.q3}</td>
-                          <td>{decomposition.linescore.home.q4}</td>
-                          {decomposition.is_overtime && <td>{decomposition.linescore.home.ot}</td>}
-                          <td className="total-cell">{decomposition.home_pts}</td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    {decomposition.is_overtime && decomposition.overtime_count > 0 && (
-                      <span className="ot-indicator">
-                        {decomposition.overtime_count === 1 ? 'OT' : `${decomposition.overtime_count}OT`}
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div className="game-info-right">
-                  <div className="game-info-details">
-                    <div className="game-date">{decomposition.game_date}</div>
-                    {decomposition.game_type && (
-                      <div className="game-type">{formatGameType(decomposition.game_type)}</div>
-                    )}
-                  </div>
-                  <div className="external-links">
-                    <a
-                      href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="external-link"
-                    >
-                      BBRef Box Score
-                    </a>
-                    <a
-                      href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="external-link"
-                    >
-                      NBA.com Box Score
-                    </a>
-                  </div>
-                </div>
-              </div>
+          {showSingleGameSaveOption && (
+            <div className="hidden-save-option" role="status" aria-live="polite">
+              <button
+                type="button"
+                className="hidden-save-button"
+                onClick={handleSaveSingleGameJson}
+                disabled={!selectedSeason || !selectedGame || singleGameSaving}
+                title={!selectedGame ? 'Select a game first' : 'Download the exact prompt sent to the LLM for this game'}
+              >
+                {singleGameSaving ? 'Saving…' : 'Save LLM Prompt'}
+              </button>
+              {singleGameSaveMessage && (
+                <span className={`hidden-save-message ${singleGameSaveError ? 'error' : ''}`}>
+                  {singleGameSaveMessage}
+                </span>
+              )}
             </div>
           )}
 
-          <div className="analysis-view-toggle-card card">
-            <div className="analysis-view-toggle" role="group" aria-label="Game analysis view">
+          <nav className="ga-sidebar-nav" aria-label="Game analysis views">
+            {SIDEBAR_VIEWS.map((view) => (
               <button
+                key={view.value}
                 type="button"
-                className={analysisView === 'factor' ? 'active' : ''}
-                onClick={() => handleAnalysisViewChange('factor')}
+                className={`ga-sidebar-link ${analysisView === view.value ? 'active' : ''}`}
+                onClick={() => handleAnalysisViewChange(view.value)}
               >
-                Factor Analysis
+                {view.label}
               </button>
-              <button
-                type="button"
-                className={analysisView === 'timeline' ? 'active' : ''}
-                onClick={() => handleAnalysisViewChange('timeline')}
-              >
-                Game Timeline
-              </button>
+            ))}
+          </nav>
+        </aside>
+
+        <div className="ga-main">
+          <div className="ga-fixed-stack">
+            <div className="controls card">
+              <div className="form-row">
+                <div className="form-group season-control">
+                  <label className="form-label">Season</label>
+                  <select
+                    className="form-select"
+                    value={selectedSeason}
+                    onChange={(e) => handleSeasonChange(e.target.value)}
+                  >
+                    <option value="">Select season...</option>
+                    {seasons.map((season) => (
+                      <option key={season} value={season}>{season}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group month-control">
+                  <label className="form-label">Month</label>
+                  <select
+                    className="form-select"
+                    value={selectedMonth}
+                    onChange={(e) => handleMonthChange(e.target.value)}
+                    disabled={!selectedSeason || monthOptions.length === 0}
+                  >
+                    <option value="">Select month...</option>
+                    {monthOptions.map((month) => (
+                      <option key={month.value} value={month.value}>{month.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group game-control">
+                  <label className="form-label">Game</label>
+                  <select
+                    className="form-select"
+                    value={selectedGame}
+                    onChange={(e) => handleGameChange(e.target.value)}
+                    disabled={!selectedSeason || !selectedMonth || filteredGames.length === 0}
+                  >
+                    <option value="">Select game...</option>
+                    {filteredGames.map((game) => (
+                      <option key={game.game_id} value={game.game_id}>{formatGameOptionLabel(game)}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
+
+            {decomposition && (
+              <div className="game-header card">
+                <div className="game-header-content">
+                  <div className="matchup-left">
+                    <div className="team road-team">
+                      <span className="team-abbr">{toCityName(decomposition.road_team)}</span>
+                      <span className="team-score">{decomposition.road_pts}</span>
+                    </div>
+                    <div className="at-symbol">@</div>
+                    <div className="team home-team">
+                      <span className="team-abbr">{toCityName(decomposition.home_team)}</span>
+                      <span className="team-score">{decomposition.home_pts}</span>
+                    </div>
+                  </div>
+                  {decomposition.linescore && (
+                    <div className="linescore-center">
+                      <table className="linescore-table">
+                        <thead>
+                          <tr>
+                            <th></th>
+                            <th>Q1</th>
+                            <th>Q2</th>
+                            <th>Q3</th>
+                            <th>Q4</th>
+                            {decomposition.is_overtime && <th>OT</th>}
+                            <th>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr>
+                            <td className="team-cell">{decomposition.road_team}</td>
+                            <td>{decomposition.linescore.road.q1}</td>
+                            <td>{decomposition.linescore.road.q2}</td>
+                            <td>{decomposition.linescore.road.q3}</td>
+                            <td>{decomposition.linescore.road.q4}</td>
+                            {decomposition.is_overtime && <td>{decomposition.linescore.road.ot}</td>}
+                            <td className="total-cell">{decomposition.road_pts}</td>
+                          </tr>
+                          <tr>
+                            <td className="team-cell">{decomposition.home_team}</td>
+                            <td>{decomposition.linescore.home.q1}</td>
+                            <td>{decomposition.linescore.home.q2}</td>
+                            <td>{decomposition.linescore.home.q3}</td>
+                            <td>{decomposition.linescore.home.q4}</td>
+                            {decomposition.is_overtime && <td>{decomposition.linescore.home.ot}</td>}
+                            <td className="total-cell">{decomposition.home_pts}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      {decomposition.is_overtime && decomposition.overtime_count > 0 && (
+                        <span className="ot-indicator">
+                          {decomposition.overtime_count === 1 ? 'OT' : `${decomposition.overtime_count}OT`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="game-info-right">
+                    <div className="game-info-details">
+                      <div className="game-date">{decomposition.game_date}</div>
+                      {decomposition.game_type && (
+                        <div className="game-type">{formatGameType(decomposition.game_type)}</div>
+                      )}
+                    </div>
+                    <div className="external-links">
+                      <a
+                        href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="external-link"
+                      >
+                        BBRef Box Score
+                      </a>
+                      <a
+                        href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="external-link"
+                      >
+                        NBA.com Box Score
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {analysisView === 'factor' ? (
+          {error && <div className="error">{error}</div>}
+
+          {(loading || initializing) && (
+            <div className="loading">
+              <div className="loading-spinner"></div>
+              Loading analysis...
+            </div>
+          )}
+
+          {!loading && !initializing && selectedGame && (
+            <div className="results">
+          {analysisView === 'boxscore' ? (
+            <div className="boxscore-view">
+              {boxScoreLoading && (
+                <div className="loading boxscore-loading">
+                  <div className="loading-spinner"></div>
+                  Loading box score...
+                </div>
+              )}
+
+              {boxScoreError && !boxScoreLoading && (
+                <div className="error">{boxScoreError}</div>
+              )}
+
+              {boxScore && !boxScoreLoading && !boxScoreError && (
+                <>
+                  <div className="boxscore-view-header">
+                    <h2 className="card-title">Traditional Box Score</h2>
+                    <div className="boxscore-segment-toggle" role="group" aria-label="Traditional box score segment">
+                      {BOX_SCORE_SEGMENTS.map((segment) => (
+                        <button
+                          key={segment.value}
+                          type="button"
+                          className={boxScoreSegment === segment.value ? 'active' : ''}
+                          onClick={() => setBoxScoreSegment(segment.value)}
+                        >
+                          {segment.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="boxscore-grid">
+                    {renderBoxScoreTable(boxScore.road_players, roadBoxScoreTotals, boxScore.road_team)}
+                    {renderBoxScoreTable(boxScore.home_players, homeBoxScoreTotals, boxScore.home_team)}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : analysisView === 'factor' ? (
             <>
               <div className="data-scope-toggle-card card">
                 <div className="data-scope-header">
@@ -1455,6 +1701,14 @@ function FourFactor() {
           )}
         </div>
       )}
+
+          {!loading && !initializing && !selectedGame && (
+            <div className="ga-empty-state card">
+              Select a game to load the available Game Analysis views.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
