@@ -1,0 +1,67 @@
+import sys
+import unittest
+from pathlib import Path
+from unittest import mock
+
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from services import pbp_boxscore
+
+
+class PBPBoxScoreFallbackTest(unittest.TestCase):
+    def setUp(self):
+        pbp_boxscore._read_data_csv.cache_clear()
+
+    def tearDown(self):
+        pbp_boxscore._read_data_csv.cache_clear()
+
+    def test_full_game_uses_traditional_fallback_when_pbp_is_unavailable(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500301",
+            "game_date": "2026-05-19",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612739,
+            "road_team": "CLE",
+        }
+        fallback_payload = {"source": "box_score_traditional_v3_fallback"}
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
+            mock.patch.object(pbp_boxscore, "_load_traditional_boxscore_fallback", return_value=fallback_payload),
+        ):
+            payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "game")
+
+        self.assertEqual(payload, fallback_payload)
+
+    def test_segmented_box_score_still_requires_pbp(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500301",
+            "game_date": "2026-05-19",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612739,
+            "road_team": "CLE",
+        }
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
+        ):
+            with self.assertRaises(FileNotFoundError):
+                pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "q1")
+
+
+if __name__ == "__main__":
+    unittest.main()

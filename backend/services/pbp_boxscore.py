@@ -4,6 +4,7 @@ import json
 import re
 import unicodedata
 from collections import defaultdict
+from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
 from typing import Any, Optional
@@ -22,6 +23,7 @@ from admin.pbp_game_states import (  # type: ignore
 from config import (
     PBP_GAME_STATES_ROOT,
     build_box_score_traditional_filename,
+    build_data_file_url,
     build_data_filename,
     resolve_data_file_path,
 )
@@ -68,6 +70,20 @@ VALID_BOX_SCORE_SEGMENTS = {
 }
 DEFAULT_GARBAGE_WP_ON = 0.95
 DEFAULT_GARBAGE_WP_OFF = 0.90
+
+
+@lru_cache(maxsize=16)
+def _read_data_csv(filename: str, dtype_key: tuple[tuple[str, str], ...] = ()) -> pd.DataFrame:
+    dtype = dict(dtype_key) if dtype_key else None
+    local_path = resolve_data_file_path(filename)
+    if local_path.exists():
+        return pd.read_csv(local_path, dtype=dtype)
+    return pd.read_csv(build_data_file_url(filename), dtype=dtype)
+
+
+def _load_data_csv(filename: str, dtype: Optional[dict[str, str]] = None) -> pd.DataFrame:
+    dtype_key = tuple(sorted((dtype or {}).items()))
+    return _read_data_csv(filename, dtype_key).copy()
 
 
 def _clean_name(value: Any) -> str:
@@ -148,8 +164,7 @@ def _pbp_phase_from_game_type(game_type: str) -> str:
 
 
 def _load_game_metadata(season: str, game_id: str) -> dict[str, Any]:
-    logs_path = resolve_data_file_path(build_data_filename("team_game_logs", season))
-    logs_df = pd.read_csv(logs_path, dtype={"game_id": "string"})
+    logs_df = _load_data_csv(build_data_filename("team_game_logs", season), dtype={"game_id": "string"})
     logs_df["game_id_norm"] = logs_df["game_id"].map(_normalize_game_id)
     matches = logs_df[logs_df["game_id_norm"] == _normalize_game_id(game_id)].copy()
     if matches.empty:
@@ -857,8 +872,10 @@ def _load_traditional_boxscore_fallback(
     meta: dict[str, Any],
     starter_info: Optional[dict[int, dict[str, set[Any]]]] = None,
 ) -> dict[str, Any]:
-    players_path = resolve_data_file_path(build_box_score_traditional_filename("players", season))
-    players_df = pd.read_csv(players_path, dtype={"game_id": "string"})
+    players_df = _load_data_csv(
+        build_box_score_traditional_filename("players", season),
+        dtype={"game_id": "string"},
+    )
     players_df["game_id_norm"] = players_df["game_id"].map(_normalize_game_id)
     game_players = players_df[players_df["game_id_norm"] == _normalize_game_id(game_id)].copy()
     if game_players.empty:
@@ -953,10 +970,27 @@ def compute_pbp_traditional_boxscore(
     team_ids = [meta["home_team_id"], meta["road_team_id"]]
 
     pbp_path, pbp_source = _build_pbp_path(Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1]), season, meta["phase"], source="auto")
-    pbp_df = _load_pbp_df(pbp_path)
+    try:
+        pbp_df = _load_pbp_df(pbp_path)
+    except Exception:
+        if segment == "all":
+            return _load_traditional_boxscore_fallback(
+                season=season,
+                game_id=game_id,
+                meta=meta,
+                starter_info=None,
+            )
+        raise
     game_id_norm = _normalize_game_id(game_id)
     game_df = pbp_df[pbp_df["game_id_norm"] == game_id_norm].copy()
     if game_df.empty:
+        if segment == "all":
+            return _load_traditional_boxscore_fallback(
+                season=season,
+                game_id=game_id,
+                meta=meta,
+                starter_info=None,
+            )
         raise ValueError(f"No PBP rows found for game {game_id_norm}")
 
     game_df = game_df.sort_values(["period", "actionNumber", "actionId"], kind="stable").reset_index(drop=True)
