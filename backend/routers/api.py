@@ -52,7 +52,11 @@ from services.llm import (
     is_llm_configured,
 )
 from services.game_runs import extract_timeline_possessions, rank_non_overlapping_runs
-from services.pbp_boxscore import compute_pbp_traditional_boxscore, normalize_boxscore_segment
+from services.pbp_boxscore import (
+    clear_pbp_boxscore_cache,
+    compute_pbp_traditional_boxscore,
+    normalize_boxscore_segment,
+)
 from services.player_game_facts import build_player_game_facts_payload
 from services.player_shots import (
     PLAYER_SHOT_CLASSIFICATIONS,
@@ -2432,4 +2436,6 @@ async def admin_clear_cache(
         raise HTTPException(status_code=403, detail="Invalid key")
 
     clear_cache()
+    clear_pbp_boxscore_cache()
+    build_player_shot_streakiness_payload.cache_clear()
     return {"status": "ok", "message": "Cache cleared"}

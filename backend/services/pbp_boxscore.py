@@ -86,6 +86,10 @@ def _load_data_csv(filename: str, dtype: Optional[dict[str, str]] = None) -> pd.
     return _read_data_csv(filename, dtype_key).copy()
 
 
+def clear_pbp_boxscore_cache() -> None:
+    _read_data_csv.cache_clear()
+
+
 def _clean_name(value: Any) -> str:
     text = unicodedata.normalize("NFKD", _safe_str(value))
     text = text.encode("ascii", "ignore").decode("ascii")

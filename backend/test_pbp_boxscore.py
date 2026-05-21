@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import pandas as pd
+
 BACKEND_DIR = Path(__file__).resolve().parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
@@ -16,6 +18,22 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
 
     def tearDown(self):
         pbp_boxscore._read_data_csv.cache_clear()
+
+    def test_clear_pbp_boxscore_cache_flushes_cached_csv_reads(self):
+        sample = pd.DataFrame({"game_id": ["0042500311"]})
+
+        with (
+            mock.patch.object(pbp_boxscore, "resolve_data_file_path", return_value=Path("/missing/team_game_logs.csv")),
+            mock.patch.object(pbp_boxscore, "build_data_file_url", return_value="https://example.test/team_game_logs.csv"),
+            mock.patch.object(pbp_boxscore.pd, "read_csv", return_value=sample) as read_csv,
+        ):
+            pbp_boxscore._load_data_csv("team_game_logs_2025-26.csv", dtype={"game_id": "string"})
+            pbp_boxscore._load_data_csv("team_game_logs_2025-26.csv", dtype={"game_id": "string"})
+            self.assertEqual(read_csv.call_count, 1)
+
+            pbp_boxscore.clear_pbp_boxscore_cache()
+            pbp_boxscore._load_data_csv("team_game_logs_2025-26.csv", dtype={"game_id": "string"})
+            self.assertEqual(read_csv.call_count, 2)
 
     def test_full_game_uses_traditional_fallback_when_pbp_is_unavailable(self):
         meta = {
