@@ -131,6 +131,28 @@ def _absolute_elapsed_seconds(period: int, clock_remaining: float) -> float:
     return (4 * 720.0) + ((period - 5) * 300.0) + max(0.0, 300.0 - float(clock_remaining))
 
 
+def _sort_pbp_events(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+
+    d = df.copy()
+    period = pd.to_numeric(d.get("period"), errors="coerce").fillna(0)
+    clock_remaining = d.get("clock", pd.Series(index=d.index, dtype=object)).map(_clock_to_seconds_remaining)
+    d["_sort_period"] = period
+    d["_sort_elapsed"] = [
+        _absolute_elapsed_seconds(int(period_value), clock_value if clock_value is not None else _period_length_seconds(int(period_value)))
+        for period_value, clock_value in zip(period, clock_remaining)
+    ]
+    d["_sort_action_id"] = pd.to_numeric(d.get("actionId"), errors="coerce")
+    d["_sort_action_number"] = pd.to_numeric(d.get("actionNumber"), errors="coerce")
+    d = d.sort_values(
+        ["_sort_period", "_sort_elapsed", "_sort_action_id", "_sort_action_number"],
+        kind="stable",
+        na_position="last",
+    )
+    return d.drop(columns=["_sort_period", "_sort_elapsed", "_sort_action_id", "_sort_action_number"])
+
+
 def _format_minutes(seconds: float) -> str:
     total_seconds = int(round(max(0.0, float(seconds))))
     return f"{total_seconds // 60}:{total_seconds % 60:02d}"
@@ -723,7 +745,7 @@ def _identify_game_starters(
                 player_name=display_name,
             )
 
-    period_one_df = game_df[game_df["period"] == 1].copy().sort_values(["actionNumber", "actionId"], kind="stable")
+    period_one_df = _sort_pbp_events(game_df[game_df["period"] == 1])
     if period_one_df.empty:
         return starter_info
 
@@ -806,7 +828,7 @@ def _apply_rotation_segment_minutes_and_plus_minus(
     score_road = 0
 
     for period in sorted(int(value) for value in game_df["period"].dropna().unique() if int(value) > 0):
-        period_df = game_df[game_df["period"] == period].copy().sort_values(["actionNumber", "actionId"], kind="stable")
+        period_df = _sort_pbp_events(game_df[game_df["period"] == period])
         prev_clock = _period_length_seconds(period)
 
         for _, row in period_df.iterrows():
@@ -997,7 +1019,7 @@ def compute_pbp_traditional_boxscore(
             )
         raise ValueError(f"No PBP rows found for game {game_id_norm}")
 
-    game_df = game_df.sort_values(["period", "actionNumber", "actionId"], kind="stable").reset_index(drop=True)
+    game_df = _sort_pbp_events(game_df).reset_index(drop=True)
     display_by_token, tokens_by_name = _build_name_registry(game_df, team_ids=team_ids)
 
     for _, row in game_df.iterrows():
@@ -1083,7 +1105,7 @@ def compute_pbp_traditional_boxscore(
             periods = sorted(int(value) for value in game_df["period"].dropna().unique() if int(value) > 0)
 
             for period in periods:
-                period_df = game_df[game_df["period"] == period].copy().sort_values(["actionNumber", "actionId"], kind="stable")
+                period_df = _sort_pbp_events(game_df[game_df["period"] == period])
                 current_lineups = {
                     team_id: _infer_period_start_lineup(
                         period_df=period_df,
@@ -1181,7 +1203,7 @@ def compute_pbp_traditional_boxscore(
                     meta=meta,
                     starter_info=starter_info,
                 )
-            raise
+            minutes_plus_minus_source = f"pbp_stats_only:{segment}"
 
     for _, row in game_df.iterrows():
         team_id = _to_int(row.get("teamId"))

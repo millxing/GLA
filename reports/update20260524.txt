@@ -1,0 +1,44 @@
+2026-05-24 10:04:19 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-05-24 10:04:19 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-05-24 10:04:19 | SUCCESS | nba_api version verified (1.11.4)
+2026-05-24 10:04:19 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-05-24 10:04:19 | SUCCESS | Parquet engine available (pyarrow)
+2026-05-24 10:04:19 | INFO | PBP source target for this run: nbastatsv3
+2026-05-24 10:04:19 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-24 10:04:30 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-24 10:04:30 | START | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-24 10:05:45 | SUCCESS | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-24 10:05:45 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-24 10:05:51 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-24 10:05:51 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-05-24 10:08:39 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=regular)
+2026-05-24 10:08:40 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-05-24 10:08:40 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-05-24 10:08:50 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=regular)
+2026-05-24 10:08:50 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-05-24 10:08:50 | START | Build PBP Analyze game states (playoffs) for 2025-26
+2026-05-24 10:09:04 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=playoffs)
+2026-05-24 10:09:04 | SUCCESS | Build PBP Analyze game states (playoffs) for 2025-26
+2026-05-24 10:09:04 | START | Build PBP timeline metrics (playoffs) for 2025-26
+2026-05-24 10:09:05 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=playoffs)
+2026-05-24 10:09:05 | SUCCESS | Build PBP timeline metrics (playoffs) for 2025-26
+2026-05-24 10:09:05 | START | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-05-24 10:09:20 | SUCCESS | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-05-24 10:09:20 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-05-24))
+2026-05-24 10:09:20 | FAILED | Commit and push data updates to GitHub failed inside wrapped updater: unable to create NBA_Data/.git/index.lock from sandbox
+2026-05-24 10:10:00 | RECOVERY | Manually committed and pushed data update d8f9fbf
+2026-05-24 10:11:00 | RECOVERY | Manually regenerated and pushed contribution update 4772295
+2026-05-24 10:12:00 | RECOVERY | Manually generated and pushed interpretation update db38435
+2026-05-24 10:13:00 | SUCCESS | Verified GitHub raw files for data, contributions, and interpretations
+2026-05-24 10:13:00 | SUCCESS | Render API cache clear completed manually
+2026-05-24 10:14:00 | WARN | LaunchAgent reload still failed from sandbox with launchctl bootstrap error 5
+2026-05-24 10:20:37 | INFO | Daily update started (season=2025-26 dry_run=1)
+2026-05-24 10:20:37 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-05-24 10:20:37 | SUCCESS | nba_api version verified (1.11.4)
+2026-05-24 10:20:37 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-05-24 10:20:37 | SUCCESS | Parquet engine available (pyarrow)
+2026-05-24 10:20:37 | INFO | PBP source target for this run: nbastatsv3
+2026-05-24 10:20:37 | SKIPPED | Season data update skipped due to dry run
+2026-05-24 10:20:37 | SKIPPED | BoxScoreTraditionalV3 update skipped due to dry run
+2026-05-24 10:20:37 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-24 10:20:44 | FAILED | Update raw PBP (regular + playoffs) for 2025-26 failed (exit=1)

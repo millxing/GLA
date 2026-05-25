@@ -80,6 +80,55 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "q1")
 
+    def test_segmented_box_score_returns_stats_when_lineup_inference_fails(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500301",
+            "game_date": "2026-05-19",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612739,
+            "road_team": "CLE",
+        }
+        pbp_df = pd.DataFrame(
+            [
+                {
+                    "game_id_norm": "0042500301",
+                    "period": 1,
+                    "actionNumber": 1,
+                    "actionId": 1,
+                    "clock": "PT11M30.00S",
+                    "teamId": 1610612752,
+                    "personId": 123,
+                    "playerName": "Example Player",
+                    "playerNameI": "E. Player",
+                    "actionType": "Made Shot",
+                    "subType": "Jump Shot",
+                    "shotResult": "Made",
+                    "shotValue": 2,
+                    "description": "Example Player 12' Jump Shot",
+                    "scoreHome": 2,
+                    "scoreAway": 0,
+                }
+            ]
+        )
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),
+            mock.patch.object(pbp_boxscore, "_build_segment_include_map", return_value=None),
+            mock.patch.object(pbp_boxscore, "_fetch_game_rotation", side_effect=RuntimeError("rotation unavailable")),
+            mock.patch.object(pbp_boxscore, "_infer_period_start_lineup", side_effect=ValueError("lineup unavailable")),
+        ):
+            payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "q1")
+
+        self.assertEqual(payload["minutes_plus_minus_source"], "pbp_stats_only:q1")
+        self.assertEqual(payload["home_players"][0]["player_name"], "E. Player")
+        self.assertEqual(payload["home_players"][0]["pts"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
