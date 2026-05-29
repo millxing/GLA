@@ -21,6 +21,7 @@ GITHUB_RAW_BASE_URL="${GITHUB_RAW_BASE_URL:-https://raw.githubusercontent.com/mi
 RENDER_API_BASE_URL="${RENDER_API_BASE_URL:-https://extrapass-api.onrender.com}"
 REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS="${REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS:-180}"
 REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS="${REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS:-5}"
+MIN_PBP_STATE_FREE_GB="${MIN_PBP_STATE_FREE_GB:-8}"
 # --------------------------
 
 cd "$PROJECT_DIR"
@@ -51,6 +52,66 @@ run_step() {
     report_line "START" "$label"
     "$@"
     report_line "SUCCESS" "$label"
+}
+
+require_free_space_gb() {
+    local path="$1"
+    local min_gb="$2"
+    local available_kb
+    local min_kb
+
+    available_kb="$(df -Pk "$path" | awk 'NR == 2 {print $4}')"
+    min_kb=$(( min_gb * 1024 * 1024 ))
+
+    if [ -z "$available_kb" ] || [ "$available_kb" -lt "$min_kb" ]; then
+        report_line "FAILED" "Insufficient free disk before PBP state build (path=$path available_kb=${available_kb:-unknown} required_gb=$min_gb)"
+        echo "[error] Insufficient free disk before PBP state build: $path requires at least ${min_gb}GB free"
+        exit 1
+    fi
+}
+
+list_missing_state_game_ids() {
+    local phase="$1"
+    "$ENV_PYTHON" - <<PY
+from pathlib import Path
+
+from backend.admin.pbp_game_states import (
+    _build_output_dir,
+    _build_states_parquet_path,
+    _load_gamelogs,
+    _load_states_parquet_df,
+    _normalize_game_id,
+)
+
+repo_dir = Path(r"$REPO_DIR")
+season = "$SEASON"
+phase = "$phase"
+states_root = r"$PBP_ANALYZE_STATES_ROOT"
+
+game_logs = _load_gamelogs(repo_dir, season, phase)
+expected_ids = list(dict.fromkeys(game_logs["game_id_norm"].astype(str)))
+
+output_dir = _build_output_dir(repo_dir, season, phase, output_root=states_root)
+parquet_path = _build_states_parquet_path(output_dir, season, phase)
+existing_ids = set()
+if parquet_path.exists():
+    df = _load_states_parquet_df(parquet_path)
+    if "game_id" in df.columns:
+        existing_ids = {_normalize_game_id(value) for value in df["game_id"].dropna().tolist()}
+
+for game_id in expected_ids:
+    if game_id and game_id not in existing_ids:
+        print(game_id)
+PY
+}
+
+clear_stale_state_json() {
+    local phase="$1"
+    local phase_dir="$PBP_ANALYZE_STATES_ROOT/$phase/$SEASON"
+
+    if [ -d "$phase_dir" ]; then
+        find "$phase_dir" -maxdepth 1 -type f \( -name "${SEASON}_*.json" -o -name ".${SEASON}_*.json.tmp" \) -delete
+    fi
 }
 
 wait_for_github_raw_match() {
@@ -224,40 +285,68 @@ run_build_states() {
     local phase="$1"
     local rc=0
     local packed_parquet="$PBP_ANALYZE_STATES_ROOT/$phase/$SEASON/_states_${SEASON}_${phase}.parquet"
+    local missing_ids_file
+    local missing_count
 
     if [ "$DRY_RUN" = "1" ]; then
-        echo "[dry-run] Would build-pbp-game-states, pack parquet (with event WP column), verify schema, and refresh pbp_analyze index for phase=$phase"
+        echo "[dry-run] Would build missing PBP game states, pack parquet, verify schema, and refresh pbp_analyze index for phase=$phase"
         return 0
     fi
 
-    set +e
-    "$ENV_PYTHON" -m backend.admin.cli \
-        --repo-dir "$REPO_DIR" \
-        build-pbp-game-states \
-        --season "$SEASON" \
-        --phase "$phase" \
-        --pbp-source "$PBP_SOURCE_FOR_STATES" \
-        --output-root "$PBP_ANALYZE_STATES_ROOT"
-    rc=$?
-    set -e
+    require_free_space_gb "$PBP_ANALYZE_STATES_ROOT" "$MIN_PBP_STATE_FREE_GB"
 
-    if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
-        echo "[error] build-pbp-game-states failed for phase=$phase (exit $rc)"
-        exit "$rc"
-    fi
-    if [ "$rc" -eq 2 ]; then
-        echo "[warn] build-pbp-game-states completed with validation mismatches for phase=$phase"
-    fi
+    missing_ids_file="$(mktemp)"
+    list_missing_state_game_ids "$phase" > "$missing_ids_file"
+    missing_count="$(grep -cve '^[[:space:]]*$' "$missing_ids_file" || true)"
 
-    "$ENV_PYTHON" -m backend.admin.cli \
-        --repo-dir "$REPO_DIR" \
-        pack-pbp-game-states \
-        --season "$SEASON" \
-        --phase "$phase" \
-        --input-root "$PBP_ANALYZE_STATES_ROOT" \
-        --compression zstd \
-        --overwrite \
-        --delete-json
+    if [ "$missing_count" -eq 0 ]; then
+        rm -f "$missing_ids_file"
+        clear_stale_state_json "$phase"
+        echo "[run] PBP Analyze game states already packed for phase=$phase; no missing games"
+        report_line "SKIPPED" "Build PBP Analyze game states ($phase) skipped; packed parquet already has all expected games"
+    else
+        echo "[run] Building PBP Analyze game states for phase=$phase missing_games=$missing_count"
+        clear_stale_state_json "$phase"
+
+        while IFS= read -r gid; do
+            if [ -z "$gid" ]; then
+                continue
+            fi
+
+            set +e
+            "$ENV_PYTHON" -m backend.admin.cli \
+                --repo-dir "$REPO_DIR" \
+                build-pbp-game-states \
+                --season "$SEASON" \
+                --phase "$phase" \
+                --pbp-source "$PBP_SOURCE_FOR_STATES" \
+                --output-root "$PBP_ANALYZE_STATES_ROOT" \
+                --game-id "$gid" \
+                --overwrite
+            rc=$?
+            set -e
+
+            if [ "$rc" -ne 0 ] && [ "$rc" -ne 2 ]; then
+                rm -f "$missing_ids_file"
+                echo "[error] build-pbp-game-states failed for phase=$phase game_id=$gid (exit $rc)"
+                exit "$rc"
+            fi
+            if [ "$rc" -eq 2 ]; then
+                echo "[warn] build-pbp-game-states completed with validation mismatches for phase=$phase game_id=$gid"
+            fi
+        done < "$missing_ids_file"
+        rm -f "$missing_ids_file"
+
+        "$ENV_PYTHON" -m backend.admin.cli \
+            --repo-dir "$REPO_DIR" \
+            pack-pbp-game-states \
+            --season "$SEASON" \
+            --phase "$phase" \
+            --input-root "$PBP_ANALYZE_STATES_ROOT" \
+            --compression zstd \
+            --overwrite \
+            --delete-json
+    fi
 
     # Daily guardrail: packed timeline parquet must include event-level WP cache column.
     "$ENV_PYTHON" - <<PY

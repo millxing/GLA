@@ -1,0 +1,86 @@
+2026-05-29 06:00:03 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-05-29 06:00:03 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-05-29 06:00:03 | SUCCESS | nba_api version verified (1.11.4)
+2026-05-29 06:00:03 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-05-29 06:00:03 | SUCCESS | Parquet engine available (pyarrow)
+2026-05-29 06:00:03 | INFO | PBP source target for this run: nbastatsv3
+2026-05-29 06:00:03 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-29 06:00:12 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-29 06:00:12 | START | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-29 06:01:20 | SUCCESS | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-29 06:01:20 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-29 06:01:24 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-29 06:01:24 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-05-29 06:20:01 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-05-29 06:20:01 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-05-29 06:20:01 | SUCCESS | nba_api version verified (1.11.4)
+2026-05-29 06:20:01 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-05-29 06:20:01 | SUCCESS | Parquet engine available (pyarrow)
+2026-05-29 06:20:01 | INFO | PBP source target for this run: nbastatsv3
+2026-05-29 06:20:01 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-29 06:20:02 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-29 06:20:02 | START | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-29 06:21:10 | SUCCESS | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-29 06:21:10 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-29 06:21:13 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-29 06:21:13 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-05-29 12:56:32 | INFO | Daily update started (season=2025-26 dry_run=0)
+2026-05-29 12:56:32 | INFO | PBP timeline states root: /Users/robschoen/Dropbox/CC/NBA_Data/PBPdata/game_states
+2026-05-29 12:56:32 | SUCCESS | nba_api version verified (1.11.4)
+2026-05-29 12:56:32 | SUCCESS | scikit-learn version verified (1.8.0)
+2026-05-29 12:56:32 | SUCCESS | Parquet engine available (pyarrow)
+2026-05-29 12:56:32 | INFO | PBP source target for this run: nbastatsv3
+2026-05-29 12:56:32 | START | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-29 12:56:36 | SUCCESS | Update season data (team_game_logs/linescores/box_score_advanced) for 2025-26
+2026-05-29 12:56:36 | START | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-29 12:57:48 | SUCCESS | Update BoxScoreTraditionalV3 (players/teams/starter_bench) for 2025-26
+2026-05-29 12:57:48 | START | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-29 12:57:52 | SUCCESS | Update raw PBP (regular + playoffs) for 2025-26
+2026-05-29 12:57:52 | START | Build PBP Analyze game states (regular) for 2025-26
+2026-05-29 12:57:57 | SKIPPED | Build PBP Analyze game states (regular) skipped; packed parquet already has all expected games
+2026-05-29 12:57:57 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=regular)
+2026-05-29 12:57:58 | SUCCESS | Build PBP Analyze game states (regular) for 2025-26
+2026-05-29 12:57:58 | START | Build PBP timeline metrics (regular) for 2025-26
+2026-05-29 12:58:07 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=regular)
+2026-05-29 12:58:07 | SUCCESS | Build PBP timeline metrics (regular) for 2025-26
+2026-05-29 12:58:07 | START | Build PBP Analyze game states (playoffs) for 2025-26
+2026-05-29 12:58:10 | SUCCESS | Verified packed game-states parquet includes home_win_prob_by_event_json (season=2025-26 phase=playoffs)
+2026-05-29 12:58:11 | SUCCESS | Build PBP Analyze game states (playoffs) for 2025-26
+2026-05-29 12:58:11 | START | Build PBP timeline metrics (playoffs) for 2025-26
+2026-05-29 12:58:11 | SUCCESS | Verified timeline metrics JSON generated (season=2025-26 phase=playoffs)
+2026-05-29 12:58:11 | SUCCESS | Build PBP timeline metrics (playoffs) for 2025-26
+2026-05-29 12:58:11 | START | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-05-29 12:58:24 | SUCCESS | Build situational game logs (garbage_filtered + clutch) for 2025-26
+2026-05-29 12:58:24 | START | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-05-29))
+2026-05-29 12:58:28 | SUCCESS | Commit and push data updates to GitHub (message: Update 2025-26 data (2026-05-29))
+2026-05-29 12:58:28 | START | Wait for GitHub raw publish (data updates for 2025-26)
+2026-05-29 12:58:30 | SUCCESS | Wait for GitHub raw publish completed (data updates for 2025-26)
+2026-05-29 12:58:30 | START | Render API cache clear (data updates for 2025-26)
+2026-05-29 12:58:30 | SUCCESS | Render API cache clear completed (data updates for 2025-26)
+2026-05-29 12:58:30 | START | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-05-29 12:58:30 | INFO | Timeline artifacts verified clean/synced (season=2025-26 phase=regular last_touch=d809318 2026-05-29 12:58:25 -0400 Update 2025-26 data (2026-05-29))
+2026-05-29 12:58:30 | SUCCESS | Verify timeline artifacts are committed and pushed (regular) for 2025-26
+2026-05-29 12:58:30 | START | Verify timeline artifacts are committed and pushed (playoffs) for 2025-26
+2026-05-29 12:58:30 | INFO | Timeline artifacts verified clean/synced (season=2025-26 phase=playoffs last_touch=d809318 2026-05-29 12:58:25 -0400 Update 2025-26 data (2026-05-29))
+2026-05-29 12:58:30 | SUCCESS | Verify timeline artifacts are committed and pushed (playoffs) for 2025-26
+2026-05-29 12:58:30 | START | Regenerate contributions (scope=all) for 2025-26
+2026-05-29 12:58:32 | SUCCESS | Regenerate contributions (scope=all) for 2025-26
+2026-05-29 12:58:32 | START | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-05-29 12:58:33 | SUCCESS | Regenerate contributions (scope=garbage_filtered) for 2025-26
+2026-05-29 12:58:33 | START | Regenerate contributions (scope=clutch) for 2025-26
+2026-05-29 12:58:34 | SUCCESS | Regenerate contributions (scope=clutch) for 2025-26
+2026-05-29 12:58:34 | START | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-05-29))
+2026-05-29 12:58:37 | SUCCESS | Commit and push contribution updates to GitHub (message: Update 2025-26 contributions (2026-05-29))
+2026-05-29 12:58:37 | START | Wait for GitHub raw publish (contribution updates for 2025-26)
+2026-05-29 12:58:38 | SUCCESS | Wait for GitHub raw publish completed (contribution updates for 2025-26)
+2026-05-29 12:58:38 | START | Render API cache clear (contribution updates for 2025-26)
+2026-05-29 12:58:38 | SUCCESS | Render API cache clear completed (contribution updates for 2025-26)
+2026-05-29 12:58:38 | START | Generate LLM interpretations for 2025-26
+2026-05-29 12:58:43 | SUCCESS | Generate LLM interpretations for 2025-26
+2026-05-29 12:58:43 | START | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-05-29))
+2026-05-29 12:58:45 | SUCCESS | Commit and push interpretation updates to GitHub (message: Update 2025-26 interpretations (2026-05-29))
+2026-05-29 12:58:45 | START | Wait for GitHub raw publish (interpretation updates for 2025-26)
+2026-05-29 12:58:45 | SUCCESS | Wait for GitHub raw publish completed (interpretation updates for 2025-26)
+2026-05-29 12:58:45 | START | Render API cache clear (interpretation updates for 2025-26)
+2026-05-29 12:58:46 | SUCCESS | Render API cache clear completed (interpretation updates for 2025-26)
+2026-05-29 12:58:46 | SUCCESS | Daily update finished successfully

@@ -2354,8 +2354,16 @@ def build_pbp_game_states(
         out_path = output_dir / f"{season}_{home}_{road}_{gid}.json"
 
         if out_path.exists() and not overwrite:
-            skipped_existing += 1
-            continue
+            try:
+                with out_path.open("r", encoding="utf-8") as existing:
+                    json.load(existing)
+                skipped_existing += 1
+                continue
+            except Exception:
+                try:
+                    out_path.unlink()
+                except FileNotFoundError:
+                    pass
 
         events_df: Optional[pd.DataFrame] = None
         events_pbp_path = pbp_path
@@ -2401,8 +2409,17 @@ def build_pbp_game_states(
             pbp_source=events_pbp_source,
         )
 
-        with out_path.open("w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=True)
+        tmp_path = out_path.with_name(f".{out_path.name}.tmp")
+        try:
+            with tmp_path.open("w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=True)
+            tmp_path.replace(out_path)
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+            raise
 
         processed += 1
         if payload["validation"]["match"]:
