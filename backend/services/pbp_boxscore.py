@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
+import shutil
+import time
 import unicodedata
 from collections import defaultdict
 from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
 from typing import Any, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 import pandas as pd
 import pyarrow.parquet as pq
@@ -22,6 +28,8 @@ from admin.pbp_game_states import (  # type: ignore
 )
 from config import (
     PBP_GAME_STATES_ROOT,
+    PBP_GITHUB_RAW_BASE_URL,
+    PBP_REMOTE_CACHE_DIR,
     build_box_score_traditional_filename,
     build_data_file_url,
     build_data_filename,
@@ -30,6 +38,15 @@ from config import (
 
 ROTATION_TIMEOUT_SECONDS = 20.0
 ROTATION_RETRIES = 2
+REMOTE_CACHE_TTL_SECONDS = max(
+    60,
+    int(os.getenv("PBP_REMOTE_CACHE_TTL_SECONDS", "300") or "300"),
+)
+REMOTE_FETCH_TIMEOUT_SECONDS = max(
+    10,
+    int(os.getenv("PBP_REMOTE_FETCH_TIMEOUT_SECONDS", "60") or "60"),
+)
+logger = logging.getLogger(__name__)
 
 SUPPORTED_STATS = [
     "pts",
@@ -88,6 +105,74 @@ def _load_data_csv(filename: str, dtype: Optional[dict[str, str]] = None) -> pd.
 
 def clear_pbp_boxscore_cache() -> None:
     _read_data_csv.cache_clear()
+    try:
+        if Path(PBP_REMOTE_CACHE_DIR).exists():
+            shutil.rmtree(PBP_REMOTE_CACHE_DIR)
+    except Exception:
+        logger.warning("Failed to clear remote PBP cache: %s", PBP_REMOTE_CACHE_DIR)
+
+
+def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
+    rel = relative_path.lstrip("/")
+    cache_path = (Path(PBP_REMOTE_CACHE_DIR) / rel).resolve()
+    cache_exists = cache_path.exists()
+    if cache_exists:
+        try:
+            age_seconds = max(0, int(time.time() - cache_path.stat().st_mtime))
+            if age_seconds < REMOTE_CACHE_TTL_SECONDS:
+                return cache_path
+        except Exception:
+            return cache_path
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    remote_url = f"{PBP_GITHUB_RAW_BASE_URL.rstrip('/')}/{rel}"
+    request = Request(remote_url, headers={"User-Agent": "GLA-pbp-boxscore-fallback"})
+    try:
+        with urlopen(request, timeout=REMOTE_FETCH_TIMEOUT_SECONDS) as response:
+            payload = response.read()
+    except (HTTPError, URLError, TimeoutError, OSError):
+        logger.warning("PBP box score remote fallback failed: relative_path=%s url=%s", rel, remote_url)
+        return cache_path if cache_exists else None
+
+    if not payload:
+        logger.warning("PBP box score remote fallback returned empty payload: relative_path=%s url=%s", rel, remote_url)
+        return cache_path if cache_exists else None
+
+    cache_path.write_bytes(payload)
+    return cache_path
+
+
+def _pbpdata_relative_path(repo_dir: Path, path: Path) -> str:
+    try:
+        return path.relative_to(Path(repo_dir) / "PBPdata").as_posix()
+    except ValueError:
+        pass
+
+    rel = path
+    try:
+        rel = path.relative_to(repo_dir)
+    except ValueError:
+        pass
+    parts = rel.parts
+    if parts and parts[0] == "PBPdata":
+        return Path(*parts[1:]).as_posix()
+    return rel.as_posix()
+
+
+def _resolve_pbp_input_path(repo_dir: Path, season: str, phase: str) -> tuple[Path, str]:
+    pbp_path, pbp_source = _build_pbp_path(repo_dir, season, phase, source="auto")
+    if pbp_path.exists():
+        return pbp_path, pbp_source
+
+    for source in ("nbastatsv3", "api_pbpv3"):
+        candidate_path, candidate_source = _build_pbp_path(repo_dir, season, phase, source=source)
+        if candidate_path.exists():
+            return candidate_path, candidate_source
+        remote_path = _download_remote_pbpdata_file(_pbpdata_relative_path(repo_dir, candidate_path))
+        if remote_path and remote_path.exists():
+            return remote_path, f"{candidate_source}_remote"
+
+    return pbp_path, pbp_source
 
 
 def _clean_name(value: Any) -> str:
@@ -249,7 +334,12 @@ def _load_game_state_payload(meta: dict[str, Any]) -> Optional[dict[str, Any]]:
         / f"_states_{meta['season']}_{meta['phase']}.parquet"
     )
     if not parquet_path.exists():
-        return None
+        remote_path = _download_remote_pbpdata_file(
+            f"game_states/{meta['phase']}/{meta['season']}/_states_{meta['season']}_{meta['phase']}.parquet"
+        )
+        if not remote_path or not remote_path.exists():
+            return None
+        parquet_path = remote_path
 
     try:
         table = pq.read_table(
@@ -995,7 +1085,8 @@ def compute_pbp_traditional_boxscore(
     meta = _load_game_metadata(season=season, game_id=game_id)
     team_ids = [meta["home_team_id"], meta["road_team_id"]]
 
-    pbp_path, pbp_source = _build_pbp_path(Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1]), season, meta["phase"], source="auto")
+    data_repo_dir = Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1])
+    pbp_path, pbp_source = _resolve_pbp_input_path(data_repo_dir, season, meta["phase"])
     try:
         pbp_df = _load_pbp_df(pbp_path)
     except Exception:

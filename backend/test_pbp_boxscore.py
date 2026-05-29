@@ -1,4 +1,5 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -35,6 +36,26 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
             pbp_boxscore._load_data_csv("team_game_logs_2025-26.csv", dtype={"game_id": "string"})
             self.assertEqual(read_csv.call_count, 2)
 
+    def test_resolve_pbp_input_path_uses_remote_pbp_when_local_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo_dir = Path(tmp) / "NBA_Data"
+            remote_file = Path(tmp) / "remote.parquet"
+            remote_file.write_bytes(b"parquet")
+            seen = []
+
+            def fake_download(relative_path):
+                seen.append(relative_path)
+                if relative_path == "nbastatsv3/playoffs/nbastatsv3_po_2025.parquet":
+                    return remote_file
+                return None
+
+            with mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", side_effect=fake_download):
+                path, source = pbp_boxscore._resolve_pbp_input_path(repo_dir, "2025-26", "playoffs")
+
+        self.assertEqual(path, remote_file)
+        self.assertEqual(source, "nbastatsv3_remote")
+        self.assertIn("nbastatsv3/playoffs/nbastatsv3_po_2025.parquet", seen)
+
     def test_full_game_uses_traditional_fallback_when_pbp_is_unavailable(self):
         meta = {
             "season": "2025-26",
@@ -52,6 +73,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         with (
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
             mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
             mock.patch.object(pbp_boxscore, "_load_traditional_boxscore_fallback", return_value=fallback_payload),
         ):
@@ -75,6 +97,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         with (
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
             mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
         ):
             with self.assertRaises(FileNotFoundError):
@@ -118,6 +141,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         with (
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
             mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),
             mock.patch.object(pbp_boxscore, "_build_segment_include_map", return_value=None),
             mock.patch.object(pbp_boxscore, "_fetch_game_rotation", side_effect=RuntimeError("rotation unavailable")),
