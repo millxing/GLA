@@ -56,6 +56,58 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         self.assertEqual(source, "nbastatsv3_remote")
         self.assertIn("nbastatsv3/playoffs/nbastatsv3_po_2025.parquet", seen)
 
+    def test_official_position_marks_starter_when_rotation_is_unavailable(self):
+        starter_info = pbp_boxscore._build_empty_starter_info([1610612760])
+        players_df = pd.DataFrame(
+            [
+                {
+                    "game_id": "0042500316",
+                    "team_id": 1610612760,
+                    "person_id": 1628983,
+                    "name_i": "S. Gilgeous-Alexander",
+                    "first_name": "Shai",
+                    "family_name": "Gilgeous-Alexander",
+                    "position": "G",
+                },
+                {
+                    "game_id": "0042500316",
+                    "team_id": 1610612760,
+                    "person_id": 1627936,
+                    "name_i": "A. Caruso",
+                    "first_name": "Alex",
+                    "family_name": "Caruso",
+                    "position": "",
+                },
+            ]
+        )
+
+        with mock.patch.object(pbp_boxscore, "_load_data_csv", return_value=players_df):
+            starter_info = pbp_boxscore._apply_official_starter_info(
+                season="2025-26",
+                game_id="0042500316",
+                team_ids=[1610612760],
+                starter_info=starter_info,
+            )
+
+        self.assertTrue(
+            pbp_boxscore._is_starter_row(
+                team_id=1610612760,
+                player_id=1628983,
+                player_name="S. Gilgeous-Alexander",
+                token="1610612760:1628983",
+                starter_info=starter_info,
+            )
+        )
+        self.assertFalse(
+            pbp_boxscore._is_starter_row(
+                team_id=1610612760,
+                player_id=1627936,
+                player_name="A. Caruso",
+                token="1610612760:1627936",
+                starter_info=starter_info,
+            )
+        )
+
     def test_full_game_uses_traditional_fallback_when_pbp_is_unavailable(self):
         meta = {
             "season": "2025-26",

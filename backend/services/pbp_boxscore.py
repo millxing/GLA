@@ -862,6 +862,51 @@ def _identify_game_starters(
     return starter_info
 
 
+def _apply_official_starter_info(
+    *,
+    season: str,
+    game_id: str,
+    team_ids: list[int],
+    starter_info: dict[int, dict[str, set[Any]]],
+) -> dict[int, dict[str, set[Any]]]:
+    try:
+        players_df = _load_data_csv(
+            build_box_score_traditional_filename("players", season),
+            dtype={"game_id": "string"},
+        )
+    except Exception:
+        return starter_info
+
+    if "game_id" not in players_df.columns:
+        return starter_info
+
+    players_df["game_id_norm"] = players_df["game_id"].map(_normalize_game_id)
+    game_players = players_df[players_df["game_id_norm"] == _normalize_game_id(game_id)].copy()
+    if game_players.empty:
+        return starter_info
+
+    for _, row in game_players.iterrows():
+        team_id = _to_int(row.get("team_id"))
+        if team_id not in team_ids:
+            continue
+        if not _safe_str(row.get("position")).strip():
+            continue
+
+        player_id = _to_int(row.get("person_id"), default=0) or None
+        first_name = _safe_str(row.get("first_name"))
+        family_name = _safe_str(row.get("family_name"))
+        player_name = _safe_str(row.get("name_i")) or f"{first_name} {family_name}".strip()
+        _add_starter_identity(
+            starter_info,
+            team_id,
+            token=f"{team_id}:{player_id}" if player_id else None,
+            player_id=player_id,
+            player_name=player_name,
+        )
+
+    return starter_info
+
+
 def _is_starter_row(
     *,
     team_id: int,
@@ -1025,7 +1070,7 @@ def _load_traditional_boxscore_fallback(
             player_id = _to_int(row.get("person_id"), default=0) or None
             csv_starter_flag = any(
                 bool(_safe_str(row.get(column)).strip())
-                for column in ("start_position", "startPosition", "starting_position")
+                for column in ("position", "start_position", "startPosition", "starting_position")
             )
             rows.append(
                 {
@@ -1178,6 +1223,12 @@ def compute_pbp_traditional_boxscore(
         display_by_token=display_by_token,
         tokens_by_name=tokens_by_name,
         rotation_rows_by_team=rotation_rows_by_team,
+    )
+    starter_info = _apply_official_starter_info(
+        season=season,
+        game_id=game_id,
+        team_ids=team_ids,
+        starter_info=starter_info,
     )
 
     for _, row in game_df.iterrows():
