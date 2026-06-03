@@ -32,7 +32,25 @@ app = FastAPI(
     version="1.0.0",
 )
 
-allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
+DEFAULT_ALLOWED_ORIGINS = {
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "https://extrapass.onrender.com",
+    "https://nbaextrapass.xyz",
+    "https://www.nbaextrapass.xyz",
+}
+
+
+def _get_allowed_origins() -> list[str]:
+    configured = {
+        origin.strip()
+        for origin in os.getenv("ALLOWED_ORIGINS", "").split(",")
+        if origin.strip()
+    }
+    return sorted(DEFAULT_ALLOWED_ORIGINS | configured)
+
+
+allowed_origins = _get_allowed_origins()
 
 app.add_middleware(
     CORSMiddleware,
