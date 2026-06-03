@@ -21,7 +21,6 @@ import pyarrow.parquet as pq
 from admin.pbp_game_states import (  # type: ignore
     _build_pbp_path,
     _counts_toward_pf,
-    _load_pbp_df,
     _normalize_game_id,
     _normalize_text,
     _safe_str,
@@ -87,6 +86,52 @@ VALID_BOX_SCORE_SEGMENTS = {
 }
 DEFAULT_GARBAGE_WP_ON = 0.95
 DEFAULT_GARBAGE_WP_OFF = 0.90
+PBP_BOXSCORE_COLUMNS = [
+    "actionNumber",
+    "clock",
+    "period",
+    "teamId",
+    "personId",
+    "playerName",
+    "playerNameI",
+    "shotResult",
+    "isFieldGoal",
+    "scoreHome",
+    "scoreAway",
+    "description",
+    "actionType",
+    "subType",
+    "shotValue",
+    "actionId",
+    "gameId",
+]
+BOX_SCORE_PLAYER_COLUMNS = [
+    "game_id",
+    "team_id",
+    "team_tricode",
+    "person_id",
+    "first_name",
+    "family_name",
+    "name_i",
+    "position",
+    "minutes",
+    "points",
+    "plus_minus_points",
+    "field_goals_made",
+    "field_goals_attempted",
+    "three_pointers_made",
+    "three_pointers_attempted",
+    "free_throws_made",
+    "free_throws_attempted",
+    "rebounds_offensive",
+    "rebounds_defensive",
+    "rebounds_total",
+    "assists",
+    "steals",
+    "blocks",
+    "turnovers",
+    "fouls_personal",
+]
 
 
 @lru_cache(maxsize=16)
@@ -101,6 +146,94 @@ def _read_data_csv(filename: str, dtype_key: tuple[tuple[str, str], ...] = ()) -
 def _load_data_csv(filename: str, dtype: Optional[dict[str, str]] = None) -> pd.DataFrame:
     dtype_key = tuple(sorted((dtype or {}).items()))
     return _read_data_csv(filename, dtype_key).copy()
+
+
+def _normalize_pbp_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+
+    d = df.copy()
+    if "gameId" not in d.columns:
+        d["gameId"] = pd.NA
+    d["game_id_norm"] = d["gameId"].map(_normalize_game_id)
+    d["action_type_norm"] = d.get("actionType", pd.Series(index=d.index, dtype=object)).map(_normalize_text)
+    d["sub_type_norm"] = d.get("subType", pd.Series(index=d.index, dtype=object)).map(_normalize_text)
+
+    for col in ("actionNumber", "actionId", "teamId", "personId", "isFieldGoal", "shotValue", "scoreHome", "scoreAway"):
+        if col not in d.columns:
+            d[col] = pd.NA
+        d[col] = pd.to_numeric(d[col], errors="coerce")
+
+    return d[d["game_id_norm"] != ""].copy()
+
+
+def _load_pbp_game_df(pbp_path: Path, game_id: str) -> pd.DataFrame:
+    if not pbp_path.exists():
+        raise FileNotFoundError(f"Missing PBP file: {pbp_path}")
+
+    game_id_norm = _normalize_game_id(game_id)
+    if pbp_path.suffix.lower() == ".parquet":
+        parquet_file = pq.ParquetFile(pbp_path)
+        available_columns = set(parquet_file.schema_arrow.names)
+        columns = [column for column in PBP_BOXSCORE_COLUMNS if column in available_columns]
+        if "gameId" not in columns:
+            raise ValueError(f"PBP parquet is missing gameId column: {pbp_path}")
+        try:
+            table = pq.read_table(
+                pbp_path,
+                columns=columns,
+                filters=[("gameId", "==", game_id_norm)],
+                use_threads=False,
+            )
+            df = table.to_pandas()
+        except Exception:
+            table = pq.read_table(pbp_path, columns=columns, use_threads=False)
+            df = table.to_pandas()
+            df = df[df["gameId"].map(_normalize_game_id) == game_id_norm].copy()
+    else:
+        chunks: list[pd.DataFrame] = []
+        for chunk in pd.read_csv(
+            pbp_path,
+            usecols=lambda column: column in PBP_BOXSCORE_COLUMNS,
+            low_memory=False,
+            chunksize=100_000,
+        ):
+            if "gameId" not in chunk.columns:
+                raise ValueError(f"PBP CSV is missing gameId column: {pbp_path}")
+            matched = chunk[chunk["gameId"].map(_normalize_game_id) == game_id_norm].copy()
+            if not matched.empty:
+                chunks.append(matched)
+        df = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=PBP_BOXSCORE_COLUMNS)
+
+    return _normalize_pbp_frame(df)
+
+
+def _load_traditional_boxscore_players_for_game(season: str, game_id: str) -> pd.DataFrame:
+    filename = build_box_score_traditional_filename("players", season)
+    path = resolve_data_file_path(filename)
+    game_id_norm = _normalize_game_id(game_id)
+
+    if path.exists():
+        chunks: list[pd.DataFrame] = []
+        for chunk in pd.read_csv(
+            path,
+            dtype={"game_id": "string"},
+            usecols=lambda column: column in BOX_SCORE_PLAYER_COLUMNS,
+            low_memory=False,
+            chunksize=10_000,
+        ):
+            matched = chunk[chunk["game_id"].map(_normalize_game_id) == game_id_norm].copy()
+            if not matched.empty:
+                chunks.append(matched)
+        return pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=BOX_SCORE_PLAYER_COLUMNS)
+
+    players_df = pd.read_csv(
+        build_data_file_url(filename),
+        dtype={"game_id": "string"},
+        usecols=lambda column: column in BOX_SCORE_PLAYER_COLUMNS,
+        low_memory=False,
+    )
+    return players_df[players_df["game_id"].map(_normalize_game_id) == game_id_norm].copy()
 
 
 def clear_pbp_boxscore_cache() -> None:
@@ -1033,12 +1166,7 @@ def _load_traditional_boxscore_fallback(
     meta: dict[str, Any],
     starter_info: Optional[dict[int, dict[str, set[Any]]]] = None,
 ) -> dict[str, Any]:
-    players_df = _load_data_csv(
-        build_box_score_traditional_filename("players", season),
-        dtype={"game_id": "string"},
-    )
-    players_df["game_id_norm"] = players_df["game_id"].map(_normalize_game_id)
-    game_players = players_df[players_df["game_id_norm"] == _normalize_game_id(game_id)].copy()
+    game_players = _load_traditional_boxscore_players_for_game(season=season, game_id=game_id)
     if game_players.empty:
         raise ValueError(f"Game {game_id} not found in traditional box score data for season {season}")
 
@@ -1130,10 +1258,19 @@ def compute_pbp_traditional_boxscore(
     meta = _load_game_metadata(season=season, game_id=game_id)
     team_ids = [meta["home_team_id"], meta["road_team_id"]]
 
+    if segment == "all":
+        return _load_traditional_boxscore_fallback(
+            season=season,
+            game_id=game_id,
+            meta=meta,
+            starter_info=None,
+        )
+
     data_repo_dir = Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1])
     pbp_path, pbp_source = _resolve_pbp_input_path(data_repo_dir, season, meta["phase"])
+    game_id_norm = _normalize_game_id(game_id)
     try:
-        pbp_df = _load_pbp_df(pbp_path)
+        game_df = _load_pbp_game_df(pbp_path, game_id_norm)
     except Exception:
         if segment == "all":
             return _load_traditional_boxscore_fallback(
@@ -1143,8 +1280,6 @@ def compute_pbp_traditional_boxscore(
                 starter_info=None,
             )
         raise
-    game_id_norm = _normalize_game_id(game_id)
-    game_df = pbp_df[pbp_df["game_id_norm"] == game_id_norm].copy()
     if game_df.empty:
         if segment == "all":
             return _load_traditional_boxscore_fallback(

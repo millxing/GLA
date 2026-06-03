@@ -108,7 +108,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
             )
         )
 
-    def test_full_game_uses_traditional_fallback_when_pbp_is_unavailable(self):
+    def test_full_game_uses_traditional_fallback_without_loading_pbp(self):
         meta = {
             "season": "2025-26",
             "game_id": "0042500301",
@@ -124,14 +124,15 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
 
         with (
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
-            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
-            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
-            mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
+            mock.patch.object(pbp_boxscore, "_resolve_pbp_input_path") as resolve_pbp,
+            mock.patch.object(pbp_boxscore, "_load_pbp_game_df") as load_pbp_game,
             mock.patch.object(pbp_boxscore, "_load_traditional_boxscore_fallback", return_value=fallback_payload),
         ):
             payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "game")
 
         self.assertEqual(payload, fallback_payload)
+        resolve_pbp.assert_not_called()
+        load_pbp_game.assert_not_called()
 
     def test_segmented_box_score_still_requires_pbp(self):
         meta = {
@@ -150,7 +151,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
             mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
-            mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
+            mock.patch.object(pbp_boxscore, "_load_pbp_game_df", side_effect=FileNotFoundError("missing PBP")),
         ):
             with self.assertRaises(FileNotFoundError):
                 pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "q1")
@@ -194,7 +195,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
             mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
-            mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),
+            mock.patch.object(pbp_boxscore, "_load_pbp_game_df", return_value=pbp_df),
             mock.patch.object(pbp_boxscore, "_build_segment_include_map", return_value=None),
             mock.patch.object(pbp_boxscore, "_fetch_game_rotation", side_effect=RuntimeError("rotation unavailable")),
             mock.patch.object(pbp_boxscore, "_infer_period_start_lineup", side_effect=ValueError("lineup unavailable")),
