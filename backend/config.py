@@ -53,9 +53,8 @@ PBP_REMOTE_CACHE_DIR = Path(
     os.getenv("PBP_REMOTE_CACHE_DIR", "/tmp/gla_pbp_cache")
 ).expanduser().resolve()
 
-DEFAULT_CACHE_MAX_SIZE = "12" if os.getenv("RENDER") else "50"
-CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "1800") or "1800")
-CACHE_MAX_SIZE = int(os.getenv("CACHE_MAX_SIZE", DEFAULT_CACHE_MAX_SIZE) or DEFAULT_CACHE_MAX_SIZE)
+CACHE_TTL_SECONDS = 1800  # 30 minutes
+CACHE_MAX_SIZE = 50
 
 SEASON_START_YEAR = 2000
 

@@ -7,9 +7,7 @@ services:
     startCommand: cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: ALLOWED_ORIGINS
-        value: https://extrapass.onrender.com,https://nbaextrapass.xyz,https://www.nbaextrapass.xyz,http://localhost:5173
-      - key: CACHE_MAX_SIZE
-        value: 12
+        value: https://extrapass.onrender.com,http://localhost:5173
       - key: PYTHON_VERSION
         value: 3.11.8
       - key: GITHUB_TOKEN
