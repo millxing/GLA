@@ -1128,6 +1128,14 @@ def compute_pbp_traditional_boxscore(
 ) -> dict[str, Any]:
     segment = normalize_boxscore_segment(segment)
     meta = _load_game_metadata(season=season, game_id=game_id)
+    if segment == "all":
+        return _load_traditional_boxscore_fallback(
+            season=season,
+            game_id=game_id,
+            meta=meta,
+            starter_info=None,
+        )
+
     team_ids = [meta["home_team_id"], meta["road_team_id"]]
 
     data_repo_dir = Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1])
