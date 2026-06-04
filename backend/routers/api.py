@@ -9,6 +9,8 @@ import re
 import sys
 import logging
 import os
+import shutil
+import tempfile
 import time
 from copy import deepcopy
 import pandas as pd
@@ -330,10 +332,23 @@ def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     remote_url = f"{PBP_GITHUB_RAW_BASE_URL}/{rel}"
     req = Request(remote_url, headers={"User-Agent": "GLA-timeline-fallback"})
+    tmp_path: Optional[Path] = None
     try:
         with urlopen(req, timeout=REMOTE_FETCH_TIMEOUT_SECONDS) as resp:
-            payload = resp.read()
+            with tempfile.NamedTemporaryFile(
+                prefix=f".{cache_path.name}.",
+                suffix=".tmp",
+                dir=cache_path.parent,
+                delete=False,
+            ) as tmp_file:
+                tmp_path = Path(tmp_file.name)
+                shutil.copyfileobj(resp, tmp_file, length=1024 * 1024)
     except (HTTPError, URLError, TimeoutError, OSError):
+        if tmp_path:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         logger.warning(
             "Timeline remote fallback failed: relative_path=%s url=%s",
             rel,
@@ -342,14 +357,19 @@ def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
         # If refresh failed but a stale cache exists, prefer stale over missing.
         return cache_path if cache_exists else None
 
-    if not payload:
+    if not tmp_path or not tmp_path.exists() or tmp_path.stat().st_size <= 0:
+        if tmp_path:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         logger.warning(
             "Timeline remote fallback returned empty payload: relative_path=%s url=%s",
             rel,
             remote_url,
         )
         return cache_path if cache_exists else None
-    cache_path.write_bytes(payload)
+    tmp_path.replace(cache_path)
     if cache_exists:
         logger.warning(
             "Timeline remote cache refreshed: relative_path=%s url=%s cache_path=%s ttl_seconds=%s",

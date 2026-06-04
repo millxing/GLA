@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import time
 import unicodedata
 from collections import defaultdict
@@ -127,18 +128,36 @@ def _download_remote_pbpdata_file(relative_path: str) -> Optional[Path]:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     remote_url = f"{PBP_GITHUB_RAW_BASE_URL.rstrip('/')}/{rel}"
     request = Request(remote_url, headers={"User-Agent": "GLA-pbp-boxscore-fallback"})
+    tmp_path: Optional[Path] = None
     try:
         with urlopen(request, timeout=REMOTE_FETCH_TIMEOUT_SECONDS) as response:
-            payload = response.read()
+            with tempfile.NamedTemporaryFile(
+                prefix=f".{cache_path.name}.",
+                suffix=".tmp",
+                dir=cache_path.parent,
+                delete=False,
+            ) as tmp_file:
+                tmp_path = Path(tmp_file.name)
+                shutil.copyfileobj(response, tmp_file, length=1024 * 1024)
     except (HTTPError, URLError, TimeoutError, OSError):
+        if tmp_path:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         logger.warning("PBP box score remote fallback failed: relative_path=%s url=%s", rel, remote_url)
         return cache_path if cache_exists else None
 
-    if not payload:
+    if not tmp_path or not tmp_path.exists() or tmp_path.stat().st_size <= 0:
+        if tmp_path:
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
         logger.warning("PBP box score remote fallback returned empty payload: relative_path=%s url=%s", rel, remote_url)
         return cache_path if cache_exists else None
 
-    cache_path.write_bytes(payload)
+    tmp_path.replace(cache_path)
     return cache_path
 
 
