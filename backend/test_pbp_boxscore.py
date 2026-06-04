@@ -134,7 +134,58 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         self.assertEqual(payload, fallback_payload)
         load_pbp_df.assert_not_called()
 
-    def test_segmented_box_score_still_requires_pbp(self):
+    def test_segmented_box_score_uses_game_state_payload_without_loading_season_pbp(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500301",
+            "game_date": "2026-05-19",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612739,
+            "road_team": "CLE",
+        }
+        payload = {
+            "events": [
+                {
+                    "action_number": 1,
+                    "action_id": 1,
+                    "period": 1,
+                    "clock": "PT11M30.00S",
+                    "team_id": 1610612752,
+                    "team_tricode": "NYK",
+                    "person_id": 123,
+                    "player_name": "Example Player",
+                    "description": "Example Player 12' Jump Shot",
+                    "action_type": "2pt",
+                    "sub_type": "Jump Shot",
+                    "shot_result": "Made",
+                    "shot_value": 2,
+                    "score_home": 2,
+                    "score_away": 0,
+                }
+            ]
+        }
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_load_game_state_payload", return_value=payload),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df") as load_pbp_df,
+            mock.patch.object(pbp_boxscore, "_build_segment_include_map", return_value=None),
+            mock.patch.object(pbp_boxscore, "_fetch_game_rotation", side_effect=RuntimeError("rotation unavailable")),
+            mock.patch.object(pbp_boxscore, "_infer_period_start_lineup", side_effect=ValueError("lineup unavailable")),
+            mock.patch.object(pbp_boxscore, "_apply_official_starter_info", side_effect=lambda **kwargs: kwargs["starter_info"]),
+        ):
+            payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "q1")
+
+        load_pbp_df.assert_not_called()
+        self.assertEqual(payload["source"], "game_states")
+        self.assertEqual(payload["minutes_plus_minus_source"], "pbp_stats_only:q1")
+        self.assertEqual(payload["home_players"][0]["player_name"], "Example Player")
+        self.assertEqual(payload["home_players"][0]["pts"], 2)
+
+    def test_segmented_box_score_falls_back_to_season_pbp_when_game_states_are_unavailable(self):
         meta = {
             "season": "2025-26",
             "game_id": "0042500301",
@@ -149,6 +200,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
 
         with (
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_load_game_state_payload", return_value=None),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/missing/pbp.parquet"), "nbastatsv3")),
             mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
             mock.patch.object(pbp_boxscore, "_load_pbp_df", side_effect=FileNotFoundError("missing PBP")),
@@ -193,6 +245,7 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
 
         with (
             mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_load_game_state_payload", return_value=None),
             mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
             mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
             mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),

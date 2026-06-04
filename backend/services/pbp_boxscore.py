@@ -1121,6 +1121,67 @@ def _load_traditional_boxscore_fallback(
     }
 
 
+def _game_state_payload_to_pbp_df(payload: dict[str, Any], meta: dict[str, Any]) -> pd.DataFrame:
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return pd.DataFrame()
+
+    rows: list[dict[str, Any]] = []
+    for event in events:
+        if not isinstance(event, dict) or bool(event.get("event_quarantined")):
+            continue
+        player_name = _safe_str(event.get("player_name"))
+        rows.append(
+            {
+                "gameId": meta["game_id"],
+                "game_id_norm": meta["game_id"],
+                "actionNumber": event.get("action_number"),
+                "actionId": event.get("action_id"),
+                "clock": event.get("clock"),
+                "period": event.get("period"),
+                "teamId": event.get("team_id"),
+                "teamTricode": event.get("team_tricode"),
+                "personId": event.get("person_id"),
+                "playerName": player_name,
+                "playerNameI": player_name,
+                "description": event.get("description"),
+                "actionType": event.get("action_type"),
+                "subType": event.get("sub_type"),
+                "shotResult": event.get("shot_result"),
+                "isFieldGoal": event.get("is_field_goal"),
+                "shotValue": event.get("shot_value"),
+                "scoreHome": event.get("score_home"),
+                "scoreAway": event.get("score_away"),
+                "pointsTotal": event.get("points_total"),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["action_type_norm"] = df["actionType"].map(_normalize_text)
+    df["sub_type_norm"] = df["subType"].map(_normalize_text)
+    return df
+
+
+def _load_game_pbp_df(
+    season: str,
+    game_id: str,
+    meta: dict[str, Any],
+) -> tuple[pd.DataFrame, str]:
+    payload = _load_game_state_payload(meta)
+    game_df = _game_state_payload_to_pbp_df(payload, meta) if payload else pd.DataFrame()
+    if not game_df.empty:
+        return game_df, "game_states"
+
+    data_repo_dir = Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1])
+    pbp_path, pbp_source = _resolve_pbp_input_path(data_repo_dir, season, meta["phase"])
+    pbp_df = _load_pbp_df(pbp_path)
+    game_id_norm = _normalize_game_id(game_id)
+    return pbp_df[pbp_df["game_id_norm"] == game_id_norm].copy(), pbp_source
+
+
 def compute_pbp_traditional_boxscore(
     season: str,
     game_id: str,
@@ -1138,29 +1199,9 @@ def compute_pbp_traditional_boxscore(
 
     team_ids = [meta["home_team_id"], meta["road_team_id"]]
 
-    data_repo_dir = Path(resolve_data_file_path(build_data_filename("team_game_logs", season)).parents[1])
-    pbp_path, pbp_source = _resolve_pbp_input_path(data_repo_dir, season, meta["phase"])
-    try:
-        pbp_df = _load_pbp_df(pbp_path)
-    except Exception:
-        if segment == "all":
-            return _load_traditional_boxscore_fallback(
-                season=season,
-                game_id=game_id,
-                meta=meta,
-                starter_info=None,
-            )
-        raise
-    game_id_norm = _normalize_game_id(game_id)
-    game_df = pbp_df[pbp_df["game_id_norm"] == game_id_norm].copy()
+    game_df, pbp_source = _load_game_pbp_df(season=season, game_id=game_id, meta=meta)
     if game_df.empty:
-        if segment == "all":
-            return _load_traditional_boxscore_fallback(
-                season=season,
-                game_id=game_id,
-                meta=meta,
-                starter_info=None,
-            )
+        game_id_norm = _normalize_game_id(game_id)
         raise ValueError(f"No PBP rows found for game {game_id_norm}")
 
     game_df = _sort_pbp_events(game_df).reset_index(drop=True)
