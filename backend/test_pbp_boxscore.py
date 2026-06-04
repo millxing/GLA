@@ -134,6 +134,9 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         self.assertEqual(payload, fallback_payload)
         load_pbp_df.assert_not_called()
 
+    def test_singular_playoff_game_type_maps_to_playoff_phase(self):
+        self.assertEqual(pbp_boxscore._pbp_phase_from_game_type("playoff"), "playoffs")
+
     def test_segmented_box_score_uses_game_state_payload_without_loading_season_pbp(self):
         meta = {
             "season": "2025-26",

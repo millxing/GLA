@@ -288,7 +288,7 @@ def _empty_stat_line() -> dict[str, Any]:
 
 def _pbp_phase_from_game_type(game_type: str) -> str:
     game_type_norm = _normalize_text(game_type)
-    if game_type_norm in {"playoffs", "play_in"}:
+    if game_type_norm in {"playoff", "playoffs", "play_in"}:
         return "playoffs"
     return "regular"
 
