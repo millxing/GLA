@@ -258,7 +258,7 @@ def _sort_pbp_events(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _format_minutes(seconds: float) -> str:
-    total_seconds = int(round(max(0.0, float(seconds))))
+    total_seconds = int(max(0.0, float(seconds)) + 0.5)
     return f"{total_seconds // 60}:{total_seconds % 60:02d}"
 
 
@@ -978,8 +978,26 @@ def _apply_rotation_segment_minutes_and_plus_minus(
     stats_by_team: dict[int, dict[str, dict[str, Any]]],
     display_by_token: dict[int, dict[str, str]],
 ) -> None:
+    if _apply_rotation_stint_segment_minutes_and_plus_minus(
+        meta=meta,
+        team_ids=team_ids,
+        segment=segment,
+        rotation_rows_by_team=rotation_rows_by_team,
+        stats_by_team=stats_by_team,
+        display_by_token=display_by_token,
+    ):
+        return
+
     score_home = 0
     score_road = 0
+    substitution_times: set[tuple[int, float]] = set()
+    for _, row in game_df.iterrows():
+        if _normalize_text(row.get("actionType")) != "substitution":
+            continue
+        period = _to_int(row.get("period"), default=0)
+        clock = _clock_to_seconds_remaining(row.get("clock"))
+        if period > 0 and clock is not None:
+            substitution_times.add((period, clock))
 
     for period in sorted(int(value) for value in game_df["period"].dropna().unique() if int(value) > 0):
         period_df = _sort_pbp_events(game_df[game_df["period"] == period])
@@ -1021,6 +1039,8 @@ def _apply_rotation_segment_minutes_and_plus_minus(
                 if home_delta or road_delta:
                     plus_minus_delta = home_delta - road_delta
                     event_elapsed = _absolute_elapsed_seconds(period, current_clock)
+                    if (period, current_clock) in substitution_times:
+                        event_elapsed = max(0.0, event_elapsed - 0.001)
                     for lineup_team_id in team_ids:
                         sign = 1 if lineup_team_id == meta["home_team_id"] else -1
                         for rotation_row in rotation_rows_by_team.get(lineup_team_id, []):
@@ -1044,6 +1064,75 @@ def _apply_rotation_segment_minutes_and_plus_minus(
                 score_road = int(new_score_road)
 
             prev_clock = current_clock
+
+
+def _segment_elapsed_ranges(segment: str) -> Optional[list[tuple[float, float]]]:
+    if segment == "q1":
+        return [(0.0, 720.0)]
+    if segment == "q2":
+        return [(720.0, 1440.0)]
+    if segment == "q3":
+        return [(1440.0, 2160.0)]
+    if segment == "q4":
+        return [(2160.0, 2880.0)]
+    if segment == "h1":
+        return [(0.0, 1440.0)]
+    if segment == "h2":
+        return [(1440.0, float("inf"))]
+    if segment == "ot":
+        return [(2880.0, float("inf"))]
+    return None
+
+
+def _rotation_overlap_seconds(rotation_row: dict[str, Any], ranges: list[tuple[float, float]]) -> float:
+    start = float(rotation_row["start_seconds"])
+    end = float(rotation_row["end_seconds"])
+    return sum(max(0.0, min(end, range_end) - max(start, range_start)) for range_start, range_end in ranges)
+
+
+def _apply_rotation_stint_segment_minutes_and_plus_minus(
+    *,
+    meta: dict[str, Any],
+    team_ids: list[int],
+    segment: str,
+    rotation_rows_by_team: dict[int, list[dict[str, Any]]],
+    stats_by_team: dict[int, dict[str, dict[str, Any]]],
+    display_by_token: dict[int, dict[str, str]],
+) -> bool:
+    ranges = _segment_elapsed_ranges(segment)
+    if ranges is None:
+        return False
+
+    overlapping_rows: list[tuple[int, dict[str, Any], float]] = []
+    for team_id in team_ids:
+        for rotation_row in rotation_rows_by_team.get(team_id, []):
+            overlap = _rotation_overlap_seconds(rotation_row, ranges)
+            if overlap > 0.0:
+                overlapping_rows.append((team_id, rotation_row, overlap))
+
+    if not overlapping_rows:
+        return False
+
+    for _team_id, rotation_row, overlap in overlapping_rows:
+        row_seconds = float(rotation_row["seconds"])
+        if abs(overlap - row_seconds) > 0.5:
+            return False
+
+    for team_id, rotation_row, overlap in overlapping_rows:
+        token = f"{team_id}:{rotation_row['player_id']}"
+        display_name = display_by_token[team_id].get(token, rotation_row["player_name"])
+        display_by_token[team_id].setdefault(token, display_name)
+        stat_line = _ensure_player_entry(
+            stats_by_team=stats_by_team,
+            meta=meta,
+            team_id=team_id,
+            token=token,
+            player_name=display_name,
+        )
+        stat_line["seconds"] += overlap
+        stat_line["plus_minus"] += int(rotation_row["plus_minus"])
+
+    return True
 
 
 def _load_traditional_boxscore_fallback(
@@ -1208,6 +1297,7 @@ def compute_pbp_traditional_boxscore(
 ) -> dict[str, Any]:
     segment = normalize_boxscore_segment(segment)
     meta = _load_game_metadata(season=season, game_id=game_id)
+    game_id_norm = _normalize_game_id(game_id)
     if segment == "all":
         return _load_traditional_boxscore_fallback(
             season=season,
@@ -1220,7 +1310,6 @@ def compute_pbp_traditional_boxscore(
 
     game_df, pbp_source = _load_game_pbp_df(season=season, game_id=game_id, meta=meta)
     if game_df.empty:
-        game_id_norm = _normalize_game_id(game_id)
         raise ValueError(f"No PBP rows found for game {game_id_norm}")
 
     game_df = _sort_pbp_events(game_df).reset_index(drop=True)

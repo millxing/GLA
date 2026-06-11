@@ -340,6 +340,272 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         self.assertEqual(home_players[101]["plus_minus"], 3)
         self.assertEqual(road_players[201]["plus_minus"], -3)
 
+    def test_q4_rotation_segment_uses_stint_plus_minus(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500404",
+            "game_date": "2026-06-10",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612759,
+            "road_team": "SAS",
+        }
+        pbp_df = pd.DataFrame(
+            [
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 1,
+                    "actionId": 1,
+                    "clock": "PT12M00.00S",
+                    "teamId": 0,
+                    "personId": 0,
+                    "playerName": "",
+                    "playerNameI": "",
+                    "actionType": "period",
+                    "subType": "start",
+                    "shotResult": "",
+                    "shotValue": 0,
+                    "description": "Start of 4th Period",
+                    "scoreHome": 75,
+                    "scoreAway": 90,
+                },
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 2,
+                    "actionId": 2,
+                    "clock": "PT11M00.00S",
+                    "teamId": meta["road_team_id"],
+                    "personId": 1641705,
+                    "playerName": "Victor Wembanyama",
+                    "playerNameI": "V. Wembanyama",
+                    "actionType": "Made Shot",
+                    "subType": "Driving Layup",
+                    "shotResult": "Made",
+                    "shotValue": 2,
+                    "description": "Wembanyama 1' Driving Layup",
+                    "scoreHome": 75,
+                    "scoreAway": 92,
+                },
+            ]
+        )
+        rotation_rows = {
+            meta["road_team_id"]: [
+                {
+                    "team_id": meta["road_team_id"],
+                    "player_id": 1641705,
+                    "player_name": "Victor Wembanyama",
+                    "start_seconds": 2160.0,
+                    "end_seconds": 2880.0,
+                    "seconds": 720.0,
+                    "plus_minus": -16,
+                }
+            ],
+            meta["home_team_id"]: [
+                {
+                    "team_id": meta["home_team_id"],
+                    "player_id": 1628973,
+                    "player_name": "Jalen Brunson",
+                    "start_seconds": 2170.0,
+                    "end_seconds": 2880.0,
+                    "seconds": 710.0,
+                    "plus_minus": 18,
+                }
+            ],
+        }
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_load_game_state_payload", return_value=None),
+            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),
+            mock.patch.object(pbp_boxscore, "_fetch_game_rotation", return_value=rotation_rows),
+            mock.patch.object(pbp_boxscore, "_apply_official_starter_info", side_effect=lambda **kwargs: kwargs["starter_info"]),
+        ):
+            payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500404", "q4")
+
+        road_players = {player["player_id"]: player for player in payload["road_players"]}
+        home_players = {player["player_id"]: player for player in payload["home_players"]}
+
+        self.assertEqual(payload["minutes_plus_minus_source"], "gamerotation_segmented:q4")
+        self.assertEqual(road_players[1641705]["minutes"], "12:00")
+        self.assertEqual(road_players[1641705]["pts"], 2)
+        self.assertEqual(road_players[1641705]["plus_minus"], -16)
+        self.assertEqual(home_players[1628973]["minutes"], "11:50")
+        self.assertEqual(home_players[1628973]["plus_minus"], 18)
+
+    def test_rotation_same_clock_sub_between_free_throws_uses_pre_sub_lineup(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500404",
+            "game_date": "2026-06-10",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612759,
+            "road_team": "SAS",
+        }
+        pbp_df = pd.DataFrame(
+            [
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 1,
+                    "actionId": 1,
+                    "clock": "PT12M00.00S",
+                    "teamId": 0,
+                    "personId": 0,
+                    "playerName": "",
+                    "playerNameI": "",
+                    "actionType": "period",
+                    "subType": "start",
+                    "shotResult": "",
+                    "shotValue": 0,
+                    "description": "Start of 4th Period",
+                    "scoreHome": 0,
+                    "scoreAway": 0,
+                },
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 2,
+                    "actionId": 2,
+                    "clock": "PT06M24.00S",
+                    "teamId": meta["road_team_id"],
+                    "personId": 1642264,
+                    "playerName": "Stephon Castle",
+                    "playerNameI": "S. Castle",
+                    "actionType": "Free Throw",
+                    "subType": "Free Throw 1 of 2",
+                    "shotResult": "Made",
+                    "shotValue": 0,
+                    "description": "Castle Free Throw 1 of 2",
+                    "scoreHome": 0,
+                    "scoreAway": 1,
+                },
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 3,
+                    "actionId": 3,
+                    "clock": "PT06M24.00S",
+                    "teamId": meta["road_team_id"],
+                    "personId": 1642844,
+                    "playerName": "Dylan Harper",
+                    "playerNameI": "D. Harper",
+                    "actionType": "Substitution",
+                    "subType": "",
+                    "shotResult": "",
+                    "shotValue": 0,
+                    "description": "SUB: Fox FOR Harper",
+                    "scoreHome": None,
+                    "scoreAway": None,
+                },
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 4,
+                    "actionId": 4,
+                    "clock": "PT06M24.00S",
+                    "teamId": meta["road_team_id"],
+                    "personId": 1642264,
+                    "playerName": "Stephon Castle",
+                    "playerNameI": "S. Castle",
+                    "actionType": "Free Throw",
+                    "subType": "Free Throw 2 of 2",
+                    "shotResult": "Made",
+                    "shotValue": 0,
+                    "description": "Castle Free Throw 2 of 2",
+                    "scoreHome": 0,
+                    "scoreAway": 2,
+                },
+                {
+                    "game_id_norm": "0042500404",
+                    "period": 4,
+                    "actionNumber": 5,
+                    "actionId": 5,
+                    "clock": "PT00M00.00S",
+                    "teamId": 0,
+                    "personId": 0,
+                    "playerName": "",
+                    "playerNameI": "",
+                    "actionType": "period",
+                    "subType": "end",
+                    "shotResult": "",
+                    "shotValue": 0,
+                    "description": "End of 4th Period",
+                    "scoreHome": 0,
+                    "scoreAway": 2,
+                },
+            ]
+        )
+        rotation_rows = {
+            meta["road_team_id"]: [
+                {
+                    "team_id": meta["road_team_id"],
+                    "player_id": 1642844,
+                    "player_name": "Dylan Harper",
+                    "start_seconds": 2000.0,
+                    "end_seconds": 2496.0,
+                    "seconds": 496.0,
+                    "plus_minus": 0,
+                },
+                {
+                    "team_id": meta["road_team_id"],
+                    "player_id": 1628368,
+                    "player_name": "De'Aaron Fox",
+                    "start_seconds": 2496.0,
+                    "end_seconds": 2880.0,
+                    "seconds": 384.0,
+                    "plus_minus": 0,
+                },
+                {
+                    "team_id": meta["road_team_id"],
+                    "player_id": 1642264,
+                    "player_name": "Stephon Castle",
+                    "start_seconds": 2160.0,
+                    "end_seconds": 2880.0,
+                    "seconds": 720.0,
+                    "plus_minus": 0,
+                },
+            ],
+            meta["home_team_id"]: [
+                {
+                    "team_id": meta["home_team_id"],
+                    "player_id": 1628973,
+                    "player_name": "Jalen Brunson",
+                    "start_seconds": 2160.0,
+                    "end_seconds": 2880.0,
+                    "seconds": 720.0,
+                    "plus_minus": 0,
+                }
+            ],
+        }
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_load_game_state_payload", return_value=None),
+            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),
+            mock.patch.object(pbp_boxscore, "_fetch_game_rotation", return_value=rotation_rows),
+            mock.patch.object(pbp_boxscore, "_apply_official_starter_info", side_effect=lambda **kwargs: kwargs["starter_info"]),
+        ):
+            payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500404", "q4")
+
+        road_players = {player["player_id"]: player for player in payload["road_players"]}
+        home_players = {player["player_id"]: player for player in payload["home_players"]}
+
+        self.assertEqual(road_players[1642844]["plus_minus"], 2)
+        self.assertEqual(road_players[1628368]["plus_minus"], 0)
+        self.assertEqual(road_players[1642264]["plus_minus"], 2)
+        self.assertEqual(home_players[1628973]["plus_minus"], -2)
+
 
 if __name__ == "__main__":
     unittest.main()
