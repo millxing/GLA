@@ -262,6 +262,84 @@ class PBPBoxScoreFallbackTest(unittest.TestCase):
         self.assertEqual(payload["home_players"][0]["player_name"], "E. Player")
         self.assertEqual(payload["home_players"][0]["pts"], 2)
 
+    def test_segmented_plus_minus_ignores_prior_out_of_segment_scoring(self):
+        meta = {
+            "season": "2025-26",
+            "game_id": "0042500301",
+            "game_date": "2026-05-19",
+            "game_type": "playoffs",
+            "phase": "playoffs",
+            "home_team_id": 1610612752,
+            "home_team": "NYK",
+            "road_team_id": 1610612739,
+            "road_team": "CLE",
+        }
+        home_lineup = {f"{meta['home_team_id']}:{player_id}" for player_id in range(101, 106)}
+        road_lineup = {f"{meta['road_team_id']}:{player_id}" for player_id in range(201, 206)}
+        pbp_df = pd.DataFrame(
+            [
+                {
+                    "game_id_norm": "0042500301",
+                    "period": 1,
+                    "actionNumber": 1,
+                    "actionId": 1,
+                    "clock": "PT11M30.00S",
+                    "teamId": meta["home_team_id"],
+                    "personId": 101,
+                    "playerName": "Home One",
+                    "playerNameI": "H. One",
+                    "actionType": "Made Shot",
+                    "subType": "Jump Shot",
+                    "shotResult": "Made",
+                    "shotValue": 2,
+                    "description": "Home One 12' Jump Shot",
+                    "scoreHome": 2,
+                    "scoreAway": 0,
+                },
+                {
+                    "game_id_norm": "0042500301",
+                    "period": 4,
+                    "actionNumber": 2,
+                    "actionId": 2,
+                    "clock": "PT11M00.00S",
+                    "teamId": meta["home_team_id"],
+                    "personId": 101,
+                    "playerName": "Home One",
+                    "playerNameI": "H. One",
+                    "actionType": "Made Shot",
+                    "subType": "Jump Shot",
+                    "shotResult": "Made",
+                    "shotValue": 3,
+                    "description": "Home One 25' 3PT Jump Shot",
+                    "scoreHome": 5,
+                    "scoreAway": 0,
+                },
+            ]
+        )
+
+        def fake_infer_period_start_lineup(*, team_id, **_kwargs):
+            return set(home_lineup if team_id == meta["home_team_id"] else road_lineup)
+
+        with (
+            mock.patch.object(pbp_boxscore, "_load_game_metadata", return_value=meta),
+            mock.patch.object(pbp_boxscore, "_load_game_state_payload", return_value=None),
+            mock.patch.object(pbp_boxscore, "_build_pbp_path", return_value=(Path("/fake/pbp.parquet"), "nbastatsv3")),
+            mock.patch.object(pbp_boxscore, "_download_remote_pbpdata_file", return_value=None),
+            mock.patch.object(pbp_boxscore, "_load_pbp_df", return_value=pbp_df),
+            mock.patch.object(pbp_boxscore, "_fetch_game_rotation", side_effect=RuntimeError("rotation unavailable")),
+            mock.patch.object(pbp_boxscore, "_infer_period_start_lineup", side_effect=fake_infer_period_start_lineup),
+            mock.patch.object(pbp_boxscore, "_apply_official_starter_info", side_effect=lambda **kwargs: kwargs["starter_info"]),
+        ):
+            payload = pbp_boxscore.compute_pbp_traditional_boxscore("2025-26", "0042500301", "q4")
+
+        home_players = {player["player_id"]: player for player in payload["home_players"]}
+        road_players = {player["player_id"]: player for player in payload["road_players"]}
+
+        self.assertEqual(payload["minutes_plus_minus_source"], "pbp_segmented:q4")
+        self.assertEqual(home_players[101]["pts"], 3)
+        self.assertEqual(home_players[101]["plus_minus"], 3)
+        self.assertEqual(road_players[201]["plus_minus"], -3)
+
 
 if __name__ == "__main__":
     unittest.main()

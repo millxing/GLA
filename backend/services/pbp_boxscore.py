@@ -1366,8 +1366,8 @@ def compute_pbp_traditional_boxscore(
                                 stats_by_team[meta["home_team_id"]][token_in_lineup]["plus_minus"] += plus_minus_delta
                             for token_in_lineup in current_lineups[meta["road_team_id"]]:
                                 stats_by_team[meta["road_team_id"]][token_in_lineup]["plus_minus"] -= plus_minus_delta
-                            score_home = int(new_score_home)
-                            score_road = int(new_score_road)
+                        score_home = int(new_score_home)
+                        score_road = int(new_score_road)
 
                     if action_type == "substitution" and team_id in team_ids:
                         match = SUB_RE.match(description.strip())
