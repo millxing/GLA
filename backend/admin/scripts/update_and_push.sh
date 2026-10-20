@@ -45,6 +45,18 @@ on_error() {
 
 trap on_error ERR
 
+# The ERR trap is not inherited by shell functions (and set -E misfires inside
+# $(...) on macOS bash 3.2), so a failure inside run_step or another function
+# exits without a report entry. Record it on exit unless one was just written.
+on_exit() {
+    local exit_code="$?"
+    if [ "$exit_code" -ne 0 ] && ! tail -n 1 "$REPORT_FILE" 2>/dev/null | grep -q " | FAILED | "; then
+        report_line "FAILED" "${CURRENT_STEP} failed (exit=${exit_code})"
+    fi
+}
+
+trap on_exit EXIT
+
 run_step() {
     local label="$1"
     shift
