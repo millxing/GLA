@@ -208,7 +208,7 @@ LEAGUE_SUMMARY_PERSISTED_SCOPES = {
     "garbage_filtered",
     "clutch",
 }
-INTERPRETATION_ENABLED_SEASON = "2025-26"
+INTERPRETATION_ENABLED_SEASONS = ("2025-26", "2026-27")
 INTERPRETATION_ENABLED_SCOPE = "all"
 
 PBP_GAME_STATES_ROOTS = [PBP_GAME_STATES_ROOT]
@@ -2006,13 +2006,13 @@ async def get_interpretation(request: InterpretationRequest):
     if not request.season:
         raise HTTPException(
             status_code=400,
-            detail=f"Season is required. Interpretations are only available for {INTERPRETATION_ENABLED_SEASON}.",
+            detail=f"Season is required. Interpretations are only available for {', '.join(INTERPRETATION_ENABLED_SEASONS)}.",
         )
 
-    if request.season != INTERPRETATION_ENABLED_SEASON:
+    if request.season not in INTERPRETATION_ENABLED_SEASONS:
         raise HTTPException(
             status_code=404,
-            detail=f"Interpretations are only available for {INTERPRETATION_ENABLED_SEASON}.",
+            detail=f"Interpretations are only available for {', '.join(INTERPRETATION_ENABLED_SEASONS)}.",
         )
 
     try:

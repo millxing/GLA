@@ -40,7 +40,7 @@ const TEAM_CITIES = {
 const toCityName = (abbr) => TEAM_CITIES[abbr] || abbr
 
 const INTERPRETATION_UI_ENABLED = true
-const INTERPRETATION_ENABLED_SEASON = '2025-26'
+const INTERPRETATION_ENABLED_SEASONS = new Set(['2025-26', '2026-27'])
 const DATA_SCOPE_OPTIONS = [
   { value: 'all', label: 'All Game' },
   { value: 'garbage_filtered', label: 'Garbage Time Excluded' },
@@ -341,7 +341,7 @@ function FourFactor() {
   }
   const interpretationEnabled =
     INTERPRETATION_UI_ENABLED &&
-    selectedSeason === INTERPRETATION_ENABLED_SEASON &&
+    INTERPRETATION_ENABLED_SEASONS.has(selectedSeason) &&
     selectedDataScope === 'all' &&
     factorType === 'eight_factors'
 

@@ -128,7 +128,7 @@ function ContributionAnalysis() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [seasons, setSeasons] = useState([])
   const [teams, setTeams] = useState([])
-  const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '2025-26')
+  const [selectedSeason, setSelectedSeason] = usePersistedState('contribution_season', '')
   const [selectedDataScope, setSelectedDataScope] = usePersistedState('contribution_datascope', 'all')
   const [selectedTeam, setSelectedTeam] = usePersistedState('contribution_team', 'BOS', { persist: true })
   const [dateRangeType, setDateRangeType] = usePersistedState('contribution_daterange', 'season')
@@ -223,13 +223,27 @@ function ContributionAnalysis() {
         const seasonsRes = await getSeasons()
         setSeasons(seasonsRes.seasons)
 
+        // Default to the newest season that has games; a just-started season has none yet,
+        // so fall back to the previous one.
+        let defaultSeason = seasonsRes.seasons[0] || ''
+        for (const season of seasonsRes.seasons.slice(0, 2)) {
+          try {
+            const teamsRes = await getTeams(season)
+            if (teamsRes.teams?.length) {
+              defaultSeason = season
+              break
+            }
+          } catch {
+            // Try the next season.
+          }
+        }
+
         setSelectedSeason((prevSeason) => {
           if (urlSelections.season && seasonsRes.seasons.includes(urlSelections.season)) {
             return urlSelections.season
           }
           if (prevSeason && seasonsRes.seasons.includes(prevSeason)) return prevSeason
-          if (seasonsRes.seasons.includes('2025-26')) return '2025-26'
-          return seasonsRes.seasons[0] || ''
+          return defaultSeason
         })
       } catch (err) {
         setError(err.message)
