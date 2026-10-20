@@ -19,7 +19,7 @@ from services.player_shots import analyze_shot_streakiness_sequence
 
 
 def _valid_test_season() -> str:
-    return sorted(api._VALID_SEASONS)[-1]
+    return api.get_available_seasons()[-1]
 
 
 class ShotStreakinessMetricTest(unittest.TestCase):

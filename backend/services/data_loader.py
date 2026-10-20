@@ -286,7 +286,8 @@ async def get_normalized_season_data(season: str, data_scope: str = "all") -> Op
         return cached
 
     raw_df = await load_season_data(season, data_scope=scope)
-    if raw_df is None:
+    # A header-only CSV (e.g. season started but no completed games yet) is treated as missing.
+    if raw_df is None or raw_df.empty:
         return None
 
     normalized = normalize_game_logs(raw_df, season, data_scope=scope)

@@ -604,6 +604,13 @@ def _resolve_artifact_path(output_root: str, season: str, phase: str) -> Path:
     resolved_phase = _ensure_local_or_remote(phase_path)
     if resolved_phase is not None:
         return resolved_phase
+    # A new season has no model until its own game states exist (and those need a model),
+    # so fall back to the most recent prior season's artifact.
+    prior = [s for s in list_wpm_seasons(output_root, phase) if _season_sort_key(s) < _season_sort_key(season)]
+    if prior:
+        fallback = prior[-1]
+        print(f"[wpm] No artifact for season={season}; using prior season {fallback}")
+        return _resolve_artifact_path(output_root, fallback, phase)
     raise FileNotFoundError(f"No WPM artifact found for season={season} under {base}")
 
 

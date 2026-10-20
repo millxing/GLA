@@ -103,14 +103,13 @@ from schemas.models import (
 _SEASON_RE = re.compile(r"^\d{4}-\d{2}$")
 _GAME_ID_RE = re.compile(r"^\d{1,10}$")
 _TEAM_RE = re.compile(r"^[A-Z]{3}$")
-_VALID_SEASONS = set(get_available_seasons())
 
 
 def validate_season(season: str) -> str:
     """Validate season format (YYYY-YY) and existence. Returns the season or raises 400."""
     if not _SEASON_RE.match(season):
         raise HTTPException(status_code=400, detail="Invalid season format. Expected YYYY-YY (e.g. 2024-25)")
-    if season not in _VALID_SEASONS:
+    if season not in get_available_seasons():
         raise HTTPException(status_code=400, detail=f"Season {season} is not available")
     return season
 
