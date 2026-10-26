@@ -499,6 +499,31 @@ else
     run_step \
         "Update season data (team_game_logs/linescores/box_score_advanced) for $SEASON" \
         "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" update-data --season "$SEASON"
+
+    # Games whose advanced box score NBA hasn't published yet are kept out of
+    # box_score_advanced (and so out of contributions) and retried next run.
+    INCOMPLETE_GAMES="$(
+"$ENV_PYTHON" - <<PY
+from datetime import datetime
+from pathlib import Path
+import pandas as pd
+from backend.config import build_data_filename, get_canonical_data_relative_path
+
+repo = Path(r"$REPO_DIR")
+logs = pd.read_csv(repo / get_canonical_data_relative_path(build_data_filename("team_game_logs", "$SEASON")), dtype={"game_id": str})
+adv_path = repo / get_canonical_data_relative_path(build_data_filename("box_score_advanced", "$SEASON"))
+adv_ids = set(pd.read_csv(adv_path, dtype={"game_id": str})["game_id"].str.zfill(10)) if adv_path.exists() else set()
+logs["game_id"] = logs["game_id"].str.zfill(10)
+today = datetime.now().strftime("%Y-%m-%d")
+for _, r in logs[(logs["game_date"].astype(str) != today) & ~logs["game_id"].isin(adv_ids)].iterrows():
+    print(f"{r['game_id']} {r['game_date']} {r['team_abbreviation_road']} @ {r['team_abbreviation_home']}")
+PY
+    )" || INCOMPLETE_GAMES=""
+    if [ -n "$INCOMPLETE_GAMES" ]; then
+        while IFS= read -r game_line; do
+            report_line "WARN" "Incomplete game data (advanced box score not yet published; will retry next run): $game_line"
+        done <<< "$INCOMPLETE_GAMES"
+    fi
 fi
 
 if [ "$ENABLE_BOX_SCORE_TRADITIONAL_V3" = "1" ]; then

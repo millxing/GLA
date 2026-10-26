@@ -13,6 +13,7 @@ class GameItem(BaseModel):
     home_pts: int
     road_pts: int
     is_overtime: bool = False
+    data_incomplete: bool = False
     label: str
 
 class GamesResponse(BaseModel):

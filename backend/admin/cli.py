@@ -282,6 +282,22 @@ ADVANCED_FALLBACK_DATA = {
         "minutes_road": 240,
         "possessions_road": 97.0,
     },
+    # 2026-27 ORL @ NYK 10/25/2026 - boxscoreadvancedv3 returned all zeros.
+    # Possessions = PTS / OffRtg * 100 from NBA.com's advanced team box
+    # (NYK 102 / 102.0, ORL 111 / 112.1; Pace 99.50 confirms).
+    "0022600114": {
+        "game_id": "0022600114",
+        "game_date": "2026-10-25",
+        "season": "2026-27",
+        "team_id_home": 1610612752,
+        "team_abbreviation_home": "NYK",
+        "minutes_home": 240,
+        "possessions_home": 100.0,
+        "team_id_road": 1610612753,
+        "team_abbreviation_road": "ORL",
+        "minutes_road": 240,
+        "possessions_road": 99.0,
+    },
 }
 
 
@@ -1040,10 +1056,15 @@ def _fetch_boxscore_data(
 
         # Fetch advanced stats (with fallback for known missing games)
         adv_row = _fetch_advanced_stats(gid, game_date, season, home_team_id)
-        if adv_row:
-            _assert_valid_advanced_row(adv_row, context="Fetched advanced row")
+        adv_missing = _advanced_row_missing_core_values(adv_row) if adv_row else []
+        if adv_row and not adv_missing:
             advanced_rows.append(adv_row)
             print("ADV:OK")
+        elif adv_missing and gid not in ADVANCED_FALLBACK_DATA:
+            # NBA sometimes publishes the advanced box hours after the game.
+            # Leave this game out of the advanced CSV so the next run retries it;
+            # downstream steps treat it as incomplete until then.
+            print(f"ADV:INCOMPLETE ({', '.join(adv_missing)} empty; will retry next run)")
         elif gid in ADVANCED_FALLBACK_DATA:
             fallback_row = ADVANCED_FALLBACK_DATA[gid].copy()
             _assert_valid_advanced_row(fallback_row, context="Fallback advanced row")
@@ -2506,6 +2527,7 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
         ls_added = 0
         adv_added = 0
         batch_num = 0
+        attempted_ids: set[str] = set()  # fetched this run; incomplete ones wait for the next run
 
         # Loop with auto-restart after BATCH_RESTART_SIZE games to avoid rate limiting
         while True:
@@ -2534,10 +2556,10 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
 
             # Games that need fetching (not in BOTH linescore and advanced)
             already_fetched = existing_ls_ids & existing_adv_ids
-            new_game_ids = all_game_ids - already_fetched
+            new_game_ids = all_game_ids - already_fetched - attempted_ids
 
             if not new_game_ids:
-                break  # All games fetched
+                break  # All games fetched (or attempted this run)
 
             # Limit to BATCH_RESTART_SIZE games per batch
             batch_game_ids = list(new_game_ids)[:BATCH_RESTART_SIZE]
@@ -2561,9 +2583,15 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
             )
             ls_added += batch_ls
             adv_added += batch_adv
+            attempted_ids.update(batch_game_ids)
 
-            # If we fetched a full batch and more games remain, do a true process restart
-            if len(batch_game_ids) == BATCH_RESTART_SIZE and (all_game_ids - already_fetched - set(batch_game_ids)):
+            # If we fetched a full batch and more games remain, do a true process restart.
+            # Require progress so a batch of all-incomplete games can't respawn forever.
+            if (
+                len(batch_game_ids) == BATCH_RESTART_SIZE
+                and batch_adv > 0
+                and (all_game_ids - already_fetched - set(batch_game_ids))
+            ):
                 print(f"\n[data] Auto-restart: spawning new process after 10s pause...")
                 time.sleep(10)
                 # Spawn a new Python process to continue
@@ -2596,6 +2624,18 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
         if latest_date:
             print(f"  latest: {latest_date}")
         print(f"  time: {elapsed:.1f}s")
+        if advanced_path.exists():
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            final_adv_ids = set(final_adv["game_id"].astype(str))
+            incomplete = merged[
+                (merged["game_date"] != today_str) & ~merged["game_id"].astype(str).isin(final_adv_ids)
+            ]
+            for _, row in incomplete.iterrows():
+                print(
+                    f"[warn] Incomplete game data: {row['game_id']} {row['game_date']} "
+                    f"{row['team_abbreviation_road']} @ {row['team_abbreviation_home']} "
+                    "(advanced box score not yet available; will retry next run)"
+                )
         return 0
 
     except Exception as e:
@@ -2880,6 +2920,11 @@ def generate_interpretations(
 
                 contribution_entry = contribution_by_game_id.get(game_id_str)
                 if contribution_entry is None:
+                    if "possessions_home" in game_row.index and pd.isna(game_row["possessions_home"]):
+                        # Advanced box score not published yet; contributions and this
+                        # interpretation will be generated on a later run.
+                        print("    [skip] Incomplete game data (no advanced box score yet); will retry next run")
+                        continue
                     print("    [warn] Missing contribution entry for game")
                     fail_count += 1
                     continue

@@ -350,6 +350,13 @@ async def get_normalized_data_with_possessions(season: str, data_scope: str = "a
             "minutes_road": mins_road,
         }
 
+    # Games without an advanced box score yet (NBA publishes it late) would add
+    # points with no possessions to every sum-based rating; leave them out until
+    # the next data update fills them in.
+    has_adv = df["game_id"].apply(_normalize_game_id).isin(poss_lookup.keys())
+    if not has_adv.all():
+        df = df[has_adv].copy()
+
     # Add actual possession/minute columns
     actual_poss = []
     opp_actual_poss = []
@@ -396,6 +403,13 @@ async def get_games_list(season: str, data_scope: str = "all") -> list:
             road_ot_pts = int(ls_row.get("pts_ot_total_road", 0) or 0)
             overtime_lookup[ls_row["game_id"]] = home_ot_pts > 0 or road_ot_pts > 0
 
+    # Games with no base advanced box score (NBA publishes it late) have no
+    # possessions, so no contributions yet; flag them so the UI can say so.
+    advanced_ids = None
+    adv_df = await load_advanced_stats(season)
+    if adv_df is not None:
+        advanced_ids = set(adv_df["game_id"].apply(_normalize_game_id))
+
     games_df = df[df["home_away"] == "home"].copy()
     # Filter out rows with missing team data
     games_df = games_df.dropna(subset=["team", "opponent"])
@@ -414,6 +428,7 @@ async def get_games_list(season: str, data_scope: str = "all") -> list:
             "home_pts": int(row["pts"]) if pd.notna(row["pts"]) else 0,
             "road_pts": int(row["opp_pts"]) if pd.notna(row["opp_pts"]) else 0,
             "is_overtime": overtime_lookup.get(game_id, False),
+            "data_incomplete": advanced_ids is not None and game_id not in advanced_ids,
             "label": f"{date_str}: {row['opponent']} @ {row['team']}"
         })
 

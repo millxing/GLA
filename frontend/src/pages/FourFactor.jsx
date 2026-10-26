@@ -120,7 +120,8 @@ const formatGameOptionLabel = (game) => {
   const gameTypeTag = gameTypeTagMap[game.game_type]
   const overtimeSuffix = game.is_overtime ? ' (OT)' : ''
   const gameTypeSuffix = gameTypeTag ? ` - ${gameTypeTag}` : ''
-  return `${date}: ${roadTeam} ${roadPts} @ ${homeTeam} ${homePts}${overtimeSuffix}${gameTypeSuffix}`
+  const incompleteSuffix = game.data_incomplete ? ' (data incomplete)' : ''
+  return `${date}: ${roadTeam} ${roadPts} @ ${homeTeam} ${homePts}${overtimeSuffix}${gameTypeSuffix}${incompleteSuffix}`
 }
 
 const normalizeGameId = (value) => {
@@ -488,6 +489,13 @@ function FourFactor() {
     if (!selectedMonth) return []
     return games.filter((game) => getMonthKeyFromDate(game.date) === selectedMonth)
   }, [games, selectedMonth])
+
+  const selectedGameInfo = useMemo(() => {
+    const gameId = normalizeGameId(selectedGame)
+    if (!gameId) return null
+    return games.find((game) => normalizeGameId(game.game_id) === gameId) || null
+  }, [games, selectedGame])
+  const selectedGameIncomplete = Boolean(selectedGameInfo?.data_incomplete)
 
   useEffect(() => {
     if (!pendingNavigationSelection || games.length === 0) return
@@ -1218,6 +1226,24 @@ function FourFactor() {
               </div>
             </div>
 
+            {!decomposition && selectedGameIncomplete && !loading && (
+              <div className="game-header card">
+                <div className="game-header-content">
+                  <div className="matchup-left">
+                    <div className="team road-team">
+                      <span className="team-abbr">{toCityName(selectedGameInfo.road_team)}</span>
+                      <span className="team-score">{selectedGameInfo.road_pts}</span>
+                    </div>
+                    <div className="at-symbol">@</div>
+                    <div className="team home-team">
+                      <span className="team-abbr">{toCityName(selectedGameInfo.home_team)}</span>
+                      <span className="team-score">{selectedGameInfo.home_pts}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {decomposition && (
               <div className="game-header card">
                 <div className="game-header-content">
@@ -1305,7 +1331,17 @@ function FourFactor() {
             )}
           </div>
 
-          {error && <div className="error">{error}</div>}
+          {selectedGameIncomplete && !loading && (
+            <div className="data-incomplete-notice card">
+              <strong>Data incomplete.</strong> NBA.com hasn&apos;t published the advanced box score
+              for this game yet, so possession-based stats and the factor analysis aren&apos;t available.
+              They&apos;ll appear automatically after the next nightly data update.
+            </div>
+          )}
+
+          {error && !(selectedGameIncomplete && error === 'Game not found in contributions') && (
+            <div className="error">{error}</div>
+          )}
 
           {(loading || initializing) && (
             <div className="loading">
@@ -1374,7 +1410,7 @@ function FourFactor() {
                 </div>
               </div>
 
-              {scopeNotice && (
+              {scopeNotice && !selectedGameIncomplete && (
                 <div className="scope-notice card">
                   {scopeNotice}
                 </div>

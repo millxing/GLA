@@ -526,6 +526,11 @@
   color: var(--color-text-secondary);
 }
 
+.data-incomplete-notice {
+  border-left: 4px solid var(--color-warning, #d97706);
+  color: var(--color-text-secondary);
+}
+
 .timeline-content {
   display: flex;
   flex-direction: column;
