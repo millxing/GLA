@@ -1,13 +1,104 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import './Home.css'
 
-function Home() {
-  const [visibleSections, setVisibleSections] = useState(new Set(['hero']))
+const FEATURES = [
+  {
+    id: 'game-analysis',
+    kicker: 'Game Analysis',
+    title: 'See what actually won the game',
+    highlights: [
+      'Factor contributions to rating differential',
+      'Show statistics with or without garbage-time included',
+      'Game timelines identifying clutch-time and garbage-time',
+      'Excitement and comeback rankings for every game',
+      'AI-generated post-game analysis',
+    ],
+    to: '/four-factor',
+    cta: 'Open Game Analysis',
+    previews: ['ga-00', 'ga-01', 'ga-02', 'ga-03', 'ga-04', 'ga-05'],
+    mobilePreview: { id: 'ga-m', alt: 'Factor contributions chart from Game Analysis' },
+    duration: 35,
+  },
+  {
+    id: 'league-summary',
+    kicker: 'League Summary',
+    title: 'Rank every team in any stat, over any period of time',
+    highlights: [
+      'Sortable rankings across all major stat categories over any time period',
+      'Show stats with or without garbage-time included',
+      'Show stats during clutch-time',
+      'Efficiency Landscape scatter plot for any selected period',
+      'Top contributing factors to team performance over the period',
+    ],
+    to: '/league-summary',
+    cta: 'Open League Summary',
+    previews: ['ls-01', 'ls-02', 'ls-03'],
+    mobilePreview: { id: 'ls-m', alt: 'Efficiency Landscape scatter plot from League Summary' },
+    duration: 25,
+  },
+  {
+    id: 'statistical-trends',
+    kicker: 'Statistical Trends',
+    title: 'Track how performance changes over time',
+    highlights: [
+      'Time-series views for key stats',
+      'Context for hot and cold stretches',
+      'Quick pivots between teams and metrics',
+      'Click any game to jump straight to Game Analysis',
+    ],
+    to: '/trends',
+    cta: 'Open Statistical Trends',
+    previews: ['st-01', 'st-02'],
+    mobilePreview: { id: 'st-m', alt: 'Net rating trend chart from Statistical Trends' },
+    duration: 20,
+  },
+  {
+    id: 'contribution-analysis',
+    kicker: 'Contribution Analysis',
+    title: 'Decompose team performance using an eight-factor model',
+    highlights: [
+      'Eight-factor team profile at a glance',
+      'Positive and negative contributions separated cleanly',
+      'Top contributing factors with game-by-game mini charts',
+    ],
+    to: '/contribution-analysis',
+    cta: 'Open Contribution Analysis',
+    previews: ['ca-01', 'ca-02'],
+    mobilePreview: { id: 'ca-m', alt: 'Net rating decomposition chart from Contribution Analysis' },
+    duration: 20,
+  },
+]
 
-  // Intersection observer — reveal animations
+const HEADER_H = 56
+const SNAP_ZONE = 0.3 // snap only when a section edge is within 30% of the viewport, in the scroll direction
+
+function Home() {
+  const [visibleSections, setVisibleSections] = useState(() => new Set())
+
+  // Wordmark roll plays once on load; hovering (or tapping) it replays once it has finished.
+  const [rollKey, setRollKey] = useState(0)
+  const rollingRef = useRef(true)
+  const replayRoll = () => {
+    if (rollingRef.current) return
+    rollingRef.current = true
+    setRollKey((key) => key + 1)
+  }
+
+  const scrollToFirstFeature = (event) => {
+    const target = document.getElementById(FEATURES[0].id)
+    if (!target) return
+    event.preventDefault()
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    window.scrollTo({
+      top: target.getBoundingClientRect().top + window.scrollY - HEADER_H,
+      behavior: reduceMotion ? 'auto' : 'smooth',
+    })
+  }
+
+  // Reveal each section once it scrolls into view
   useEffect(() => {
-    const panels = document.querySelectorAll('[data-section-id]')
+    const panels = document.querySelectorAll('.home [data-section-id]')
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -22,43 +113,53 @@ function Home() {
           })
         })
       },
-      { threshold: [0.2, 0.4] }
+      { threshold: 0.15 }
     )
 
     panels.forEach((panel) => observer.observe(panel))
     return () => observer.disconnect()
   }, [])
 
-  // Soft scroll snap — nudge to nearest section after scrolling stops
+  // Soft snap on wide screens only: after scrolling stops, settle on the next section edge
+  // in the direction the user was already scrolling. Never pulls back against the user.
   useEffect(() => {
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const wide = window.matchMedia('(min-width: 1081px)')
 
     let timeout
     let isSnapping = false
-    const HEADER_H = 58
-    const SNAP_ZONE = 0.35 // snap if within 35% of viewport height of a boundary
+    let lastY = window.scrollY
+    let direction = 0
 
     const handleScroll = () => {
-      if (isSnapping) return
+      const y = window.scrollY
+      if (y !== lastY) direction = y > lastY ? 1 : -1
+      lastY = y
+      if (isSnapping || reduceMotion.matches || !wide.matches) return
+
       clearTimeout(timeout)
       timeout = setTimeout(() => {
-        const panels = document.querySelectorAll('.home-panel')
         const scrollTop = window.scrollY
-        const vh = window.innerHeight
-        const threshold = vh * SNAP_ZONE
+        const threshold = window.innerHeight * SNAP_ZONE
+        const edges = [0].concat(
+          Array.from(document.querySelectorAll('.home-feature')).map(
+            (panel) => panel.getBoundingClientRect().top + scrollTop - HEADER_H
+          )
+        )
 
-        for (const panel of panels) {
-          const snapTo = panel.offsetTop - HEADER_H
-          const distance = Math.abs(scrollTop - snapTo)
+        const target =
+          direction > 0
+            ? edges.find((edge) => edge > scrollTop + 3 && edge - scrollTop < threshold)
+            : edges.reverse().find((edge) => edge < scrollTop - 3 && scrollTop - edge < threshold)
 
-          if (distance > 3 && distance < threshold) {
-            isSnapping = true
-            window.scrollTo({ top: snapTo, behavior: 'smooth' })
-            setTimeout(() => { isSnapping = false }, 800)
-            break
-          }
-        }
-      }, 120)
+        if (target === undefined) return
+        isSnapping = true
+        window.scrollTo({ top: target, behavior: 'smooth' })
+        setTimeout(() => {
+          isSnapping = false
+          lastY = window.scrollY
+        }, 700)
+      }, 140)
     }
 
     window.addEventListener('scroll', handleScroll, { passive: true })
@@ -70,269 +171,108 @@ function Home() {
 
   return (
     <div className="home">
-      {/* ── HERO ── */}
-      <section
-        id="hero"
-        data-section-id="hero"
-        className={visibleSections.has('hero') ? 'home-panel hero-panel is-visible' : 'home-panel hero-panel'}
-      >
-        <div className="hero-grid" aria-hidden="true" />
-        <div className="hero-content">
-          <div className="rolling-banner" aria-label="Extra Pass Analytics">
-            <span className="rolling-text">Extra Pass Analytics</span>
-            <div className="rolling-ball-track">
-              <svg className="rolling-ball" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="24" cy="24" r="22" fill="#ff6b2b" />
-                <path d="M24 2v44" stroke="#b8400e" strokeWidth="1.5" opacity="0.4" />
-                <path d="M2 24h44" stroke="#b8400e" strokeWidth="1.5" opacity="0.4" />
-                <path d="M8 6c4 9 4 27 0 36" stroke="#b8400e" strokeWidth="1.5" opacity="0.4" fill="none" />
-                <path d="M40 6c-4 9-4 27 0 36" stroke="#b8400e" strokeWidth="1.5" opacity="0.4" fill="none" />
-              </svg>
-            </div>
-          </div>
-          <h1 className="hero-title">
-            <span className="hero-line">
-              <span className="hero-word hero-word--1">Understand</span>{' '}
-              <span className="hero-word hero-word--2">Why</span>
-            </span>
-            <span className="hero-line">
-              <span className="hero-word hero-word--3">Teams</span>{' '}
-              <span className="hero-word hero-word--4">Win</span>
+      <section className="home-intro">
+        <div className="home-intro-inner">
+          <p
+            key={rollKey}
+            className="home-wordmark"
+            onPointerEnter={replayRoll}
+            onAnimationEnd={(event) => {
+              if (event.animationName === 'home-ball-roll') rollingRef.current = false
+            }}
+          >
+            <span className="home-wordmark-text">Extra Pass Analytics</span>
+            <svg className="home-wordmark-ball" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+              <circle cx="24" cy="24" r="22" fill="#ff6b2b" />
+              <g stroke="#b8400e" strokeWidth="1.5" opacity="0.55" fill="none">
+                <path d="M24 2v44" />
+                <path d="M2 24h44" />
+                <path d="M8 6c4 9 4 27 0 36" />
+                <path d="M40 6c-4 9-4 27 0 36" />
+              </g>
+            </svg>
+          </p>
+          <h1 className="home-slogan">
+            <span className="home-slogan-line">
+              <span className="home-slogan-word">Understand</span>{' '}
+              <span className="home-slogan-word">Why</span>
+            </span>{' '}
+            <span className="home-slogan-line">
+              <span className="home-slogan-word">Teams</span>{' '}
+              <span className="home-slogan-word">Win</span>
             </span>
           </h1>
-          <p className="hero-subtitle">
-            Factor decomposition for games and multi-game periods, league rankings, and trend analysis for all NBA seasons since 2000.
+          <p className="home-intro-text">
+            Factor decomposition for games and multi-game periods, league rankings, and trend analysis
+            for all NBA seasons since 2000.
           </p>
         </div>
-        <a href="#game-analysis" className="scroll-cue" aria-label="Scroll to explore">
-          <span className="scroll-text">Scroll</span>
-          <svg className="scroll-chevron" width="24" height="13" viewBox="0 0 18 10" fill="none">
-            <path d="M1 1l8 7.5L17 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-          <span className="scroll-line" aria-hidden="true" />
-        </a>
-      </section>
-
-      {/* ── GAME ANALYSIS ── */}
-      <section
-        id="game-analysis"
-        data-section-id="game-analysis"
-        className={
-          visibleSections.has('game-analysis')
-            ? 'home-panel module-panel game-panel is-visible'
-            : 'home-panel module-panel game-panel'
-        }
-      >
-        <div className="section-inner">
-          <div className="panel-copy">
-
-            <p className="panel-kicker">Game Analysis</p>
-            <h2 className="panel-title">See what actually won the game</h2>
-            <p className="panel-description">
-              Decompose any game into the eight core factors that drive outcomes.
-              See which factors helped which team, track the scoring differential and
-              win probability play-by-play, exclude garbage-time and get AI-generated analysis of the key factors.
-            </p>
-            <ul className="panel-highlights">
-              <li>Factor contributions to rating differential</li>
-              <li>Show statistics with or without garbage-time included</li>
-              <li>Game timelines identifying clutch-time and garbage-time</li>
-              <li>Excitement and comeback rankings for every game</li>
-              <li>AI-generated post-game analysis</li>
-            </ul>
-            <Link to="/four-factor" className="panel-cta">
-              Open Game Analysis
-              <span className="cta-arrow">&rarr;</span>
-            </Link>
-          </div>
-
-          <div className="panel-preview panel-preview--filmstrip" aria-hidden="true">
-            <div className="filmstrip-track">
-              {[0, 1].map((copy) => (
-                <div className="filmstrip-set" key={copy}>
-                  {['ga-00', 'ga-01', 'ga-02', 'ga-03', 'ga-04', 'ga-05'].map((id) => (
-                    <img
-                      key={`${copy}-${id}`}
-                      src={`/previews/${id}.png`}
-                      alt=""
-                      className="filmstrip-shot"
-                      loading="lazy"
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <a href="#league-summary" className="scroll-cue section-scroll-cue" aria-label="Scroll to next section">
-          <svg className="scroll-chevron" width="24" height="13" viewBox="0 0 18 10" fill="none">
+        <a href={`#${FEATURES[0].id}`} className="home-scroll-cue" onClick={scrollToFirstFeature}>
+          <span>Explore the tools</span>
+          <svg width="18" height="10" viewBox="0 0 18 10" fill="none" aria-hidden="true" focusable="false">
             <path d="M1 1l8 7.5L17 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </a>
       </section>
 
-      {/* ── LEAGUE SUMMARY ── */}
-      <section
-        id="league-summary"
-        data-section-id="league-summary"
-        className={
-          visibleSections.has('league-summary')
-            ? 'home-panel module-panel league-panel is-visible'
-            : 'home-panel module-panel league-panel'
-        }
-      >
-        <div className="section-inner section-inner--reverse">
-          <div className="panel-copy">
+      {FEATURES.map((feature, index) => (
+        <section
+          key={feature.id}
+          id={feature.id}
+          data-section-id={feature.id}
+          aria-labelledby={`${feature.id}-title`}
+          className={[
+            'home-feature',
+            index % 2 === 1 ? 'home-feature--reverse' : '',
+            visibleSections.has(feature.id) ? 'is-visible' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <div className="home-feature-inner">
+            <div className="home-feature-copy">
+              <p className="home-feature-kicker">{feature.kicker}</p>
+              <h2 className="home-feature-title" id={`${feature.id}-title`}>
+                {feature.title}
+              </h2>
+              <ul className="home-feature-list">
+                {feature.highlights.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+              <Link to={feature.to} className="btn home-cta">
+                {feature.cta}
+                <span aria-hidden="true">→</span>
+              </Link>
+            </div>
 
-            <p className="panel-kicker">League Summary</p>
-            <h2 className="panel-title">Rank every team in any stat, over any period of time</h2>
-            <p className="panel-description">
-              Sort across offensive and defensive metrics and net rating drivers
-              over any time horizon to see where every team really stands.
-            </p>
-            <ul className="panel-highlights">
-              <li>Sortable rankings across all major stat categories over any time period</li>
-              <li>Show stats with or without garbage-time included</li>
-              <li>Show stats during clutch-time</li>
-              <li>Efficiency Landscape scatter plot for any selected period</li>
-              <li>Top contributing factors to team performance over the period</li>
-            </ul>
-            <Link to="/league-summary" className="panel-cta">
-              Open League Summary
-              <span className="cta-arrow">&rarr;</span>
-            </Link>
-          </div>
+            <img
+              className="home-mobile-shot"
+              src={`/previews/${feature.mobilePreview.id}.png`}
+              alt={feature.mobilePreview.alt}
+              loading="lazy"
+            />
 
-          <div className="panel-preview panel-preview--filmstrip ls-filmstrip" aria-hidden="true">
-            <div className="filmstrip-track">
-              {[0, 1].map((copy) => (
-                <div className="filmstrip-set" key={copy}>
-                  {['ls-01', 'ls-02', 'ls-03'].map((id) => (
-                    <img
-                      key={`${copy}-${id}`}
-                      src={`/previews/${id}.png`}
-                      alt=""
-                      className="filmstrip-shot"
-                      loading="lazy"
-                    />
-                  ))}
-                </div>
-              ))}
+            <div className="home-filmstrip" aria-hidden="true">
+              <div className="home-filmstrip-track" style={{ '--filmstrip-duration': `${feature.duration}s` }}>
+                {[0, 1].map((copy) => (
+                  <div className="home-filmstrip-set" key={copy}>
+                    {feature.previews.map((id) => (
+                      <img
+                        key={`${copy}-${id}`}
+                        src={`/previews/${id}.png`}
+                        alt=""
+                        className="home-filmstrip-shot"
+                        loading="lazy"
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-        <a href="#statistical-trends" className="scroll-cue section-scroll-cue" aria-label="Scroll to next section">
-          <svg className="scroll-chevron" width="24" height="13" viewBox="0 0 18 10" fill="none">
-            <path d="M1 1l8 7.5L17 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </a>
-      </section>
-
-      {/* ── STATISTICAL TRENDS ── */}
-      <section
-        id="statistical-trends"
-        data-section-id="statistical-trends"
-        className={
-          visibleSections.has('statistical-trends')
-            ? 'home-panel module-panel trends-panel is-visible'
-            : 'home-panel module-panel trends-panel'
-        }
-      >
-        <div className="section-inner">
-          <div className="panel-copy">
-
-            <p className="panel-kicker">Statistical Trends</p>
-            <h2 className="panel-title">Track how performance changes over time</h2>
-            <p className="panel-description">
-              Visualize team metrics as a time series, identify streaks, and connect sudden changes in results
-              to shifts in underlying four-factor performance.
-            </p>
-            <ul className="panel-highlights">
-              <li>Time-series views for key stats</li>
-              <li>Context for hot and cold stretches</li>
-              <li>Quick pivots between teams and metrics</li>
-              <li>Click any game to jump straight to Game Analysis</li>
-            </ul>
-            <Link to="/trends" className="panel-cta">
-              Open Statistical Trends
-              <span className="cta-arrow">&rarr;</span>
-            </Link>
-          </div>
-
-          <div className="panel-preview panel-preview--filmstrip st-filmstrip" aria-hidden="true">
-            <div className="filmstrip-track">
-              {[0, 1].map((copy) => (
-                <div className="filmstrip-set" key={copy}>
-                  {['st-01', 'st-02'].map((id) => (
-                    <img
-                      key={`${copy}-${id}`}
-                      src={`/previews/${id}.png`}
-                      alt=""
-                      className="filmstrip-shot"
-                      loading="lazy"
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-        <a href="#contribution-analysis" className="scroll-cue section-scroll-cue" aria-label="Scroll to next section">
-          <svg className="scroll-chevron" width="24" height="13" viewBox="0 0 18 10" fill="none">
-            <path d="M1 1l8 7.5L17 1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </a>
-      </section>
-
-      {/* ── CONTRIBUTION ANALYSIS ── */}
-      <section
-        id="contribution-analysis"
-        data-section-id="contribution-analysis"
-        className={
-          visibleSections.has('contribution-analysis')
-            ? 'home-panel module-panel contribution-panel is-visible'
-            : 'home-panel module-panel contribution-panel'
-        }
-      >
-        <div className="section-inner section-inner--reverse">
-          <div className="panel-copy">
-
-            <p className="panel-kicker">Contribution Analysis</p>
-            <h2 className="panel-title">Decompose team performance using an eight-factor model</h2>
-            <p className="panel-description">
-              Quantify how each team-side and opponent-side factor contributes to net rating over any time period.
-              Spot the exact strengths driving performance.
-            </p>
-            <ul className="panel-highlights">
-              <li>Eight-factor team profile at a glance</li>
-              <li>Positive and negative contributions separated cleanly</li>
-              <li>Top contributing factors with game-by-game mini charts</li>
-            </ul>
-            <Link to="/contribution-analysis" className="panel-cta">
-              Open Contribution Analysis
-              <span className="cta-arrow">&rarr;</span>
-            </Link>
-          </div>
-
-          <div className="panel-preview panel-preview--filmstrip ca-filmstrip" aria-hidden="true">
-            <div className="filmstrip-track">
-              {[0, 1].map((copy) => (
-                <div className="filmstrip-set" key={copy}>
-                  {['ca-01', 'ca-02'].map((id) => (
-                    <img
-                      key={`${copy}-${id}`}
-                      src={`/previews/${id}.png`}
-                      alt=""
-                      className="filmstrip-shot"
-                      loading="lazy"
-                    />
-                  ))}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+        </section>
+      ))}
     </div>
   )
 }

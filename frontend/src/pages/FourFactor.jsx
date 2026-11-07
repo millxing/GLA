@@ -11,6 +11,8 @@ import {
   getInterpretationPrompt,
 } from '../api'
 import GameTimeline from '../components/GameTimeline'
+import SegmentedControl from '../components/SegmentedControl'
+import useMediaQuery from '../hooks/useMediaQuery'
 import './FourFactor.css'
 
 // BBRef uses different abbreviations for some teams
@@ -39,12 +41,34 @@ const TEAM_CITIES = {
 
 const toCityName = (abbr) => TEAM_CITIES[abbr] || abbr
 
+const TEAM_FULL_NAMES = {
+  ATL: 'Atlanta Hawks', BOS: 'Boston Celtics', BKN: 'Brooklyn Nets', CHI: 'Chicago Bulls',
+  CLE: 'Cleveland Cavaliers', DAL: 'Dallas Mavericks', DEN: 'Denver Nuggets', DET: 'Detroit Pistons',
+  GSW: 'Golden State Warriors', HOU: 'Houston Rockets', IND: 'Indiana Pacers', LAC: 'LA Clippers',
+  LAL: 'Los Angeles Lakers', MEM: 'Memphis Grizzlies', MIA: 'Miami Heat', MIL: 'Milwaukee Bucks',
+  MIN: 'Minnesota Timberwolves', NOP: 'New Orleans Pelicans', NYK: 'New York Knicks',
+  OKC: 'Oklahoma City Thunder', ORL: 'Orlando Magic', PHI: 'Philadelphia 76ers', PHX: 'Phoenix Suns',
+  POR: 'Portland Trail Blazers', SAC: 'Sacramento Kings', SAS: 'San Antonio Spurs', TOR: 'Toronto Raptors',
+  UTA: 'Utah Jazz', WAS: 'Washington Wizards',
+  NJN: 'New Jersey Nets', SEA: 'Seattle SuperSonics', VAN: 'Vancouver Grizzlies', CHO: 'Charlotte Hornets',
+  NOH: 'New Orleans Hornets', NOK: 'New Orleans/Oklahoma City Hornets',
+}
+
+// CHA was the Bobcats from 2004-05 through 2013-14 and the Hornets otherwise.
+const toFullTeamName = (abbr, season) => {
+  if (abbr === 'CHA') {
+    const startYear = Number(String(season || '').slice(0, 4))
+    return startYear >= 2004 && startYear <= 2013 ? 'Charlotte Bobcats' : 'Charlotte Hornets'
+  }
+  return TEAM_FULL_NAMES[abbr] || toCityName(abbr)
+}
+
 const INTERPRETATION_UI_ENABLED = true
 const INTERPRETATION_ENABLED_SEASONS = new Set(['2025-26', '2026-27'])
 const DATA_SCOPE_OPTIONS = [
-  { value: 'all', label: 'All Game' },
-  { value: 'garbage_filtered', label: 'Garbage Time Excluded' },
-  { value: 'clutch', label: 'Clutch Time' },
+  { value: 'all', label: 'Full game' },
+  { value: 'garbage_filtered', label: 'Excl. garbage time' },
+  { value: 'clutch', label: 'Clutch time' },
 ]
 const VALID_DATA_SCOPE_OPTIONS = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
 const VALID_ANALYSIS_VIEWS = new Set(['boxscore', 'factor', 'timeline'])
@@ -53,11 +77,33 @@ const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
-const SIDEBAR_VIEWS = [
-  { value: 'boxscore', label: 'Traditional Box Score' },
-  { value: 'factor', label: 'Factor Analysis' },
-  { value: 'timeline', label: 'Game Timeline' },
+const ANALYSIS_VIEW_OPTIONS = [
+  { value: 'boxscore', label: 'Box Score' },
+  {
+    value: 'factor',
+    label: (
+      <>
+        <span className="ga-label-long">Factor Analysis</span>
+        <span className="ga-label-short">Factors</span>
+      </>
+    ),
+  },
+  { value: 'timeline', label: 'Timeline' },
 ]
+const SCOPE_SHORT_LABELS = {
+  all: 'Full game',
+  garbage_filtered: 'Excl. garbage',
+  clutch: 'Clutch',
+}
+// Below this many minutes a scope's rates and contributions are mostly noise.
+const LOW_SAMPLE_MINUTES = 8
+const CONTRIBUTION_DIVIDER_KEY = '__divider'
+const FACTOR_STAT_LABELS = {
+  shooting: 'Shooting',
+  ball_handling: 'Ball Handling',
+  orebounding: 'Off Rebounds',
+  free_throws: 'FT Rate',
+}
 const BOX_SCORE_COLUMNS = [
   { key: 'minutes', label: 'MIN', className: 'boxscore-minutes' },
   { key: 'pts', label: 'PTS' },
@@ -75,7 +121,7 @@ const BOX_SCORE_COLUMNS = [
   { key: 'plusMinus', label: '+/-', className: 'boxscore-plus-minus' },
 ]
 const BOX_SCORE_SEGMENTS = [
-  { label: 'Game', value: 'game' },
+  { label: 'Full game', value: 'game' },
   { label: 'Q1', value: 'q1' },
   { label: 'Q2', value: 'q2' },
   { label: 'Q3', value: 'q3' },
@@ -83,8 +129,8 @@ const BOX_SCORE_SEGMENTS = [
   { label: 'OT', value: 'ot' },
   { label: 'H1', value: 'h1' },
   { label: 'H2', value: 'h2' },
-  { label: 'No Garbage', value: 'no_garbage' },
-  { label: 'Garbage', value: 'garbage' },
+  { label: 'Excl. garbage', value: 'no_garbage' },
+  { label: 'Garbage only', value: 'garbage' },
   { label: 'Clutch', value: 'clutch' },
 ]
 
@@ -242,10 +288,21 @@ function buildBoxScoreTotals(players) {
   })
 }
 
+// "Giannis Antetokounmpo" -> "G. Antetokounmpo" for the narrow sticky player column
+function abbreviatePlayerName(name) {
+  const parts = String(name || '').trim().split(/\s+/)
+  if (parts.length < 2) return name
+  return `${parts[0].charAt(0)}. ${parts.slice(1).join(' ')}`
+}
+
+function formatMinutesValue(minutes) {
+  const rounded = Math.round(minutes * 10) / 10
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1)
+}
+
 function FourFactor() {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
-  const layoutRef = useRef(null)
   const [seasons, setSeasons] = useState([])
   const [games, setGames] = useState([])
   const [selectedSeason, setSelectedSeason] = useState('')
@@ -275,9 +332,12 @@ function FourFactor() {
   const [singleGameSaveMessage, setSingleGameSaveMessage] = useState('')
   const [singleGameSaveError, setSingleGameSaveError] = useState(false)
   const [singleGameSaving, setSingleGameSaving] = useState(false)
-  const [layoutHeight, setLayoutHeight] = useState(null)
+  const isCompactChart = useMediaQuery('(max-width: 640px)')
+  const [clutchGames, setClutchGames] = useState(null)
   const singleGameSaveTimerRef = useRef(null)
   const hasUserInteractedRef = useRef(false)
+  const lastMonthLabelRef = useRef('')
+  const lastGameLabelRef = useRef('')
   const urlSelections = useMemo(() => ({
     season: readSearchParam(searchParams, 'season').trim(),
     month: readSearchParam(searchParams, 'month').trim(),
@@ -315,6 +375,10 @@ function FourFactor() {
 
   const handleSeasonChange = (value) => {
     updateUrlFromUserChange({ season: value, month: '', gameId: '' })
+    if (value && value !== selectedSeason) setInitializing(true)
+    // Drop the old season's games so the month/game auto-select can't pair an old game
+    // with the new season (that fired 404 requests) while the new list loads.
+    setGames([])
     setSelectedSeason(value)
     setSelectedMonth('')
     setSelectedGame('')
@@ -396,24 +460,6 @@ function FourFactor() {
   }, [])
 
   useEffect(() => {
-    const updateLayoutHeight = () => {
-      const node = layoutRef.current
-      if (!node || typeof window === 'undefined') return
-      if (window.innerWidth <= 768) {
-        setLayoutHeight(null)
-        return
-      }
-      const rect = node.getBoundingClientRect()
-      const nextHeight = Math.max(360, Math.floor(window.innerHeight - rect.top - 12))
-      setLayoutHeight(nextHeight)
-    }
-
-    updateLayoutHeight()
-    window.addEventListener('resize', updateLayoutHeight)
-    return () => window.removeEventListener('resize', updateLayoutHeight)
-  }, [])
-
-  useEffect(() => {
     const navState = location.state
     if (!navState || typeof navState !== 'object') return
 
@@ -449,7 +495,6 @@ function FourFactor() {
       if (!selectedSeason) return
       setInitializing(true)
       if (isCurrent) {
-        setDecomposition(null)
         setSelectedMonth('')
         setSelectedGame('')
       }
@@ -604,27 +649,56 @@ function FourFactor() {
     setSearchParams,
   ])
 
+  // Games that have clutch-time contributions, one request per season. Lets us skip the
+  // clutch decomposition request (which 404s) for games with no clutch minutes.
+  useEffect(() => {
+    let isCurrent = true
+    if (!selectedSeason) return undefined
+    getGames(selectedSeason, 'clutch')
+      .then((res) => {
+        if (!isCurrent) return
+        const ids = new Set((res.games || []).map((game) => normalizeGameId(game.game_id)))
+        setClutchGames({ season: selectedSeason, ids })
+      })
+      .catch(() => {
+        // Unknown: fall back to requesting the clutch scope directly
+        if (isCurrent) setClutchGames({ season: selectedSeason, ids: null })
+      })
+    return () => { isCurrent = false }
+  }, [selectedSeason])
+
+  // 'pending' until this season's clutch list arrives; 'yes' when the clutch request is worth making
+  const gameClutchStatus = !selectedGame || clutchGames?.season !== selectedSeason
+    ? 'pending'
+    : (clutchGames.ids === null || clutchGames.ids.has(normalizeGameId(selectedGame)) ? 'yes' : 'no')
+  const decompositionClutchStatus = selectedDataScope === 'clutch' ? gameClutchStatus : 'n/a'
+
   useEffect(() => {
     let isCurrent = true
     async function loadDecomposition() {
+      // Previous results stay on screen (dimmed) until the new ones arrive.
       if (!selectedSeason || !selectedGame) {
-        if (isCurrent) {
-          setDecomposition(null)
-          setLoading(false)
-        }
+        if (isCurrent) setLoading(false)
         return
       }
       setLoading(true)
       if (isCurrent) {
         setError(null)
         setScopeNotice('')
+      }
+      if (decompositionClutchStatus === 'pending') return
+      if (decompositionClutchStatus === 'no') {
         setDecomposition(null)
+        setScopeNotice('No clutch time data for this game.')
+        setLoading(false)
+        return
       }
       try {
         const data = await getDecomposition(selectedSeason, selectedGame, factorType, selectedDataScope)
         if (isCurrent) setDecomposition(data)
       } catch (err) {
         if (!isCurrent) return
+        setDecomposition(null)
         const isScopedMissing =
           selectedDataScope !== 'all' &&
           (err.message === 'Game not found in contributions' || err.message === 'Contributions not found for season')
@@ -641,26 +715,19 @@ function FourFactor() {
     }
     loadDecomposition()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedGame, factorType, selectedDataScope])
+  }, [selectedSeason, selectedGame, factorType, selectedDataScope, decompositionClutchStatus])
 
   useEffect(() => {
     let isCurrent = true
 
     async function loadBoxScore() {
       if (!selectedSeason || !selectedGame) {
-        if (isCurrent) {
-          setBoxScore(null)
-          setBoxScoreError(null)
-          setBoxScoreLoading(false)
-        }
+        if (isCurrent) setBoxScoreLoading(false)
         return
       }
 
       setBoxScoreLoading(true)
-      if (isCurrent) {
-        setBoxScore(null)
-        setBoxScoreError(null)
-      }
+      if (isCurrent) setBoxScoreError(null)
 
       try {
         const data = await getPbpTraditionalBoxScore(selectedSeason, selectedGame, boxScoreSegment)
@@ -689,6 +756,7 @@ function FourFactor() {
       }
 
       if (isCurrent) setScopeMinutesByScope({})
+      if (gameClutchStatus === 'pending') return
 
       const parseScopeMinutes = (data) => {
         const roadMinutes = Number(data?.road_ratings?.minutes)
@@ -705,6 +773,7 @@ function FourFactor() {
 
       const entries = await Promise.all(
         DATA_SCOPE_OPTIONS.map(async (option) => {
+          if (option.value === 'clutch' && gameClutchStatus === 'no') return [option.value, 0]
           try {
             const data = await getDecomposition(selectedSeason, selectedGame, 'eight_factors', option.value)
             return [option.value, parseScopeMinutes(data)]
@@ -724,7 +793,7 @@ function FourFactor() {
 
     loadScopeMinutes()
     return () => { isCurrent = false }
-  }, [selectedSeason, selectedGame])
+  }, [selectedSeason, selectedGame, gameClutchStatus])
 
   useEffect(() => {
     let isCurrent = true
@@ -736,6 +805,8 @@ function FourFactor() {
         }
         return
       }
+      // A previous game's decomposition is still on screen while the new one loads
+      if (normalizeGameId(decomposition.game_id) !== normalizeGameId(selectedGame)) return
 
       setInterpretationLoading(true)
       try {
@@ -755,10 +826,9 @@ function FourFactor() {
     }
     loadInterpretation()
     return () => { isCurrent = false }
-  }, [decomposition, factorType, interpretationEnabled, selectedDataScope, selectedSeason])
+  }, [decomposition, factorType, interpretationEnabled, selectedDataScope, selectedGame, selectedSeason])
 
   useEffect(() => {
-    setTimelineData(null)
     setTimelineError(null)
     setTimelineLoading(false)
   }, [selectedSeason, selectedGame])
@@ -784,6 +854,9 @@ function FourFactor() {
 
     async function loadTimeline() {
       if (analysisView !== 'timeline' || !selectedSeason || !selectedGame || !decomposition) return
+      // Wait for the selected game's decomposition; a stale one would request the wrong teams.
+      if (normalizeGameId(decomposition.game_id) !== normalizeGameId(selectedGame)) return
+      if (timelineData && normalizeGameId(timelineData.game_id) === normalizeGameId(selectedGame)) return
 
       setTimelineLoading(true)
       setTimelineError(null)
@@ -808,56 +881,20 @@ function FourFactor() {
     return () => { isCurrent = false }
   }, [analysisView, decomposition, selectedSeason, selectedGame])
 
-  const getContributionChartData = () => {
+  const contributionChartData = useMemo(() => {
     if (!decomposition) return []
-    const contributions = decomposition.contributions
+    const contributions = decomposition.contributions || {}
 
-    // Helper to determine Good/Bad prefix for Eight Factors mode
-    const getQualityPrefix = (factorKey) => {
+    // Above/below league average for one side's factor (eight-factor keys only)
+    const getQuality = (side, factorKey) => {
       if (!decomposition.league_averages) return ''
-
-      // Map factor keys to the corresponding factors object key and league avg key
-      const factorMapping = {
-        'home_shooting': { factors: 'home_factors', key: 'efg', avgKey: 'efg' },
-        'road_shooting': { factors: 'road_factors', key: 'efg', avgKey: 'efg' },
-        'home_ball_handling': { factors: 'home_factors', key: 'ball_handling', avgKey: 'ball_handling' },
-        'road_ball_handling': { factors: 'road_factors', key: 'ball_handling', avgKey: 'ball_handling' },
-        'home_orebounding': { factors: 'home_factors', key: 'oreb', avgKey: 'oreb' },
-        'road_orebounding': { factors: 'road_factors', key: 'oreb', avgKey: 'oreb' },
-        'home_free_throws': { factors: 'home_factors', key: 'ft_rate', avgKey: 'ft_rate' },
-        'road_free_throws': { factors: 'road_factors', key: 'ft_rate', avgKey: 'ft_rate' },
-      }
-
-      const mapping = factorMapping[factorKey]
-      if (!mapping) return ''
-
-      const factorValue = decomposition[mapping.factors]?.[mapping.key]
-      const leagueAvg = decomposition.league_averages[mapping.avgKey]
-
+      const statKey = { shooting: 'efg', ball_handling: 'ball_handling', orebounding: 'oreb', free_throws: 'ft_rate' }[factorKey]
+      const factorValue = decomposition[`${side}_factors`]?.[statKey]
+      const leagueAvg = decomposition.league_averages[statKey]
       if (factorValue === undefined || leagueAvg === undefined) return ''
-
-      return factorValue >= leagueAvg ? 'Good ' : 'Bad '
+      return factorValue >= leagueAvg ? 'Good' : 'Bad'
     }
 
-    // Map factor names to display labels with team abbreviations
-    // For Eight Factors, we use a two-line format: "Good/Bad TEAM" on line 1, stat name on line 2
-    const factorLabels = {
-      'shooting': { line1: 'Shooting', line2: null },
-      'ball_handling': { line1: 'Ball Handling', line2: null },
-      'orebounding': { line1: 'Off Rebounds', line2: null },
-      'free_throws': { line1: 'FT Rate', line2: null },
-      // Eight factors mode - split into two lines for better readability
-      'home_shooting': { line1: `${getQualityPrefix('home_shooting')}${decomposition.home_team}`, line2: 'Shooting' },
-      'road_shooting': { line1: `${getQualityPrefix('road_shooting')}${decomposition.road_team}`, line2: 'Shooting' },
-      'home_ball_handling': { line1: `${getQualityPrefix('home_ball_handling')}${decomposition.home_team}`, line2: 'Ball Handling' },
-      'road_ball_handling': { line1: `${getQualityPrefix('road_ball_handling')}${decomposition.road_team}`, line2: 'Ball Handling' },
-      'home_orebounding': { line1: `${getQualityPrefix('home_orebounding')}${decomposition.home_team}`, line2: 'Off Rebounds' },
-      'road_orebounding': { line1: `${getQualityPrefix('road_orebounding')}${decomposition.road_team}`, line2: 'Off Rebounds' },
-      'home_free_throws': { line1: `${getQualityPrefix('home_free_throws')}${decomposition.home_team}`, line2: 'FT Rate' },
-      'road_free_throws': { line1: `${getQualityPrefix('road_free_throws')}${decomposition.road_team}`, line2: 'FT Rate' },
-    }
-
-    // Map contribution keys to actual factor values
     const getFactorValue = (factor) => {
       const valueMap = {
         'shooting': `${decomposition.road_factors.efg.toFixed(1)} vs ${decomposition.home_factors.efg.toFixed(1)}`,
@@ -876,60 +913,93 @@ function FourFactor() {
       return valueMap[factor] || null
     }
 
+    // Axis label at every width: "GSW Shooting ▲" (▲/▼ = above/below league avg, keyed in the legend).
+    // The tooltip spells it out: "Good GSW Shooting".
+    const buildLabel = (factor) => {
+      const match = factor.match(/^(home|road)_(.+)$/)
+      const side = match ? match[1] : null
+      const statKey = match ? match[2] : factor
+      const stat = FACTOR_STAT_LABELS[statKey]
+      if (!stat) return { axis: factor, full: factor }
+      if (!side) return { axis: stat, full: stat }
+      const team = side === 'home' ? decomposition.home_team : decomposition.road_team
+      const quality = getQuality(side, statKey)
+      const arrow = quality === 'Good' ? ' ▲' : quality === 'Bad' ? ' ▼' : ''
+      return {
+        axis: `${team} ${stat}${arrow}`,
+        full: `${quality ? `${quality} ` : ''}${team} ${stat}`,
+      }
+    }
+
     const roadWon = decomposition.road_pts > decomposition.home_pts
 
     // Keep winning-side contributions at the top:
-    // - home win: most positive first (green)
-    // - road win: most negative first (red)
+    // - home win: most positive (helps home) first
+    // - road win: most negative (helps road) first
     const factorBars = Object.entries(contributions)
       .map(([factor, value]) => {
-        const label = factorLabels[factor] || { line1: factor, line2: null }
+        const label = buildLabel(factor)
         return {
-          factor: label.line2 ? `${label.line1}\n${label.line2}` : label.line1,
-          labelLine1: label.line1,
-          labelLine2: label.line2,
-          factorKey: factor,
+          factor,
+          axisLabel: label.axis,
+          fullLabel: label.full,
           value,
           actualValue: getFactorValue(factor),
-          fill: value >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+          // Contribution direction = the team it helps, drawn in that team's color
+          fill: value >= 0 ? 'var(--color-home)' : 'var(--color-road)',
+          fillOpacity: 1,
         }
       })
       .sort((a, b) => roadWon ? a.value - b.value : b.value - a.value)
 
-    // Add error bar at the end (always at bottom, not sorted)
-    // Error = actual rating diff - predicted rating diff
+    // Empty spacer row separates the model's unexplained error from the factors
+    factorBars.push({
+      factor: CONTRIBUTION_DIVIDER_KEY,
+      isDivider: true,
+      value: null,
+    })
+
+    // Error = actual rating diff - predicted rating diff (always last, not sorted)
     const error = decomposition.actual_rating_diff - decomposition.predicted_rating_diff
     factorBars.push({
       factor: 'Error',
-      labelLine1: 'Error',
-      labelLine2: null,
+      axisLabel: 'Error',
+      fullLabel: 'Error (not explained by the factors)',
       value: error,
-      fill: 'var(--color-neutral)',
+      isError: true,
+      // Solid neutral (≥3:1 on white), gray so it never reads as either team
+      fill: 'var(--chart-neutral)',
+      fillOpacity: 1,
     })
 
     return factorBars
-  }
+  }, [decomposition])
 
-  // Calculate X-axis ticks for contribution chart (every 1 point)
+  const contributionByFactor = useMemo(
+    () => new Map(contributionChartData.map((entry) => [entry.factor, entry])),
+    [contributionChartData]
+  )
+
+  // X-axis ticks for contribution chart: every 1 point, or a coarser round step
+  // when the range is wide (tiny samples can produce ±100+ contributions)
   const contributionXAxisConfig = useMemo(() => {
-    const chartData = getContributionChartData()
-    if (chartData.length === 0) return { domain: [-5, 5], ticks: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5] }
+    const values = contributionChartData
+      .filter((d) => Number.isFinite(d.value))
+      .map((d) => d.value)
+    if (values.length === 0) return { domain: [-5, 5], ticks: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5] }
 
-    const values = chartData.map(d => d.value)
-    const minVal = Math.min(...values)
-    const maxVal = Math.max(...values)
-
-    // Round to nearest integer, with some padding
-    const tickMin = Math.floor(minVal) - 1
-    const tickMax = Math.ceil(maxVal) + 1
+    const maxTicks = isCompactChart ? 8 : 18
+    const rawMin = Math.floor(Math.min(...values)) - 1
+    const rawMax = Math.ceil(Math.max(...values)) + 1
+    const step = [1, 2, 5, 10, 20, 25, 50, 100, 200].find((s) => (rawMax - rawMin) / s <= maxTicks) || 500
+    const tickMin = Math.floor(rawMin / step) * step
+    const tickMax = Math.ceil(rawMax / step) * step
 
     const ticks = []
-    for (let t = tickMin; t <= tickMax; t++) {
-      ticks.push(t)
-    }
+    for (let t = tickMin; t <= tickMax; t += step) ticks.push(t)
 
     return { domain: [tickMin, tickMax], ticks }
-  }, [decomposition, factorType])
+  }, [contributionChartData, isCompactChart])
 
   const formatFactorValue = (value) => {
     if (value === null || value === undefined) return '-'
@@ -988,14 +1058,93 @@ function FourFactor() {
     return typeMap[type] || type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
   }
 
-  const formatScopeMinutesLabel = (scopeValue) => {
+  const getScopeMinutes = (scopeValue) => {
     const minutes = scopeMinutesByScope[scopeValue]
-    if (minutes === null || minutes === undefined || Number.isNaN(minutes)) {
-      return '-- min'
-    }
-    const rounded = Math.round(minutes * 10) / 10
-    return Number.isInteger(rounded) ? `${rounded} min` : `${rounded.toFixed(1)} min`
+    return Number.isFinite(minutes) ? minutes : null
   }
+
+  const formatScopeMinutesLabel = (scopeValue) => {
+    const minutes = getScopeMinutes(scopeValue)
+    return minutes === null ? '-- min' : `${formatMinutesValue(minutes)} min`
+  }
+
+  const dataScopeOptions = DATA_SCOPE_OPTIONS.map((option) => {
+    const minutes = getScopeMinutes(option.value)
+    const empty = option.value !== 'all' && minutes === 0
+    return {
+      value: option.value,
+      disabled: empty,
+      title: empty
+        ? (option.value === 'clutch' ? 'No clutch minutes in this game' : `No ${option.label.toLowerCase()} minutes in this game`)
+        : undefined,
+      label: (
+        <>
+          <span className="ga-scope-name ga-label-long">{option.label}</span>
+          <span className="ga-scope-name ga-label-short">{SCOPE_SHORT_LABELS[option.value]}</span>
+          <span className="ga-scope-minutes">{formatScopeMinutesLabel(option.value)}</span>
+        </>
+      ),
+    }
+  })
+
+  const selectedScopeMinutes = getScopeMinutes(selectedDataScope)
+  const isLowSample =
+    selectedDataScope !== 'all' &&
+    selectedScopeMinutes !== null &&
+    selectedScopeMinutes > 0 &&
+    selectedScopeMinutes < LOW_SAMPLE_MINUTES
+
+  // Disable box-score periods we know have no data for this game
+  const gameHasOvertime = Boolean(selectedGameInfo?.is_overtime ?? decomposition?.is_overtime)
+  const allGameMinutes = getScopeMinutes('all')
+  const nonGarbageMinutes = getScopeMinutes('garbage_filtered')
+  const boxScoreSegmentOptions = BOX_SCORE_SEGMENTS.map((segment) => {
+    let title
+    if (segment.value === 'ot' && selectedGameInfo && !gameHasOvertime) title = 'No overtime in this game'
+    if (segment.value === 'clutch' && getScopeMinutes('clutch') === 0) title = 'No clutch minutes in this game'
+    if (
+      segment.value === 'garbage' &&
+      allGameMinutes !== null &&
+      nonGarbageMinutes !== null &&
+      Math.abs(allGameMinutes - nonGarbageMinutes) < 0.05
+    ) {
+      title = 'No garbage time in this game'
+    }
+    return { ...segment, disabled: Boolean(title), title }
+  })
+  const boxScoreSegmentDisabled = boxScoreSegmentOptions.some(
+    (segment) => segment.value === boxScoreSegment && segment.disabled
+  )
+
+  useEffect(() => {
+    if (boxScoreSegmentDisabled) setBoxScoreSegment('game')
+  }, [boxScoreSegmentDisabled])
+
+  // Mobile period chips: one scrollable row with edge fades; keep the active chip in view
+  const periodScrollRef = useRef(null)
+  const [periodFade, setPeriodFade] = useState({ left: false, right: false })
+  const updatePeriodFade = () => {
+    const el = periodScrollRef.current
+    if (!el) return
+    const left = el.scrollLeft > 2
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 2
+    setPeriodFade((prev) => (prev.left === left && prev.right === right ? prev : { left, right }))
+  }
+
+  useEffect(() => {
+    const el = periodScrollRef.current
+    if (!el) return undefined
+    const active = el.querySelector('[aria-pressed="true"]')
+    if (active) {
+      const start = active.offsetLeft - 24
+      const end = active.offsetLeft + active.offsetWidth + 24 - el.clientWidth
+      if (el.scrollLeft > start) el.scrollLeft = Math.max(0, start)
+      else if (el.scrollLeft < end) el.scrollLeft = end
+    }
+    updatePeriodFade()
+    window.addEventListener('resize', updatePeriodFade)
+    return () => window.removeEventListener('resize', updatePeriodFade)
+  }, [boxScoreSegment, analysisView, selectedGame, boxScore])
 
   const roadBoxScoreTotals = useMemo(
     () => buildBoxScoreTotals(boxScore?.road_players || []),
@@ -1007,63 +1156,81 @@ function FourFactor() {
     [boxScore]
   )
 
-  const renderBoxScoreTable = (players, totals, teamLabel) => (
-    <section className="boxscore-team-card card" key={teamLabel}>
-      <div className="boxscore-team-header">
-        <h2 className="card-title">{teamLabel}</h2>
-      </div>
-      <div className="boxscore-table-wrap">
-        <table className="boxscore-table">
-          <thead>
-            <tr>
-              <th className="player-column">Player</th>
-              {BOX_SCORE_COLUMNS.map((column) => (
-                <th
-                  key={column.key}
-                  className={column.className || ''}
-                >
-                  {column.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {players.map((player) => (
-              <tr key={`${player.team_abbreviation}-${player.player_id ?? player.player_name}`}>
-                <td className="player-column">
-                  {player.player_name}
-                  {player.is_starter ? ' (s)' : ''}
-                </td>
-                {BOX_SCORE_COLUMNS.map((column) => (
-                  <td key={column.key} className={column.className || ''}>
-                    {formatBoxScoreCell(player, column.key)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            <tr className="boxscore-totals-row">
-              <td className="player-column">Totals</td>
-              <td className="boxscore-minutes"></td>
-              <td>{totals.pts}</td>
-              <td>{`${totals.fgm}-${totals.fga}`}</td>
-              <td>{`${totals.fg3m}-${totals.fg3a}`}</td>
-              <td>{`${totals.ftm}-${totals.fta}`}</td>
-              <td>{totals.oreb}</td>
-              <td>{totals.dreb}</td>
-              <td>{totals.reb}</td>
-              <td>{totals.ast}</td>
-              <td>{totals.stl}</td>
-              <td>{totals.blk}</td>
-              <td>{totals.tov}</td>
-              <td>{totals.pf}</td>
-              <td className="boxscore-plus-minus"></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+  const renderBoxScoreRow = (player) => (
+    <tr key={`${player.team_abbreviation}-${player.player_id ?? player.player_name}`}>
+      <th scope="row" className="ga-player-col" title={player.player_name}>
+        <span className="ga-name-full">{player.player_name}</span>
+        <span className="ga-name-short" aria-hidden="true">{abbreviatePlayerName(player.player_name)}</span>
+      </th>
+      {BOX_SCORE_COLUMNS.map((column) => (
+        <td key={column.key} className={column.className || ''}>
+          {formatBoxScoreCell(player, column.key)}
+        </td>
+      ))}
+    </tr>
   )
 
+  const renderBoxScoreTable = (players, totals, oppTotals, side, teamAbbr) => {
+    const teamName = toFullTeamName(teamAbbr, boxScore?.season || selectedSeason)
+    // Starters first, then a "Bench" divider row (stable order within each group)
+    const starters = players.filter((player) => player.is_starter)
+    const bench = players.filter((player) => !player.is_starter)
+    const showBenchDivider = starters.length > 0 && bench.length > 0
+    return (
+      <section className="ga-boxscore-team card" key={side} aria-labelledby={`ga-boxscore-${side}`}>
+        <h2 className="ga-boxscore-title" id={`ga-boxscore-${side}`}>
+          <span className={`ga-team-marker ga-team-marker--${side}`} aria-hidden="true" />
+          {teamName}
+          <span className="ga-boxscore-side">{side === 'road' ? 'Road' : 'Home'}</span>
+        </h2>
+        <div className="table-scroll" role="region" aria-label={`${teamName} box score`} tabIndex={0}>
+          <table className="ga-boxscore-table">
+            <thead>
+              <tr>
+                <th scope="col" className="ga-player-col">Player</th>
+                {BOX_SCORE_COLUMNS.map((column) => (
+                  <th key={column.key} scope="col" className={column.className || ''}>
+                    {column.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(showBenchDivider ? starters : players).map(renderBoxScoreRow)}
+              {showBenchDivider && (
+                <tr className="ga-bench-row">
+                  <th scope="rowgroup" className="ga-player-col">Bench</th>
+                  <td colSpan={BOX_SCORE_COLUMNS.length} />
+                </tr>
+              )}
+              {showBenchDivider && bench.map(renderBoxScoreRow)}
+            </tbody>
+            <tfoot>
+              <tr className="ga-totals-row">
+                <th scope="row" className="ga-player-col">Totals</th>
+                <td className="boxscore-minutes"></td>
+                <td>{totals.pts}</td>
+                <td>{`${totals.fgm}-${totals.fga}`}</td>
+                <td>{`${totals.fg3m}-${totals.fg3a}`}</td>
+                <td>{`${totals.ftm}-${totals.fta}`}</td>
+                <td>{totals.oreb}</td>
+                <td>{totals.dreb}</td>
+                <td>{totals.reb}</td>
+                <td>{totals.ast}</td>
+                <td>{totals.stl}</td>
+                <td>{totals.blk}</td>
+                <td>{totals.tov}</td>
+                <td>{totals.pf}</td>
+                <td className="boxscore-plus-minus" title="Team point margin for this period">
+                  {formatPlusMinus(totals.pts - oppTotals.pts)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </section>
+    )
+  }
   const scheduleSingleGameSaveOptionHide = () => {
     if (singleGameSaveTimerRef.current) {
       clearTimeout(singleGameSaveTimerRef.current)
@@ -1129,25 +1296,201 @@ function FourFactor() {
     }
   }
 
-  return (
-    <div className="four-factor container">
-      <div
-        ref={layoutRef}
-        className="ga-layout"
-        style={layoutHeight ? { '--ga-layout-height': `${layoutHeight}px` } : undefined}
-      >
-        <aside className="ga-sidebar card">
-          <div className="ga-sidebar-header">
-            <h1 className="ga-sidebar-title" onContextMenu={handlePageTitleContextMenu}>
-              Game Analysis
-            </h1>
-          </div>
+  const decompositionIsStale = Boolean(
+    decomposition && normalizeGameId(decomposition.game_id) !== normalizeGameId(selectedGame)
+  )
+  const boxScoreIsStale = Boolean(
+    boxScore && normalizeGameId(boxScore.game_id) !== normalizeGameId(selectedGame)
+  )
+  const timelineIsStale = Boolean(
+    timelineData && normalizeGameId(timelineData.game_id) !== normalizeGameId(selectedGame)
+  )
+  const hasContent = Boolean(decomposition || boxScore || timelineData || (selectedGameIncomplete && selectedGameInfo))
+  const isBusy =
+    initializing ||
+    loading ||
+    (analysisView === 'boxscore' && boxScoreLoading) ||
+    (analysisView === 'timeline' && timelineLoading)
+  // Game/season change: dim the whole result area (scoreboard included) but keep it on screen
+  const pageRefreshing = hasContent && (initializing || !selectedGame || decompositionIsStale)
+  // View-level change (scope, period, timeline fetch): dim only that view's content
+  const viewRefreshing = !pageRefreshing && (
+    analysisView === 'factor' ? loading
+      : analysisView === 'boxscore' ? (boxScoreLoading || boxScoreIsStale)
+        : (timelineLoading || timelineIsStale)
+  )
+  const showResults = Boolean(selectedGame || hasContent)
 
+  // While a new season/month resolves, the selects keep showing the previous choice
+  // instead of flashing "Select month…/Select game…" over the still-visible old game.
+  const currentMonthLabel = monthOptions.find((option) => option.value === selectedMonth)?.label
+  const currentGameLabel = selectedGameInfo ? formatGameOptionLabel(selectedGameInfo) : ''
+  if (currentMonthLabel) lastMonthLabelRef.current = currentMonthLabel
+  if (currentGameLabel) lastGameLabelRef.current = currentGameLabel
+  const selectionPending = initializing || (hasContent && (!selectedMonth || !selectedGame))
+  const monthPlaceholder = selectionPending && lastMonthLabelRef.current ? lastMonthLabelRef.current : 'Select month...'
+  const gamePlaceholder = selectionPending && lastGameLabelRef.current ? lastGameLabelRef.current : 'Select game...'
+
+  const renderScoreboard = ({ roadTeam, homeTeam, roadPts, homePts }, details) => {
+    const roadWon = Number(roadPts) > Number(homePts)
+    const homeWon = Number(homePts) > Number(roadPts)
+    return (
+      <section className="ga-scoreboard card" aria-label="Final score">
+        <div className="ga-matchup">
+          <div className="ga-team ga-team--road">
+            <span className="ga-team-name">{toCityName(roadTeam)}</span>
+            <span className={`ga-team-score ${roadWon ? 'is-winner' : ''}`}>{roadPts}</span>
+          </div>
+          <span className="ga-at" aria-label="at">@</span>
+          <div className="ga-team ga-team--home">
+            <span className="ga-team-name">{toCityName(homeTeam)}</span>
+            <span className={`ga-team-score ${homeWon ? 'is-winner' : ''}`}>{homePts}</span>
+          </div>
+        </div>
+        {details}
+      </section>
+    )
+  }
+
+  const renderLinescoreRow = (side, team, line, total, won) => (
+    <tr className={won ? 'is-winner' : ''}>
+      <th scope="row" className="ga-linescore-team">
+        <span className={`ga-team-marker ga-team-marker--${side}`} aria-hidden="true" />
+        {team}
+      </th>
+      <td>{line.q1}</td>
+      <td>{line.q2}</td>
+      <td>{line.q3}</td>
+      <td>{line.q4}</td>
+      {decomposition.is_overtime && <td>{line.ot}</td>}
+      <td className="ga-linescore-total">{total}</td>
+    </tr>
+  )
+
+  const renderGameDetails = () => (
+    <>
+      {decomposition.linescore && (
+        <div className="ga-linescore">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col"><span className="sr-only">Team</span></th>
+                <th scope="col">Q1</th>
+                <th scope="col">Q2</th>
+                <th scope="col">Q3</th>
+                <th scope="col">Q4</th>
+                {decomposition.is_overtime && (
+                  <th scope="col">
+                    {decomposition.overtime_count > 1 ? `${decomposition.overtime_count}OT` : 'OT'}
+                  </th>
+                )}
+                <th scope="col">T</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renderLinescoreRow(
+                'road',
+                decomposition.road_team,
+                decomposition.linescore.road,
+                decomposition.road_pts,
+                decomposition.road_pts > decomposition.home_pts
+              )}
+              {renderLinescoreRow(
+                'home',
+                decomposition.home_team,
+                decomposition.linescore.home,
+                decomposition.home_pts,
+                decomposition.home_pts > decomposition.road_pts
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="ga-game-info">
+        <div className="ga-game-meta">
+          <span className="ga-game-date">{decomposition.game_date}</span>
+          {decomposition.game_type && (
+            <span className="ga-game-type">{formatGameType(decomposition.game_type)}</span>
+          )}
+        </div>
+        <div className="ga-external-links">
+          <a
+            href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            BBRef Box Score
+          </a>
+          <a
+            href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            NBA.com Box Score
+          </a>
+        </div>
+      </div>
+    </>
+  )
+
+  const renderContributionTick = ({ x, y, payload }) => {
+    const entry = contributionByFactor.get(payload.value)
+    if (!entry || entry.isDivider) return <g />
+    const fill = entry.isError ? 'var(--color-text-muted)' : 'var(--color-text-secondary)'
+    return (
+      <text x={x - 4} y={y} dy="0.35em" textAnchor="end" fill={fill} fontSize={isCompactChart ? 12 : 13}>
+        <title>{entry.fullLabel}</title>
+        {entry.axisLabel}
+      </text>
+    )
+  }
+
+  const renderContributionTooltip = ({ active, payload }) => {
+    if (!active || !payload || !payload.length) return null
+    const data = payload[0].payload
+    if (!data || data.isDivider || !Number.isFinite(data.value)) return null
+    const helpsHome = data.value >= 0
+    return (
+      <div className="ga-chart-tooltip">
+        <div className="ga-chart-tooltip-title">{data.fullLabel}</div>
+        {data.actualValue && (
+          <div className="ga-chart-tooltip-meta">Value: {data.actualValue}</div>
+        )}
+        <div>
+          Contribution: <span className="mono">{data.value > 0 ? '+' : ''}{data.value.toFixed(1)}</span>
+          {!data.isError && (
+            <span className={helpsHome ? 'ga-text-home' : 'ga-text-road'}>
+              {' '}· helps {helpsHome ? decomposition.home_team : decomposition.road_team}
+            </span>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  const contributionYAxisWidth = isCompactChart ? 136 : 156
+  const contributionChartRight = isCompactChart ? 12 : 24
+
+  return (
+    <div className="ga-page">
+      <div className="ga-topbar">
+        <div className="ga-title-group">
+          <h1 className="page-title" onContextMenu={handlePageTitleContextMenu}>
+            Game Analysis
+          </h1>
+          <span className="refresh-indicator ga-refresh" role="status" aria-live="polite">
+            {isBusy && hasContent && (
+              <>
+                <span className="loading-spinner" aria-hidden="true" />
+                Loading…
+              </>
+            )}
+          </span>
           {showSingleGameSaveOption && (
-            <div className="hidden-save-option" role="status" aria-live="polite">
+            <div className="ga-hidden-save" role="status" aria-live="polite">
               <button
                 type="button"
-                className="hidden-save-button"
+                className="btn btn-secondary ga-hidden-save-button"
                 onClick={handleSaveSingleGameJson}
                 disabled={!selectedSeason || !selectedGame || singleGameSaving}
                 title={!selectedGame ? 'Select a game first' : 'Download the exact prompt sent to the LLM for this game'}
@@ -1155,184 +1498,100 @@ function FourFactor() {
                 {singleGameSaving ? 'Saving…' : 'Save LLM Prompt'}
               </button>
               {singleGameSaveMessage && (
-                <span className={`hidden-save-message ${singleGameSaveError ? 'error' : ''}`}>
+                <span className={`ga-hidden-save-message ${singleGameSaveError ? 'is-error' : ''}`}>
                   {singleGameSaveMessage}
                 </span>
               )}
             </div>
           )}
+        </div>
 
-          <nav className="ga-sidebar-nav" aria-label="Game analysis views">
-            {SIDEBAR_VIEWS.map((view) => (
-              <button
-                key={view.value}
-                type="button"
-                className={`ga-sidebar-link ${analysisView === view.value ? 'active' : ''}`}
-                onClick={() => handleAnalysisViewChange(view.value)}
-              >
-                {view.label}
-              </button>
-            ))}
-          </nav>
-        </aside>
+        <SegmentedControl
+          className="ga-view-seg"
+          label="Analysis view"
+          options={ANALYSIS_VIEW_OPTIONS}
+          value={analysisView}
+          onChange={handleAnalysisViewChange}
+        />
 
-        <div className="ga-main">
-          <div className="ga-fixed-stack">
-            <div className="controls card">
-              <div className="form-row">
-                <div className="form-group season-control">
-                  <label className="form-label">Season</label>
-                  <select
-                    className="form-select"
-                    value={selectedSeason}
-                    onChange={(e) => handleSeasonChange(e.target.value)}
-                  >
-                    <option value="">Select season...</option>
-                    {seasons.map((season) => (
-                      <option key={season} value={season}>{season}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group month-control">
-                  <label className="form-label">Month</label>
-                  <select
-                    className="form-select"
-                    value={selectedMonth}
-                    onChange={(e) => handleMonthChange(e.target.value)}
-                    disabled={!selectedSeason || monthOptions.length === 0}
-                  >
-                    <option value="">Select month...</option>
-                    {monthOptions.map((month) => (
-                      <option key={month.value} value={month.value}>{month.label}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group game-control">
-                  <label className="form-label">Game</label>
-                  <select
-                    className="form-select"
-                    value={selectedGame}
-                    onChange={(e) => handleGameChange(e.target.value)}
-                    disabled={!selectedSeason || !selectedMonth || filteredGames.length === 0}
-                  >
-                    <option value="">Select game...</option>
-                    {filteredGames.map((game) => (
-                      <option key={game.game_id} value={game.game_id}>{formatGameOptionLabel(game)}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {!decomposition && selectedGameIncomplete && !loading && (
-              <div className="game-header card">
-                <div className="game-header-content">
-                  <div className="matchup-left">
-                    <div className="team road-team">
-                      <span className="team-abbr">{toCityName(selectedGameInfo.road_team)}</span>
-                      <span className="team-score">{selectedGameInfo.road_pts}</span>
-                    </div>
-                    <div className="at-symbol">@</div>
-                    <div className="team home-team">
-                      <span className="team-abbr">{toCityName(selectedGameInfo.home_team)}</span>
-                      <span className="team-score">{selectedGameInfo.home_pts}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {decomposition && (
-              <div className="game-header card">
-                <div className="game-header-content">
-                  <div className="matchup-left">
-                    <div className="team road-team">
-                      <span className="team-abbr">{toCityName(decomposition.road_team)}</span>
-                      <span className="team-score">{decomposition.road_pts}</span>
-                    </div>
-                    <div className="at-symbol">@</div>
-                    <div className="team home-team">
-                      <span className="team-abbr">{toCityName(decomposition.home_team)}</span>
-                      <span className="team-score">{decomposition.home_pts}</span>
-                    </div>
-                  </div>
-                  {decomposition.linescore && (
-                    <div className="linescore-center">
-                      <table className="linescore-table">
-                        <thead>
-                          <tr>
-                            <th></th>
-                            <th>Q1</th>
-                            <th>Q2</th>
-                            <th>Q3</th>
-                            <th>Q4</th>
-                            {decomposition.is_overtime && <th>OT</th>}
-                            <th>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="team-cell">{decomposition.road_team}</td>
-                            <td>{decomposition.linescore.road.q1}</td>
-                            <td>{decomposition.linescore.road.q2}</td>
-                            <td>{decomposition.linescore.road.q3}</td>
-                            <td>{decomposition.linescore.road.q4}</td>
-                            {decomposition.is_overtime && <td>{decomposition.linescore.road.ot}</td>}
-                            <td className="total-cell">{decomposition.road_pts}</td>
-                          </tr>
-                          <tr>
-                            <td className="team-cell">{decomposition.home_team}</td>
-                            <td>{decomposition.linescore.home.q1}</td>
-                            <td>{decomposition.linescore.home.q2}</td>
-                            <td>{decomposition.linescore.home.q3}</td>
-                            <td>{decomposition.linescore.home.q4}</td>
-                            {decomposition.is_overtime && <td>{decomposition.linescore.home.ot}</td>}
-                            <td className="total-cell">{decomposition.home_pts}</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                      {decomposition.is_overtime && decomposition.overtime_count > 0 && (
-                        <span className="ot-indicator">
-                          {decomposition.overtime_count === 1 ? 'OT' : `${decomposition.overtime_count}OT`}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  <div className="game-info-right">
-                    <div className="game-info-details">
-                      <div className="game-date">{decomposition.game_date}</div>
-                      {decomposition.game_type && (
-                        <div className="game-type">{formatGameType(decomposition.game_type)}</div>
-                      )}
-                    </div>
-                    <div className="external-links">
-                      <a
-                        href={`https://www.basketball-reference.com/boxscores/${decomposition.game_date.replace(/-/g, '')}0${toBBRefTeam(decomposition.home_team)}.html`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="external-link"
-                      >
-                        BBRef Box Score
-                      </a>
-                      <a
-                        href={`https://www.nba.com/game/${decomposition.road_team.toLowerCase()}-vs-${decomposition.home_team.toLowerCase()}-${String(decomposition.game_id).padStart(10, '0')}/box-score`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="external-link"
-                      >
-                        NBA.com Box Score
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+        <div className="ga-selects">
+          <div className="ga-field ga-field--season">
+            <label className="form-label" htmlFor="ga-season">Season</label>
+            <select
+              id="ga-season"
+              className="form-select"
+              value={selectedSeason}
+              onChange={(e) => handleSeasonChange(e.target.value)}
+            >
+              {/* Placeholder only until seasons load; a loaded season can't be blanked */}
+              {(seasons.length === 0 || !selectedSeason) && (
+                <option value="" disabled={seasons.length > 0}>Select season...</option>
+              )}
+              {seasons.map((season) => (
+                <option key={season} value={season}>{season}</option>
+              ))}
+            </select>
           </div>
 
+          <div className="ga-field ga-field--month">
+            <label className="form-label" htmlFor="ga-month">Month</label>
+            <select
+              id="ga-month"
+              className="form-select"
+              value={selectedMonth}
+              onChange={(e) => handleMonthChange(e.target.value)}
+              disabled={!selectedSeason || monthOptions.length === 0}
+            >
+              {(monthOptions.length === 0 || !selectedMonth) && (
+                <option value="" disabled={monthOptions.length > 0}>{monthPlaceholder}</option>
+              )}
+              {monthOptions.map((month) => (
+                <option key={month.value} value={month.value}>{month.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="ga-field ga-field--game">
+            <label className="form-label" htmlFor="ga-game">Game</label>
+            <select
+              id="ga-game"
+              className="form-select"
+              value={selectedGame}
+              onChange={(e) => handleGameChange(e.target.value)}
+              disabled={!selectedSeason || !selectedMonth || filteredGames.length === 0}
+            >
+              {(filteredGames.length === 0 || !selectedGame) && (
+                <option value="" disabled={filteredGames.length > 0}>{gamePlaceholder}</option>
+              )}
+              {filteredGames.map((game) => (
+                <option key={game.game_id} value={game.game_id}>{formatGameOptionLabel(game)}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div className={`ga-body ${pageRefreshing ? 'is-refreshing' : ''}`} aria-busy={isBusy}>
+        {decomposition
+          ? renderScoreboard(
+            {
+              roadTeam: decomposition.road_team,
+              homeTeam: decomposition.home_team,
+              roadPts: decomposition.road_pts,
+              homePts: decomposition.home_pts,
+            },
+            renderGameDetails()
+          )
+          : selectedGameIncomplete && selectedGameInfo && !loading && renderScoreboard({
+            roadTeam: selectedGameInfo.road_team,
+            homeTeam: selectedGameInfo.home_team,
+            roadPts: selectedGameInfo.road_pts,
+            homePts: selectedGameInfo.home_pts,
+          })}
+
+        <div className="ga-results">
           {selectedGameIncomplete && !loading && (
-            <div className="data-incomplete-notice card">
+            <div className="ga-notice ga-notice--warning">
               <strong>Data incomplete.</strong> NBA.com hasn&apos;t published the advanced box score
               for this game yet, so possession-based stats and the factor analysis aren&apos;t available.
               They&apos;ll appear automatically after the next nightly data update.
@@ -1343,385 +1602,380 @@ function FourFactor() {
             <div className="error">{error}</div>
           )}
 
-          {(loading || initializing) && (
+          {!hasContent && (loading || initializing) && (
             <div className="loading">
               <div className="loading-spinner"></div>
               Loading analysis...
             </div>
           )}
 
-          {!loading && !initializing && selectedGame && (
-            <div className="results">
-          {analysisView === 'boxscore' ? (
-            <div className="boxscore-view">
-              {boxScoreLoading && (
-                <div className="loading boxscore-loading">
-                  <div className="loading-spinner"></div>
-                  Loading box score...
+          {showResults && analysisView === 'boxscore' && (
+            <div className="ga-boxscore">
+              <div className="ga-view-toolbar">
+                <div
+                  ref={periodScrollRef}
+                  className={[
+                    'ga-period-scroll',
+                    periodFade.left ? 'has-more-left' : '',
+                    periodFade.right ? 'has-more-right' : '',
+                  ].filter(Boolean).join(' ')}
+                  onScroll={updatePeriodFade}
+                >
+                  <SegmentedControl
+                    size="sm"
+                    className="ga-period-seg"
+                    label="Box score period"
+                    options={boxScoreSegmentOptions}
+                    value={boxScoreSegment}
+                    onChange={setBoxScoreSegment}
+                  />
                 </div>
-              )}
+              </div>
 
               {boxScoreError && !boxScoreLoading && (
                 <div className="error">{boxScoreError}</div>
               )}
 
-              {boxScore && !boxScoreLoading && !boxScoreError && (
-                <>
-                  <div className="boxscore-view-header">
-                    <h2 className="card-title">Traditional Box Score</h2>
-                    <div className="boxscore-segment-toggle" role="group" aria-label="Traditional box score segment">
-                      {BOX_SCORE_SEGMENTS.map((segment) => (
-                        <button
-                          key={segment.value}
-                          type="button"
-                          className={boxScoreSegment === segment.value ? 'active' : ''}
-                          onClick={() => setBoxScoreSegment(segment.value)}
-                        >
-                          {segment.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+              {!boxScore && boxScoreLoading && (
+                <div className="loading">
+                  <div className="loading-spinner"></div>
+                  Loading box score...
+                </div>
+              )}
 
-                  <div className="boxscore-grid">
-                    {renderBoxScoreTable(boxScore.road_players, roadBoxScoreTotals, boxScore.road_team)}
-                    {renderBoxScoreTable(boxScore.home_players, homeBoxScoreTotals, boxScore.home_team)}
-                  </div>
-                </>
+              {boxScore && !boxScoreError && (
+                <div className={`ga-boxscore-grid ${viewRefreshing ? 'is-refreshing' : ''}`}>
+                  {renderBoxScoreTable(boxScore.road_players, roadBoxScoreTotals, homeBoxScoreTotals, 'road', boxScore.road_team)}
+                  {renderBoxScoreTable(boxScore.home_players, homeBoxScoreTotals, roadBoxScoreTotals, 'home', boxScore.home_team)}
+                </div>
               )}
             </div>
-          ) : analysisView === 'factor' ? (
-            <>
-              <div className="data-scope-toggle-card card">
-                <div className="data-scope-header">
-                  <h2 className="card-title">Factor Analysis View</h2>
-                </div>
-                <div className="data-scope-toggle" role="group" aria-label="Factor analysis data scope">
-                  {DATA_SCOPE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={selectedDataScope === option.value ? 'active' : ''}
-                      onClick={() => handleDataScopeChange(option.value)}
-                    >
-                      {option.label} ({formatScopeMinutesLabel(option.value)})
-                    </button>
-                  ))}
-                </div>
+          )}
+
+          {showResults && analysisView === 'factor' && (
+            <div className="ga-factor">
+              <div className="ga-view-toolbar">
+                <SegmentedControl
+                  className="ga-scope-seg"
+                  label="Factor analysis data scope"
+                  options={dataScopeOptions}
+                  value={selectedDataScope}
+                  onChange={handleDataScopeChange}
+                />
               </div>
 
+              {isLowSample && decomposition && (
+                <div className="ga-notice ga-notice--warning" role="note">
+                  <strong>Small sample.</strong> This game has only {formatMinutesValue(selectedScopeMinutes)} min
+                  of {selectedDataScope === 'clutch' ? 'clutch time' : 'data in this scope'}, so the rates,
+                  ratings and contributions below are mostly noise.
+                </div>
+              )}
+
               {scopeNotice && !selectedGameIncomplete && (
-                <div className="scope-notice card">
-                  {scopeNotice}
+                <div className="ga-notice">{scopeNotice}</div>
+              )}
+
+              {!decomposition && loading && (
+                <div className="loading">
+                  <div className="loading-spinner"></div>
+                  Loading analysis...
                 </div>
               )}
 
               {decomposition && (
-          <div className="analysis-grid">
-            <div className="factors-table card">
-              <h2 className="card-title">Factor Comparison</h2>
-              <p className="table-legend">
-                <span className="legend-item"><span className="legend-swatch bg-positive"></span> Better than league avg</span>
-                <span className="legend-item"><span className="legend-swatch bg-negative"></span> Worse than league avg</span>
-              </p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Factor</th>
-                    <th className="text-center">{decomposition.road_team}</th>
-                    <th className="text-center">{decomposition.home_team}</th>
-                    <th className="text-center">Lg Avg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Shooting (eFG%)</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.road_factors.efg)}</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.home_factors.efg)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.efg)}</td>
-                  </tr>
-                  <tr>
-                    <td>Ball Handling</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.road_factors.ball_handling)}</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.ball_handling)}</td>
-                  </tr>
-                  <tr>
-                    <td>Off Rebounding</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.road_factors.oreb)}</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.home_factors.oreb)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.oreb)}</td>
-                  </tr>
-                  <tr>
-                    <td>FT Rate</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.road_factors.ft_rate)}</td>
-                    <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.ft_rate)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <div className="ratings-table card">
-              <h2 className="card-title">Game Ratings</h2>
-              <p className="table-legend">
-                <span className="legend-item"><span className="legend-swatch bg-positive"></span> Better than league avg</span>
-                <span className="legend-item"><span className="legend-swatch bg-negative"></span> Worse than league avg</span>
-              </p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Metric</th>
-                    <th className="text-center">{decomposition.road_team}</th>
-                    <th className="text-center">{decomposition.home_team}</th>
-                    <th className="text-center">Lg Avg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Offensive Rating</td>
-                    <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.road_ratings.offensive_rating)}</td>
-                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.off_rating)}</td>
-                  </tr>
-                  <tr>
-                    <td>Defensive Rating</td>
-                    <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.road_ratings.defensive_rating)}</td>
-                    <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.def_rating)}</td>
-                  </tr>
-                  <tr>
-                    <td>Net Rating</td>
-                    <td className={`text-center ${decomposition.road_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {decomposition.road_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.road_ratings.net_rating)}
-                    </td>
-                    <td className={`text-center ${decomposition.home_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
-                      {decomposition.home_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.home_ratings.net_rating)}
-                    </td>
-                    <td className="text-center text-secondary">0.0</td>
-                  </tr>
-                  <tr>
-                    <td>Pace</td>
-                    <td className="text-center">{formatFactorValue(decomposition.road_ratings.pace ?? decomposition.road_ratings.possessions)}</td>
-                    <td className="text-center">{formatFactorValue(decomposition.home_ratings.pace ?? decomposition.home_ratings.possessions)}</td>
-                    <td className="text-center text-secondary">{formatFactorValue(decomposition.league_averages?.pace)}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-              )}
-
-          {decomposition && (
-            <>
-          <div className="contributions-chart card">
-            <div className="chart-header">
-              <h2 className="card-title">Factor Contributions to Rating Differential</h2>
-              <div className="chart-legend">
-                <span className="legend-item">
-                  <span className="legend-swatch bg-positive"></span>
-                  Helps {decomposition.home_team}
-                </span>
-                <span className="legend-item">
-                  <span className="legend-swatch bg-negative"></span>
-                  Helps {decomposition.road_team}
-                </span>
-              </div>
-            </div>
-
-            <div className="chart-container">
-              <ResponsiveContainer width="100%" height={550}>
-                <BarChart
-                  data={getContributionChartData()}
-                  layout="vertical"
-                  margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
+                <div
+                  className={[
+                    'ga-factor-content',
+                    isLowSample ? 'is-low-sample' : '',
+                    viewRefreshing ? 'is-refreshing' : '',
+                  ].filter(Boolean).join(' ')}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                  <XAxis
-                    type="number"
-                    domain={contributionXAxisConfig.domain}
-                    ticks={contributionXAxisConfig.ticks}
-                    tick={{ fill: 'var(--color-text-secondary)' }}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="factor"
-                    tick={(props) => {
-                      const { x, y, payload } = props
-                      // Find the data entry to get line1/line2
-                      const chartData = getContributionChartData()
-                      const entry = chartData.find(d => d.factor === payload.value)
-                      const line1 = entry?.labelLine1 || payload.value
-                      const line2 = entry?.labelLine2
+                  <div className="ga-analysis-grid">
+                    <section className="card ga-stat-card" aria-labelledby="ga-factor-comparison">
+                      <h2 className="card-title" id="ga-factor-comparison">Factor Comparison</h2>
+                      <p className="ga-table-legend">
+                        <span className="ga-legend-item"><span className="ga-swatch ga-swatch--better" aria-hidden="true" />Better than league avg</span>
+                        <span className="ga-legend-item"><span className="ga-swatch ga-swatch--worse" aria-hidden="true" />Worse than league avg</span>
+                      </p>
+                      <div className="table-scroll">
+                        <table className="ga-stat-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Factor</th>
+                              <th scope="col" className="text-center">
+                                <span className="ga-team-marker ga-team-marker--road" aria-hidden="true" />{decomposition.road_team}
+                              </th>
+                              <th scope="col" className="text-center">
+                                <span className="ga-team-marker ga-team-marker--home" aria-hidden="true" />{decomposition.home_team}
+                              </th>
+                              <th scope="col" className="text-center">Lg Avg</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td>Shooting (eFG%)</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.road_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.road_factors.efg)}</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.home_factors.efg, 'efg')}`}>{formatFactorValue(decomposition.home_factors.efg)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.efg)}</td>
+                            </tr>
+                            <tr>
+                              <td>Ball Handling</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.road_factors.ball_handling)}</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ball_handling, 'ball_handling')}`}>{formatFactorValue(decomposition.home_factors.ball_handling)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.ball_handling)}</td>
+                            </tr>
+                            <tr>
+                              <td>Off Rebounding</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.road_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.road_factors.oreb)}</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.home_factors.oreb, 'oreb')}`}>{formatFactorValue(decomposition.home_factors.oreb)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.oreb)}</td>
+                            </tr>
+                            <tr>
+                              <td>FT Rate</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.road_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.road_factors.ft_rate)}</td>
+                              <td className={`text-center ${getFactorCellClass(decomposition.home_factors.ft_rate, 'ft_rate')}`}>{formatFactorValue(decomposition.home_factors.ft_rate)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.ft_rate)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
 
-                      if (line2) {
-                        return (
-                          <text x={x} y={y} textAnchor="end" fill="var(--color-text-secondary)" fontSize={14}>
-                            <tspan x={x} dy="-0.35em">{line1}</tspan>
-                            <tspan x={x} dy="1.3em">{line2}</tspan>
-                          </text>
-                        )
-                      }
-                      return (
-                        <text x={x} y={y} textAnchor="end" fill="var(--color-text-secondary)" fontSize={14} dy="0.35em">
-                          {line1}
-                        </text>
-                      )
-                    }}
-                    width={120}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--color-background)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--border-radius-sm)',
-                    }}
-                    content={({ active, payload }) => {
-                      if (!active || !payload || !payload.length) return null
-                      const data = payload[0].payload
-                      return (
-                        <div style={{
-                          backgroundColor: 'var(--color-background)',
-                          border: '1px solid var(--color-border)',
-                          borderRadius: 'var(--border-radius-sm)',
-                          padding: '8px 12px',
-                        }}>
-                          <div style={{ fontWeight: 600, marginBottom: '4px' }}>
-                          {data.labelLine2 ? `${data.labelLine1} ${data.labelLine2}` : data.labelLine1}
-                        </div>
-                          {data.actualValue && (
-                            <div style={{ color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
-                              Value: {data.actualValue}
-                            </div>
-                          )}
-                          <div>Contribution: {data.value.toFixed(1)}</div>
-                        </div>
-                      )
-                    }}
-                  />
-                  <ReferenceLine x={0} stroke="var(--color-neutral)" />
-                  <Bar dataKey="value" radius={[0, 4, 4, 0]}>
-                    {getContributionChartData().map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000000" strokeWidth={1} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="chart-axis-labels">
-              <span className="axis-label-left">← Helps {decomposition.road_team}</span>
-              <span className="axis-label-right">Helps {decomposition.home_team} →</span>
-            </div>
-
-            {interpretationEnabled && (
-              <div className="interpretation-box">
-                <h3 className="interpretation-title">AI-generated contribution analysis</h3>
-                {interpretationLoading && (
-                  <div className="interpretation-loading">
-                    <span className="interpretation-spinner"></span>
-                    Generating analysis...
+                    <section className="card ga-stat-card" aria-labelledby="ga-game-ratings">
+                      <h2 className="card-title" id="ga-game-ratings">Game Ratings</h2>
+                      <p className="ga-table-legend">
+                        <span className="ga-legend-item"><span className="ga-swatch ga-swatch--better" aria-hidden="true" />Better than league avg</span>
+                        <span className="ga-legend-item"><span className="ga-swatch ga-swatch--worse" aria-hidden="true" />Worse than league avg</span>
+                      </p>
+                      <div className="table-scroll">
+                        <table className="ga-stat-table">
+                          <thead>
+                            <tr>
+                              <th scope="col">Metric</th>
+                              <th scope="col" className="text-center">
+                                <span className="ga-team-marker ga-team-marker--road" aria-hidden="true" />{decomposition.road_team}
+                              </th>
+                              <th scope="col" className="text-center">
+                                <span className="ga-team-marker ga-team-marker--home" aria-hidden="true" />{decomposition.home_team}
+                              </th>
+                              <th scope="col" className="text-center">Lg Avg</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td>Offensive Rating</td>
+                              <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.road_ratings.offensive_rating)}</td>
+                              <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.offensive_rating, 'off')}`}>{formatFactorValue(decomposition.home_ratings.offensive_rating)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.off_rating)}</td>
+                            </tr>
+                            <tr>
+                              <td>Defensive Rating</td>
+                              <td className={`text-center ${getRatingCellClass(decomposition.road_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.road_ratings.defensive_rating)}</td>
+                              <td className={`text-center ${getRatingCellClass(decomposition.home_ratings.defensive_rating, 'def')}`}>{formatFactorValue(decomposition.home_ratings.defensive_rating)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.def_rating)}</td>
+                            </tr>
+                            <tr>
+                              <td>Net Rating</td>
+                              <td className={`text-center ${decomposition.road_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                                {decomposition.road_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.road_ratings.net_rating)}
+                              </td>
+                              <td className={`text-center ${decomposition.home_ratings.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                                {decomposition.home_ratings.net_rating > 0 ? '+' : ''}{formatFactorValue(decomposition.home_ratings.net_rating)}
+                              </td>
+                              <td className="text-center ga-league-avg">0.0</td>
+                            </tr>
+                            <tr>
+                              <td>Pace</td>
+                              <td className="text-center">{formatFactorValue(decomposition.road_ratings.pace ?? decomposition.road_ratings.possessions)}</td>
+                              <td className="text-center">{formatFactorValue(decomposition.home_ratings.pace ?? decomposition.home_ratings.possessions)}</td>
+                              <td className="text-center ga-league-avg">{formatFactorValue(decomposition.league_averages?.pace)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
                   </div>
-                )}
-                {interpretation && !interpretationLoading && (
-                  <div className="interpretation-content">
-                    <div className="interpretation-text">
-                      {interpretation.includes('-') ? (
-                        <ul>
-                          {interpretation
-                            .split(/\n|(?=- )/)
-                            .map(line => line.trim())
-                            .filter(line => line.startsWith('-') || line.startsWith('•'))
-                            .map((line, i) => (
-                              <li key={i}>{line.replace(/^[-•]\s*/, '')}</li>
-                            ))}
-                        </ul>
-                      ) : (
-                        <p>{interpretation}</p>
-                      )}
+
+                  <section className="card ga-contributions" aria-labelledby="ga-contributions-title">
+                    <div className="ga-chart-header">
+                      <h2 className="card-title" id="ga-contributions-title">Factor Contributions to Rating Differential</h2>
+                      <div className="ga-chart-legend">
+                        <span className="ga-legend-item">
+                          <span className="ga-swatch ga-swatch--road" aria-hidden="true" />
+                          Helps {decomposition.road_team}
+                        </span>
+                        <span className="ga-legend-item">
+                          <span className="ga-swatch ga-swatch--home" aria-hidden="true" />
+                          Helps {decomposition.home_team}
+                        </span>
+                        <span className="ga-legend-item">
+                          <span className="ga-swatch ga-swatch--error" aria-hidden="true" />
+                          Error
+                        </span>
+                        <span className="ga-legend-item">▲▼ above / below league avg</span>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
 
-          <div className="glossary-section card">
-            <button
-              className="glossary-toggle"
-              onClick={() => setGlossaryExpanded(!glossaryExpanded)}
-              aria-expanded={glossaryExpanded}
-            >
-              <span>Glossary</span>
-              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
-            </button>
+                    <div className="ga-chart">
+                      <ResponsiveContainer width="100%" height={isCompactChart ? 420 : 440}>
+                        <BarChart
+                          data={contributionChartData}
+                          layout="vertical"
+                          margin={{ top: 4, right: contributionChartRight, left: 0, bottom: 0 }}
+                          barCategoryGap="22%"
+                        >
+                          <CartesianGrid horizontal={false} stroke="var(--chart-grid)" />
+                          <XAxis
+                            type="number"
+                            domain={contributionXAxisConfig.domain}
+                            ticks={contributionXAxisConfig.ticks}
+                            tick={{ fill: 'var(--color-text-muted)', fontSize: 12 }}
+                            axisLine={{ stroke: 'var(--chart-grid)' }}
+                            tickLine={false}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="factor"
+                            tick={renderContributionTick}
+                            tickLine={false}
+                            axisLine={false}
+                            width={contributionYAxisWidth}
+                            interval={0}
+                          />
+                          <Tooltip
+                            cursor={{ fill: 'var(--color-button-hover-muted)' }}
+                            content={renderContributionTooltip}
+                            isAnimationActive={false}
+                          />
+                          <ReferenceLine x={0} stroke="var(--chart-reference)" />
+                          <ReferenceLine y={CONTRIBUTION_DIVIDER_KEY} stroke="var(--color-border)" />
+                          <Bar dataKey="value" radius={[0, 3, 3, 0]} isAnimationActive={false}>
+                            {contributionChartData.map((entry) => (
+                              <Cell key={entry.factor} fill={entry.fill} fillOpacity={entry.fillOpacity} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                      <div
+                        className="ga-axis-captions"
+                        style={{ paddingLeft: contributionYAxisWidth, paddingRight: contributionChartRight }}
+                      >
+                        <span className="ga-text-road">← Helps {decomposition.road_team}</span>
+                        <span className="ga-text-home">Helps {decomposition.home_team} →</span>
+                      </div>
+                    </div>
 
-            {glossaryExpanded && (
-              <div className="glossary-content">
-                <div className="glossary-grid">
-                  <div className="glossary-section-group">
-                    <h3>Four Factors</h3>
-                    <dl>
-                      <dt>Shooting (eFG%)</dt>
-                      <dd>Effective field goal percentage, which adjusts for the added value of three-pointers. Formula: (FGM + 0.5 × 3PM) / FGA × 100</dd>
+                    {interpretationEnabled && (
+                      <div className="ga-interpretation">
+                        <h3 className="ga-interpretation-title">AI-generated contribution analysis</h3>
+                        {interpretationLoading && (
+                          <div className="refresh-indicator">
+                            <span className="loading-spinner" aria-hidden="true" />
+                            Generating analysis...
+                          </div>
+                        )}
+                        {interpretation && !interpretationLoading && (
+                          <div className="ga-interpretation-text">
+                            {interpretation.includes('-') ? (
+                              <ul>
+                                {interpretation
+                                  .split(/\n|(?=- )/)
+                                  .map(line => line.trim())
+                                  .filter(line => line.startsWith('-') || line.startsWith('•'))
+                                  .map((line, i) => (
+                                    <li key={i}>{line.replace(/^[-•]\s*/, '')}</li>
+                                  ))}
+                              </ul>
+                            ) : (
+                              <p>{interpretation}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </section>
 
-                      <dt>Ball Handling</dt>
-                      <dd>A team's ability to take care of the ball, calculated as 100 − TOV%. Higher is better. TOV% = TOV / Possessions × 100</dd>
+                  <section className="ga-glossary card">
+                    <button
+                      type="button"
+                      className="ga-glossary-toggle"
+                      onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+                      aria-expanded={glossaryExpanded}
+                    >
+                      <span>Glossary</span>
+                      <span className="ga-glossary-icon" aria-hidden="true">{glossaryExpanded ? '−' : '+'}</span>
+                    </button>
 
-                      <dt>Off Rebounding (OREB%)</dt>
-                      <dd>The percentage of available offensive rebounds a team grabs. Formula: OREB / (OREB + OPP_DREB) × 100</dd>
+                    {glossaryExpanded && (
+                      <div className="ga-glossary-content">
+                        <div className="ga-glossary-grid">
+                          <div className="ga-glossary-group">
+                            <h3>Four Factors</h3>
+                            <dl>
+                              <dt>Shooting (eFG%)</dt>
+                              <dd>Effective field goal percentage, which adjusts for the added value of three-pointers. Formula: (FGM + 0.5 × 3PM) / FGA × 100</dd>
 
-                      <dt>FT Rate (Free Throw Rate)</dt>
-                      <dd>Measures how often a team gets to the free throw line relative to field goal attempts. Formula: FTM / FGA × 100</dd>
-                    </dl>
-                  </div>
+                              <dt>Ball Handling</dt>
+                              <dd>A team's ability to take care of the ball, calculated as 100 − TOV%. Higher is better. TOV% = TOV / Possessions × 100</dd>
 
-                  <div className="glossary-section-group">
-                    <h3>Ratings</h3>
-                    <dl>
-                      <dt>Offensive Rating (ORtg)</dt>
-                      <dd>Points scored per 100 possessions. Formula: (Points / Possessions) × 100</dd>
+                              <dt>Off Rebounding (OREB%)</dt>
+                              <dd>The percentage of available offensive rebounds a team grabs. Formula: OREB / (OREB + OPP_DREB) × 100</dd>
 
-                      <dt>Defensive Rating (DRtg)</dt>
-                      <dd>Points allowed per 100 possessions. Formula: (Opponent Points / Opponent Possessions) × 100. Lower is better.</dd>
+                              <dt>FT Rate (Free Throw Rate)</dt>
+                              <dd>Measures how often a team gets to the free throw line relative to field goal attempts. Formula: FTM / FGA × 100</dd>
+                            </dl>
+                          </div>
 
-                      <dt>Net Rating (NRtg)</dt>
-                      <dd>The difference between Offensive Rating and Defensive Rating. Formula: ORtg − DRtg</dd>
+                          <div className="ga-glossary-group">
+                            <h3>Ratings</h3>
+                            <dl>
+                              <dt>Offensive Rating (ORtg)</dt>
+                              <dd>Points scored per 100 possessions. Formula: (Points / Possessions) × 100</dd>
 
-                      <dt>Pace</dt>
-                      <dd>Number of possessions per 48 minutes. Formula: Avg Possessions × (48 / Actual Game Minutes). For standard games (48 min), Pace equals average possessions.</dd>
-                    </dl>
-                  </div>
+                              <dt>Defensive Rating (DRtg)</dt>
+                              <dd>Points allowed per 100 possessions. Formula: (Opponent Points / Opponent Possessions) × 100. Lower is better.</dd>
 
-                  <div className="glossary-section-group full-width">
-                    <h3>How the Model Works</h3>
-                    <p>
-                      This tool uses a linear regression model trained on historical NBA games to predict the <strong>net rating differential</strong> (per 100 possessions) based on the Four Factors. Since the Four Factors are rate statistics (efficiency measures), the model predicts a rate outcome rather than raw point margin.
-                    </p>
-                    <ol>
-                      <li><strong>Factor Differentials:</strong> For each of the Four Factors, we calculate the difference between the home team and road team performance.</li>
-                      <li><strong>Weighted Contributions:</strong> Each differential is multiplied by a coefficient that represents its importance in predicting efficiency outcomes. These coefficients are learned from historical data.</li>
-                      <li><strong>Predicted Rating Differential:</strong> The sum of all weighted contributions gives us the predicted net rating differential (points per 100 possessions).</li>
-                    </ol>
-                    <p>
-                      <strong>Four Factors Mode:</strong> Uses differentials (Home − Road) for each factor.
-                    </p>
-                    <p>
-                      <strong>Eight Factors Mode:</strong> Analyzes home and road team factors separately, centering each around league averages for more nuanced analysis.
-                    </p>
-                    <p className="model-formula">
-                      Formula: <code>Predicted Rating Diff = Intercept + Σ(Coefficient × Factor Differential)</code>
-                    </p>
-                  </div>
+                              <dt>Net Rating (NRtg)</dt>
+                              <dd>The difference between Offensive Rating and Defensive Rating. Formula: ORtg − DRtg</dd>
+
+                              <dt>Pace</dt>
+                              <dd>Number of possessions per 48 minutes. Formula: Avg Possessions × (48 / Actual Game Minutes). For standard games (48 min), Pace equals average possessions.</dd>
+                            </dl>
+                          </div>
+
+                          <div className="ga-glossary-group ga-glossary-group--full">
+                            <h3>How the Model Works</h3>
+                            <p>
+                              This tool uses a linear regression model trained on historical NBA games to predict the <strong>net rating differential</strong> (per 100 possessions) based on the Four Factors. Since the Four Factors are rate statistics (efficiency measures), the model predicts a rate outcome rather than raw point margin.
+                            </p>
+                            <ol>
+                              <li><strong>Factor Differentials:</strong> For each of the Four Factors, we calculate the difference between the home team and road team performance.</li>
+                              <li><strong>Weighted Contributions:</strong> Each differential is multiplied by a coefficient that represents its importance in predicting efficiency outcomes. These coefficients are learned from historical data.</li>
+                              <li><strong>Predicted Rating Differential:</strong> The sum of all weighted contributions gives us the predicted net rating differential (points per 100 possessions).</li>
+                            </ol>
+                            <p>
+                              <strong>Four Factors Mode:</strong> Uses differentials (Home − Road) for each factor.
+                            </p>
+                            <p>
+                              <strong>Eight Factors Mode:</strong> Analyzes home and road team factors separately, centering each around league averages for more nuanced analysis.
+                            </p>
+                            <p className="ga-model-formula">
+                              Formula: <code>Predicted Rating Diff = Intercept + Σ(Coefficient × Factor Differential)</code>
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </section>
                 </div>
-              </div>
-            )}
-          </div>
-            </>
+              )}
+            </div>
           )}
-            </>
-          ) : (
-            <div className="timeline-content">
-              {timelineLoading && (
+
+          {showResults && analysisView === 'timeline' && (
+            <div className="ga-timeline">
+              {!timelineData && (timelineLoading || (loading && !timelineError)) && (
                 <div className="loading">
                   <div className="loading-spinner"></div>
                   Loading game timeline...
@@ -1730,15 +1984,15 @@ function FourFactor() {
               {timelineError && !timelineLoading && (
                 <div className="error">{timelineError}</div>
               )}
-              {timelineData && !timelineLoading && !timelineError && (
-                <GameTimeline timeline={timelineData} />
+              {timelineData && !timelineError && (
+                <div className={viewRefreshing ? 'is-refreshing' : ''}>
+                  <GameTimeline timeline={timelineData} />
+                </div>
               )}
             </div>
           )}
-        </div>
-      )}
 
-          {!loading && !initializing && !selectedGame && (
+          {!selectedGame && !hasContent && !loading && !initializing && (
             <div className="ga-empty-state card">
               Select a game to load the available Game Analysis views.
             </div>
@@ -1750,3 +2004,4 @@ function FourFactor() {
 }
 
 export default FourFactor
+

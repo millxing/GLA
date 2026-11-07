@@ -6,6 +6,7 @@ import LeagueSummary from './pages/LeagueSummary'
 import Trends from './pages/Trends'
 import ContributionAnalysis from './pages/ContributionAnalysis'
 import Blog from './pages/Blog'
+import BlogPost from './pages/BlogPost'
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Route path="trends" element={<Trends />} />
           <Route path="contribution-analysis" element={<ContributionAnalysis />} />
           <Route path="blog" element={<Blog />} />
+          <Route path="blog/:slug" element={<BlogPost />} />
         </Route>
       </Routes>
     </BrowserRouter>
