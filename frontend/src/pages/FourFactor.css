@@ -549,19 +549,27 @@
 }
 
 .ga-page .ga-interpretation-text {
-  max-width: 75ch;
   font-size: var(--text-base);
   font-weight: 400;
   line-height: 1.65;
   color: var(--color-text);
 }
 
+.ga-page .ga-interpretation-text p {
+  max-width: 75ch;
+}
+
+/* Bullets fill the card width as up to two columns of readable length (each column ≥ 38ch);
+   narrower cards fall back to a single column. */
 .ga-page .ga-interpretation-text ul {
+  columns: 2 38ch;
+  column-gap: 48px;
   padding-left: 20px;
 }
 
-.ga-page .ga-interpretation-text li + li {
-  margin-top: 6px;
+.ga-page .ga-interpretation-text li {
+  break-inside: avoid;
+  margin-bottom: 6px;
 }
 
 /* ── Glossary (same look as the other pages' glossary, scoped) ── */
