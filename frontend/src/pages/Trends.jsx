@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   ComposedChart,
   Bar,
@@ -15,6 +15,8 @@ import {
 import { getSeasons, getTeams, getTrends } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { getTeamName } from '../constants/teams'
+import useMediaQuery from '../hooks/useMediaQuery'
+import { niceTicks, formatShortDate, TOOLTIP_WRAPPER_STYLE } from '../utils/chart'
 import './Trends.css'
 
 const STAT_OPTIONS = [
@@ -69,12 +71,14 @@ const GLOSSARY_ITEMS = [
   { term: 'Pace', definition: 'Average possessions per game for both teams. Higher pace indicates a faster-paced game.' },
 ]
 
-const WIN_BAR_COLOR = '#bbf7d0'
-const LOSS_BAR_COLOR = '#fecaca'
-const BAR_OUTLINE_COLOR = '#6b7280'
+// Bar fill encodes W/L at full strength (≥3:1 on white); legend swatches use the same fills.
+const WIN_BAR_FILL = 'var(--chart-positive)'
+const LOSS_BAR_FILL = 'var(--chart-negative)'
+const TEAM_AVERAGE_STROKE = 'var(--color-accent)'
+const MOBILE_QUERY = '(max-width: 768px)'
 const DATA_SCOPE_OPTIONS = [
-  { value: 'all', label: 'All Data' },
-  { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
+  { value: 'all', label: 'All data' },
+  { value: 'garbage_filtered', label: 'Excl. garbage time' },
 ]
 const MOVING_AVERAGE_OPTIONS = [3, 4, 5, 10, 15, 20, 25, 30]
 const VALID_STAT_OPTIONS = new Set(STAT_OPTIONS.map((option) => option.value))
@@ -131,6 +135,43 @@ function normalizeMovingAverageParam(value) {
   return VALID_MOVING_AVERAGE_OPTIONS.has(parsed) ? parsed : null
 }
 
+// Evenly spaced "nice" ticks (steps of 1, 2, 2.5, 5 × 10^k) covering [min, max]
+// "2026-10-20" -> "10/20"
+// Two-line horizontal tick: date on top, opponent below. Value is "10/20 @DET".
+function GameTick({ x, y, payload }) {
+  const [date, opponent] = String(payload?.value ?? '').split(' ')
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fill="var(--chart-axis)" fontSize={11}>
+        <tspan x={0} dy={12}>{date}</tspan>
+        <tspan x={0} dy={13}>{opponent}</tspan>
+      </text>
+    </g>
+  )
+}
+
+// Table date as a real link to the game's Game Analysis view (keyboard/screen-reader drill-down)
+function GameDateLink({ target, game }) {
+  const dates = (
+    <>
+      <span className="st-date-long">{game.game_date}</span>
+      <span className="st-date-short">{String(game.game_date).slice(5).replace('-', '/')}</span>
+    </>
+  )
+  if (!target) return dates
+  const opponent = `${game.home_away === 'home' ? 'vs' : 'at'} ${game.opponent}`
+  return (
+    <Link
+      className="st-game-link"
+      to={target.to}
+      state={target.state}
+      aria-label={`Open Game Analysis: ${game.game_date} ${opponent}`}
+    >
+      {dates}
+    </Link>
+  )
+}
+
 function Trends() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -148,6 +189,7 @@ function Trends() {
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
   const hasUserInteractedRef = useRef(false)
+  const isMobile = useMediaQuery(MOBILE_QUERY)
   const urlSelections = useMemo(() => ({
     season: readSearchParam(searchParams, 'season').trim(),
     team: readSearchParam(searchParams, 'team').trim().toUpperCase(),
@@ -288,12 +330,13 @@ function Trends() {
     let isCurrent = true
     async function loadTeams() {
       if (!selectedSeason) return
+      // Keep the previous chart on screen (dimmed) while the new season/scope loads.
       setInitializing(true)
-      if (isCurrent) setData(null)
       try {
         const res = await getTeams(selectedSeason, selectedDataScope)
         if (!isCurrent) return
         setTeams(res.teams)
+        if (res.teams.length === 0) setData(null)
         // Keep persisted team if valid, otherwise default to BOS or first team
         setSelectedTeam(prev => {
           if (prev && res.teams.includes(prev)) return prev
@@ -302,7 +345,10 @@ function Trends() {
           return ''
         })
       } catch (err) {
-        if (isCurrent) setError(err.message)
+        if (isCurrent) {
+          setError(err.message)
+          setData(null)
+        }
       } finally {
         if (isCurrent) setInitializing(false)
       }
@@ -356,6 +402,8 @@ function Trends() {
   const chartData = useMemo(() => {
     if (!data?.data) return []
     let rollingSum = 0
+    const leagueAverage = Number(data.league_average)
+    const baseline = Number.isFinite(leagueAverage) ? leagueAverage : 0
 
     return data.data.map((game, index, series) => {
       const value = Number(game.value ?? 0)
@@ -371,32 +419,31 @@ function Trends() {
       return {
         ...game,
         game_id: normalizeGameId(game.game_id),
-        xLabel: `${game.home_away === 'road' ? '@' : ''}${game.opponent} on ${game.game_date}`,
+        xLabel: `${formatShortDate(game.game_date)} ${game.home_away === 'road' ? '@' : ''}${game.opponent}`,
         moving_average: movingAverage,
+        // Bars span league avg → game value, so length encodes the deviation, never a cropped axis minimum
+        bar_range: [baseline, Number(game.value)],
       }
     })
   }, [data, selectedMovingAverage])
 
-  // Calculate Y-axis ticks at multiples of 2
+  // Evenly spaced x labels: every Nth game, N chosen so labels never crowd
+  const xTickInterval = useMemo(() => {
+    const maxLabels = isMobile ? 4 : 12
+    return Math.max(0, Math.ceil(chartData.length / maxLabels) - 1)
+  }, [chartData.length, isMobile])
+
+  // Y-axis: nice ticks covering every bar plus both reference lines
   const yAxisConfig = useMemo(() => {
     if (!data?.data || data.data.length === 0) return { ticks: [], domain: [0, 100] }
-
-    const values = data.data.map(d => d.value)
-    const minVal = Math.min(...values)
-    const maxVal = Math.max(...values)
-
-    // Round down to nearest 2 for min, round up for max, with small padding
-    const tickMin = Math.floor((minVal - 1) / 2) * 2
-    const tickMax = Math.ceil((maxVal + 1) / 2) * 2
-
-    // Generate ticks at every 2
-    const ticks = []
-    for (let t = tickMin; t <= tickMax; t += 2) {
-      ticks.push(t)
-    }
-
-    return { ticks, domain: [tickMin, tickMax] }
-  }, [data])
+    const values = [
+      ...data.data.map((d) => Number(d.value ?? 0)),
+      Number(data.league_average),
+      Number(data.season_average),
+    ].filter(Number.isFinite)
+    const ticks = niceTicks(Math.min(...values), Math.max(...values), isMobile ? 5 : 8)
+    return { ticks, domain: [ticks[0], ticks[ticks.length - 1]] }
+  }, [data, isMobile])
 
   // Table data sorted by most recent first
   const tableData = useMemo(() => {
@@ -410,19 +457,22 @@ function Trends() {
     if (!entry) return null
 
     return (
-      <div className="custom-tooltip">
+      <div className="st-tooltip">
         <p className="tooltip-date">{entry.game_date}</p>
         <p className="tooltip-opponent">
           {entry.home_away === 'home' ? 'vs' : '@'} {entry.opponent}
+          {' · '}
+          <span className={entry.wl === 'W' ? 'text-positive' : 'text-negative'}>
+            {entry.wl === 'W' ? 'Win' : 'Loss'}
+          </span>
         </p>
-        <p className={`tooltip-result ${entry.wl === 'W' ? 'win' : 'loss'}`}>
-          {entry.wl === 'W' ? 'Win' : 'Loss'}
-        </p>
-        <div className="tooltip-stats">
-          <p><strong>Value:</strong> {entry.value?.toFixed(1)}</p>
-          <p><strong>{selectedMovingAverage}-Game Avg:</strong> {entry.moving_average?.toFixed(1)}</p>
-        </div>
-        <p className="tooltip-hint">Click bar to open Game Analysis</p>
+        <dl className="tooltip-stats">
+          <dt>Value</dt>
+          <dd>{entry.value?.toFixed(1)}</dd>
+          <dt>{selectedMovingAverage}-game avg</dt>
+          <dd>{entry.moving_average?.toFixed(1)}</dd>
+        </dl>
+        <p className="tooltip-hint">Click the bar or the table date to open Game Analysis</p>
       </div>
     )
   }
@@ -432,17 +482,17 @@ function Trends() {
 
   // Determine if team is performing better than league average
   // For lower-is-better stats, being below league avg is good
-  const isLowerBetter = LOWER_IS_BETTER_STATS.has(selectedStat)
+  const isLowerBetter = LOWER_IS_BETTER_STATS.has(data?.stat || selectedStat)
   const isBetterThanLeague = data
     ? isLowerBetter
       ? data.season_average < data.league_average
       : data.season_average > data.league_average
     : false
 
-  const handleBarClick = (gameEntry) => {
-    const gameIdValue = gameEntry?.game_id
-    const gameId = normalizeGameId(gameIdValue)
-    if (!selectedSeason || !gameId) return
+  // One Game Analysis destination for a game, shared by the chart bars and the table date links
+  const buildGameTarget = (gameEntry) => {
+    const gameId = normalizeGameId(gameEntry?.game_id)
+    if (!selectedSeason || !gameId) return null
     const nextParams = new URLSearchParams({
       season: selectedSeason,
       game: gameId,
@@ -450,8 +500,8 @@ function Trends() {
       factors: 'eight_factors',
       view: 'factor',
     })
-    navigate('/four-factor', {
-      search: `?${nextParams.toString()}`,
+    return {
+      to: { pathname: '/four-factor', search: `?${nextParams.toString()}` },
       state: {
         season: selectedSeason,
         gameId,
@@ -461,11 +511,20 @@ function Trends() {
         homeAway: gameEntry?.home_away || '',
         source: 'trends',
       },
-    })
+    }
   }
 
+  const handleBarClick = (gameEntry) => {
+    const target = buildGameTarget(gameEntry)
+    if (target) navigate(target.to, { state: target.state })
+  }
+
+  const isBusy = loading || initializing
+  const statLabel = STAT_OPTIONS.find((s) => s.value === data?.stat)?.label || data?.stat_label || ''
+  const chartHeight = isMobile ? 300 : 420
+
   return (
-    <div className="trends container">
+    <div className="st-page">
       <div className="page-header">
         <div className="page-title-row">
           <h1 className="page-title">Statistical Trends</h1>
@@ -475,16 +534,17 @@ function Trends() {
         </div>
       </div>
 
-      <div className="controls card">
+      <div className="st-controls card">
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Season</label>
+            <label className="form-label" htmlFor="st-season">Season</label>
             <select
+              id="st-season"
               className="form-select"
               value={selectedSeason}
               onChange={(e) => handleSeasonChange(e.target.value)}
             >
-              <option value="">Select season...</option>
+              {seasons.length === 0 && <option value="">Loading seasons…</option>}
               {seasons.map((season) => (
                 <option key={season} value={season}>{season}</option>
               ))}
@@ -492,14 +552,15 @@ function Trends() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Team</label>
+            <label className="form-label" htmlFor="st-team">Team</label>
             <select
+              id="st-team"
               className="form-select"
               value={selectedTeam}
               onChange={(e) => handleTeamChange(e.target.value)}
               disabled={!selectedSeason || teams.length === 0}
             >
-              <option value="">Select team...</option>
+              {teams.length === 0 && <option value="">Loading teams…</option>}
               {teams.map((team) => (
                 <option key={team} value={team}>{team}</option>
               ))}
@@ -507,8 +568,9 @@ function Trends() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Data Scope</label>
+            <label className="form-label" htmlFor="st-scope">Data Scope</label>
             <select
+              id="st-scope"
               className="form-select"
               value={selectedDataScope}
               onChange={(e) => handleDataScopeChange(e.target.value)}
@@ -520,8 +582,9 @@ function Trends() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Statistic</label>
+            <label className="form-label" htmlFor="st-stat">Statistic</label>
             <select
+              id="st-stat"
               className="form-select"
               value={selectedStat}
               onChange={(e) => handleStatChange(e.target.value)}
@@ -533,8 +596,9 @@ function Trends() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Moving Average</label>
+            <label className="form-label" htmlFor="st-ma">Moving Average</label>
             <select
+              id="st-ma"
               className="form-select"
               value={selectedMovingAverage}
               onChange={(e) => handleMovingAverageChange(e.target.value)}
@@ -545,135 +609,147 @@ function Trends() {
             </select>
           </div>
         </div>
+        <div className="st-status" role="status" aria-live="polite">
+          {isBusy && data && (
+            <span className="refresh-indicator">
+              <span className="loading-spinner" aria-hidden="true"></span>
+              Updating…
+            </span>
+          )}
+        </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {(loading || initializing) && (
+      {isBusy && !data && (
         <div className="loading">
           <div className="loading-spinner"></div>
           Loading trend data...
         </div>
       )}
 
-      {data && !loading && !initializing && (
-        <div className="results">
-          <div className="chart-card card">
-            <h2 className="card-title">{getTeamName(data.team)} {STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label}</h2>
-            <div className="chart-legend">
-              <span className="legend-item">
-                <span
-                  className="legend-line"
-                  style={{ backgroundColor: isBetterThanLeague ? 'var(--color-positive)' : 'var(--color-negative)' }}
-                ></span> Team Average
-              </span>
-              <span className="legend-item">
-                <span className="legend-line league-avg"></span> League Average
-              </span>
-              <span className="legend-item">
-                <span className="legend-line moving-average"></span> {selectedMovingAverage}-Game Avg
+      {data && (
+        <div className={`st-results${isBusy ? ' is-refreshing' : ''}`} aria-busy={isBusy}>
+          <div className="st-summary card">
+            <div className="st-stat">
+              <span className="st-stat-label">Games played</span>
+              <span className="st-stat-value">{data.data.length}</span>
+            </div>
+            <div className="st-stat">
+              <span className="st-stat-label">Team average</span>
+              <span className="st-stat-value">{data.season_average.toFixed(1)}</span>
+            </div>
+            <div className="st-stat">
+              <span className="st-stat-label">League average</span>
+              <span className="st-stat-value">{data.league_average.toFixed(1)}</span>
+            </div>
+            <div className="st-stat">
+              <span className="st-stat-label">vs League</span>
+              <span className={`st-stat-value ${isBetterThanLeague ? 'text-positive' : 'text-negative'}`}>
+                {vsLeagueFormatted}
               </span>
             </div>
-            <div className="chart-container">
-              <ResponsiveContainer width="100%" height={550}>
+          </div>
+
+          <div className="st-chart-card card">
+            <h2 className="card-title">{getTeamName(data.team)} {statLabel}</h2>
+            <ul className="st-legend" aria-label="Chart legend">
+              <li className="st-legend-item">
+                <span className="st-swatch st-swatch--win" aria-hidden="true"></span> Win
+              </li>
+              <li className="st-legend-item">
+                <span className="st-swatch st-swatch--loss" aria-hidden="true"></span> Loss
+              </li>
+              <li className="st-legend-item">
+                <span className="st-legend-line st-legend-line--moving" aria-hidden="true"></span> {selectedMovingAverage}-game avg
+              </li>
+              <li className="st-legend-item">
+                <span className="st-legend-line st-legend-line--team" aria-hidden="true"></span> Team avg
+              </li>
+              <li className="st-legend-item">
+                <span className="st-legend-line st-legend-line--league" aria-hidden="true"></span> League avg (bar baseline)
+              </li>
+            </ul>
+            <div className="st-chart" style={{ height: chartHeight }}>
+              <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart
                   data={chartData}
-                  margin={{ top: 20, right: 30, left: 50, bottom: 10 }}
+                  barCategoryGap="20%"
+                  margin={isMobile ? { top: 8, right: 16, left: 0, bottom: 0 } : { top: 8, right: 28, left: 0, bottom: 0 }}
                 >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
+                  <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
                   <XAxis
                     dataKey="xLabel"
-                    tick={{ fill: 'var(--color-text-secondary)', fontSize: 9 }}
-                    angle={-90}
-                    textAnchor="end"
-                    height={130}
-                    interval={0}
+                    tick={<GameTick />}
+                    tickLine={false}
+                    axisLine={{ stroke: 'var(--color-border-strong)' }}
+                    height={34}
+                    interval={xTickInterval}
+                    fontSize={11}
                   />
                   <YAxis
-                    tick={{ fill: 'var(--color-text-secondary)' }}
+                    tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={isMobile ? 32 : 44}
                     domain={yAxisConfig.domain}
                     ticks={yAxisConfig.ticks}
-                    label={{
-                      value: STAT_OPTIONS.find(s => s.value === selectedStat)?.label || data.stat_label,
-                      angle: -90,
-                      position: 'insideLeft',
-                      style: { fill: 'var(--color-text)', fontWeight: 600 }
-                    }}
+                    allowDataOverflow
                   />
-                  <Tooltip content={<CustomTooltip />} />
-                  {/* League average line - black */}
+                  <Tooltip
+                    content={<CustomTooltip />}
+                    cursor={{ fill: 'rgba(20, 22, 26, 0.04)' }}
+                    allowEscapeViewBox={{ x: false, y: false }}
+                    wrapperStyle={TOOLTIP_WRAPPER_STYLE}
+                  />
                   <ReferenceLine
                     y={data.league_average}
-                    stroke="#000000"
-                    strokeWidth={2}
+                    stroke="var(--chart-reference)"
+                    strokeWidth={1.5}
                   />
-                  {/* Team average line - green if better than league, red if worse */}
                   <ReferenceLine
                     y={data.season_average}
-                    stroke={isBetterThanLeague ? 'var(--color-positive)' : 'var(--color-negative)'}
-                    strokeWidth={2}
+                    stroke={TEAM_AVERAGE_STROKE}
+                    strokeWidth={1.5}
+                    strokeDasharray="6 3"
                   />
                   <Bar
-                    dataKey="value"
+                    dataKey="bar_range"
                     name="Value"
-                    barSize={15}
-                    stroke={BAR_OUTLINE_COLOR}
-                    strokeWidth={1}
+                    maxBarSize={isMobile ? 24 : 40}
                     cursor="pointer"
+                    isAnimationActive={false}
                   >
                     {chartData.map((entry, index) => (
                       <Cell
                         key={`game-bar-${entry.game_id ?? index}`}
-                        fill={entry.wl === 'W' ? WIN_BAR_COLOR : LOSS_BAR_COLOR}
+                        fill={entry.wl === 'W' ? WIN_BAR_FILL : LOSS_BAR_FILL}
                         onClick={() => handleBarClick(entry)}
                       />
                     ))}
                   </Bar>
                   <Line
-                    type="monotone"
+                    type="linear"
                     dataKey="moving_average"
                     name={`${selectedMovingAverage}-Game Avg`}
-                    stroke="#2563eb"
+                    stroke="var(--chart-average)"
                     strokeWidth={2}
-                    strokeDasharray="4 4"
                     dot={false}
+                    activeDot={{ r: 3 }}
+                    isAnimationActive={false}
                   />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="summary-stats card">
-            <h3 className="summary-title">Summary</h3>
-            <div className="summary-grid">
-              <div className="stat-item">
-                <span className="stat-label">Games Played</span>
-                <span className="stat-value">{data.data.length}</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-label">Team Average</span>
-                <span className="stat-value">{data.season_average.toFixed(1)}</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-label">League Average</span>
-                <span className="stat-value">{data.league_average.toFixed(1)}</span>
-              </div>
-              <div className="stat-item">
-                <span className="stat-label">vs League</span>
-                <span className={`stat-value ${isBetterThanLeague ? 'text-positive' : 'text-negative'}`}>
-                  {vsLeagueFormatted}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div className="games-table card">
+          <div className="st-games card">
             <h2 className="card-title">Game-by-Game Data</h2>
-            <div className="table-container">
+            <div className="st-games-scroll table-scroll" tabIndex={0} aria-label="Game-by-game data table">
               <table>
                 <thead>
                   <tr>
-                    <th>#</th>
+                    <th className="st-col-index">#</th>
                     <th>Date</th>
                     <th>Opponent</th>
                     <th>Result</th>
@@ -684,9 +760,11 @@ function Trends() {
                 <tbody>
                   {tableData.map((game, index) => (
                     <tr key={game.game_id}>
-                      <td>{tableData.length - index}</td>
-                      <td>{game.game_date}</td>
-                      <td>
+                      <td className="st-col-index">{tableData.length - index}</td>
+                      <td className="st-nowrap">
+                        <GameDateLink target={buildGameTarget(game)} game={game} />
+                      </td>
+                      <td className="st-nowrap">
                         {game.home_away === 'home' ? 'vs' : '@'} {game.opponent}
                       </td>
                       <td className={game.wl === 'W' ? 'text-positive' : 'text-negative'}>
@@ -701,21 +779,23 @@ function Trends() {
             </div>
           </div>
 
-          <div className="glossary-section card">
+          <div className="st-glossary card">
             <button
-              className="glossary-toggle"
+              type="button"
+              className="st-glossary-toggle"
               onClick={() => setGlossaryExpanded(!glossaryExpanded)}
               aria-expanded={glossaryExpanded}
+              aria-controls="st-glossary-content"
             >
               <span>Glossary</span>
-              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
+              <span className="st-toggle-icon" aria-hidden="true">{glossaryExpanded ? '−' : '+'}</span>
             </button>
 
             {glossaryExpanded && (
-              <div className="glossary-content">
-                <dl className="glossary-list">
+              <div className="st-glossary-content" id="st-glossary-content">
+                <dl className="st-glossary-list">
                   {GLOSSARY_ITEMS.map(item => (
-                    <div key={item.term} className="glossary-item">
+                    <div key={item.term} className="st-glossary-item">
                       <dt>{item.term}</dt>
                       <dd>{item.definition}</dd>
                     </div>

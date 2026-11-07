@@ -1,269 +1,335 @@
-.trends {
-  max-width: 1200px;
+/* Statistical Trends — every selector is scoped under .st-page */
+
+/* .site-main owns the page gutter; the root only caps the width */
+.st-page {
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
 }
 
-.page-header {
+/* Controls */
+.st-page .st-controls {
+  position: relative;
   margin-bottom: var(--spacing-md);
 }
 
-.page-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.page-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--color-text);
+.st-page .st-controls .form-group {
   margin-bottom: 0;
 }
 
-.page-description {
-  color: var(--color-text-secondary);
-  margin-bottom: 0;
-  min-width: 0;
+/* Sits in the card's top-right corner (label row) so it never shifts the layout */
+.st-page .st-status {
+  position: absolute;
+  top: 14px;
+  right: 20px;
 }
 
-.controls {
-  margin-bottom: var(--spacing-lg);
-}
-
-.results {
+.st-page .st-results {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-lg);
+  gap: var(--spacing-md);
 }
 
-/* Summary Stats */
-.summary-stats {
-  padding: var(--spacing-md);
-}
-
-.summary-title {
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: var(--spacing-md);
-  color: var(--color-text-secondary);
-}
-
-.summary-grid {
+/* Summary stat tiles */
+.st-page .st-summary {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--spacing-lg);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0;
 }
 
-.stat-item {
+.st-page .st-stat {
   display: flex;
   flex-direction: column;
+  gap: 2px;
+  padding: 12px 20px;
+  min-width: 0;
 }
 
-.stat-label {
-  font-size: 0.75rem;
+.st-page .st-stat + .st-stat {
+  border-left: 1px solid var(--color-border);
+}
+
+.st-page .st-stat-label {
+  font-size: var(--text-xs);
   color: var(--color-text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin-bottom: var(--spacing-xs);
 }
 
-.stat-value {
-  font-size: 1.5rem;
+.st-page .st-stat-value {
+  font-size: var(--text-xl);
   font-weight: 600;
-  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
 }
 
-/* Chart Card */
-.chart-card {
-  width: 100%;
-}
-
-.chart-legend {
+/* Chart card */
+.st-page .st-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--spacing-lg);
-  margin-bottom: var(--spacing-md);
-  font-size: 0.875rem;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-xs);
+  gap: 6px 16px;
+  margin: 6px 0 var(--spacing-sm);
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
 
-.legend-line {
-  width: 24px;
-  height: 3px;
+.st-page .st-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
-.legend-line.league-avg {
-  background-color: #000000;
+/* Swatches mirror the bar fills */
+.st-page .st-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
 }
 
-.legend-line.moving-average {
-  background: repeating-linear-gradient(
-    90deg,
-    #2563eb 0px,
-    #2563eb 4px,
-    transparent 4px,
-    transparent 8px
-  );
+.st-page .st-swatch--win {
+  background-color: var(--chart-positive);
 }
 
-.chart-container {
+.st-page .st-swatch--loss {
+  background-color: var(--chart-negative);
+}
+
+.st-page .st-legend-line {
+  width: 20px;
+  height: 0;
+  border-top: 2px solid;
+}
+
+.st-page .st-legend-line--moving {
+  border-top-color: var(--chart-average);
+}
+
+.st-page .st-legend-line--team {
+  border-top: 2px dashed var(--color-accent);
+}
+
+.st-page .st-legend-line--league {
+  border-top-color: var(--chart-reference);
+}
+
+.st-page .st-chart {
   width: 100%;
-  min-height: 550px;
 }
 
 /* Tooltip */
-.custom-tooltip {
+.st-page .st-tooltip {
+  white-space: normal;
+  overflow-wrap: break-word;
   background-color: var(--color-background);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-sm);
-  padding: var(--spacing-sm) var(--spacing-md);
-  box-shadow: var(--shadow);
+  padding: var(--spacing-sm) 12px;
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
 }
 
-.tooltip-date {
+.st-page .tooltip-date {
   font-weight: 600;
-  margin-bottom: var(--spacing-xs);
 }
 
-.tooltip-opponent {
+.st-page .tooltip-opponent {
   color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-xs);
+  margin-bottom: 6px;
 }
 
-.tooltip-result {
+.st-page .tooltip-stats {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 12px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+}
+
+.st-page .tooltip-stats dt {
+  color: var(--color-text-secondary);
+}
+
+.st-page .tooltip-stats dd {
+  text-align: right;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.st-page .tooltip-hint {
+  margin-top: 6px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* Game-by-game table */
+/* Six short columns: cap the card so Value/MA sit near Date/Opponent on wide screens */
+.st-page .st-games {
+  max-width: 760px;
+}
+
+.st-page .st-games .card-title {
   margin-bottom: var(--spacing-sm);
 }
 
-.tooltip-result.win {
-  color: var(--color-positive);
+/* 40px tap target; the negative margin keeps the row height unchanged */
+.st-page .st-game-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin: -8px 0;
+  text-decoration: underline;
+  text-decoration-color: var(--color-border-strong);
+  text-underline-offset: 3px;
 }
 
-.tooltip-result.loss {
-  color: var(--color-negative);
+.st-page .st-game-link:hover {
+  text-decoration-color: currentColor;
 }
 
-.tooltip-stats {
-  font-size: 0.875rem;
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--spacing-xs);
-}
-
-.tooltip-stats p {
-  margin: var(--spacing-xs) 0;
-}
-
-.tooltip-hint {
-  margin-top: var(--spacing-xs);
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-}
-
-/* Games Table */
-.games-table {
-  overflow: hidden;
-}
-
-.games-table .table-container {
+.st-page .st-games-scroll {
   max-height: 400px;
   overflow-y: auto;
 }
 
-.games-table td.text-right {
-  font-family: var(--font-family-mono);
+.st-page .st-games-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
-/* Glossary Section */
-.glossary-section {
+.st-page .st-nowrap {
+  white-space: nowrap;
+}
+
+.st-page .st-date-short {
+  display: none;
+}
+
+/* Glossary */
+.st-page .st-glossary {
   padding: 0;
 }
 
-.glossary-toggle {
+.st-page .st-glossary-toggle {
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
-  background: var(--color-background);
+  min-height: 44px;
+  padding: var(--spacing-sm) 20px;
+  background: none;
   border: none;
+  border-radius: var(--border-radius-lg);
   cursor: pointer;
-  font-size: 1rem;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--color-text);
-  transition: background-color 0.15s ease;
 }
 
-.glossary-toggle:hover {
-  background-color: var(--color-highlight-bg);
+.st-page .st-glossary-toggle:hover {
+  background-color: var(--color-button-hover-muted);
 }
 
-.toggle-icon {
-  font-size: 1.25rem;
-  font-weight: 500;
+.st-page .st-toggle-icon {
+  font-size: var(--text-lg);
   color: var(--color-text-secondary);
 }
 
-.glossary-content {
-  padding: var(--spacing-md);
-  background-color: var(--color-background-alt);
+.st-page .st-glossary-content {
+  padding: var(--spacing-md) 20px;
   border-top: 1px solid var(--color-border);
 }
 
-.glossary-list {
+.st-page .st-glossary-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--spacing-md);
-  margin: 0;
 }
 
-.glossary-item {
-  padding: var(--spacing-sm);
-  background-color: var(--color-background);
-  border-radius: var(--border-radius-sm);
-}
-
-.glossary-item dt {
+.st-page .st-glossary-item dt {
   font-weight: 600;
-  color: var(--color-primary);
-  margin-bottom: var(--spacing-xs);
+  color: var(--color-text);
+  margin-bottom: 2px;
 }
 
-.glossary-item dd {
-  margin: 0;
-  font-size: 0.875rem;
+.st-page .st-glossary-item dd {
+  font-size: var(--text-sm);
   color: var(--color-text-secondary);
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
 @media (max-width: 768px) {
-  .page-title-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--spacing-xs);
+  /* Compact 2-up filter grid; Statistic gets a full row for its long labels */
+  .st-page .st-controls .form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-flow: row dense;
+    gap: 10px 12px;
   }
 
-  .summary-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--spacing-md);
+  .st-page .st-controls .form-row > * {
+    min-width: 0;
   }
 
-  .stat-item {
-    min-width: 100px;
+  .st-page .st-controls .form-group:nth-child(4) {
+    grid-column: 1 / -1;
   }
 
-  .chart-legend {
-    flex-direction: column;
-    gap: var(--spacing-sm);
+  .st-page .st-status {
+    top: 12px;
+    right: 14px;
   }
 
-  .glossary-list {
+  .st-page .st-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .st-page .st-stat {
+    padding: 10px 14px;
+  }
+
+  .st-page .st-stat:nth-child(3) {
+    border-left: 0;
+  }
+
+  .st-page .st-stat:nth-child(n + 3) {
+    border-top: 1px solid var(--color-border);
+  }
+
+  .st-page .st-stat-value {
+    font-size: var(--text-lg);
+  }
+
+  .st-page .st-legend {
+    gap: 4px 12px;
+    font-size: var(--text-xs);
+  }
+
+  .st-page .st-glossary-toggle,
+  .st-page .st-glossary-content {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .st-page .st-glossary-list {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Narrow table: drop the row number and use MM/DD dates so Value stays on screen */
+@media (max-width: 600px) {
+  .st-page .st-col-index,
+  .st-page .st-date-long {
+    display: none;
+  }
+
+  .st-page .st-date-short {
+    display: inline;
+  }
+
+  .st-page .st-games-scroll th,
+  .st-page .st-games-scroll td {
+    padding-left: 8px;
+    padding-right: 8px;
   }
 }

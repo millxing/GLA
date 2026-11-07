@@ -1,923 +1,798 @@
-.four-factor {
-  max-width: none;
-}
+/* ── Game Analysis page. Every selector is scoped under .ga-page. ──
+   Normal document scroll like every other page. */
 
-.four-factor.container {
-  --ga-layout-height: auto;
-}
-
-.page-header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--spacing-sm) var(--spacing-md);
-  flex-wrap: wrap;
-  margin-bottom: var(--spacing-md);
-}
-
-.page-title {
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: var(--color-text);
-  margin-bottom: 0;
-}
-
-.page-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
-  min-width: 0;
-  flex: 1;
-}
-
-.hidden-save-option {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  margin-bottom: 0;
-}
-
-.hidden-save-button {
-  border: 1px solid var(--color-border);
-  background: var(--color-background-secondary);
-  color: var(--color-text);
-  border-radius: var(--border-radius-sm);
-  padding: 0.35rem 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.hidden-save-button:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  background: var(--color-background);
-}
-
-.hidden-save-button:disabled {
-  opacity: 0.65;
-  cursor: not-allowed;
-}
-
-.hidden-save-message {
-  font-size: 0.78rem;
-  color: var(--color-text-secondary);
-}
-
-.hidden-save-message.error {
-  color: var(--color-negative);
-}
-
-.page-description {
-  color: var(--color-text-secondary);
-  margin-bottom: 0;
-  flex: 1;
-  min-width: 0;
-}
-
-.controls {
-  margin-bottom: var(--spacing-lg);
-}
-
-.ga-layout {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: var(--spacing-lg);
-  align-items: stretch;
-  height: var(--ga-layout-height);
-  min-height: 0;
-}
-
-.ga-sidebar {
+.ga-page {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-md);
-  padding: var(--spacing-lg);
-  min-height: 0;
-  overflow: auto;
+  max-width: var(--layout-max-width);
+  margin: 0 auto;
 }
 
-.ga-sidebar-header {
-  padding-bottom: var(--spacing-md);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.ga-sidebar-title {
-  margin: 0;
-  font-size: 1.45rem;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.ga-sidebar-nav {
+/* ── Top bar: title · view switcher · selects ── */
+.ga-page .ga-topbar {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px var(--spacing-md);
 }
 
-.ga-sidebar-link {
-  width: 100%;
-  border: 1px solid var(--color-border);
-  background: var(--color-background-alt);
-  color: var(--color-text);
-  border-radius: var(--border-radius-sm);
-  padding: 0.85rem 1rem;
-  text-align: left;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
+.ga-page .ga-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--control-height);
 }
 
-.ga-sidebar-link:hover {
-  border-color: var(--color-primary);
-  background: var(--color-background-secondary);
+.ga-page .ga-title-group .page-title {
+  white-space: nowrap;
 }
 
-.ga-sidebar-link.active {
-  border-color: var(--color-button-primary);
-  background: var(--color-button-primary);
-  color: #fff;
+/* Space is reserved so the indicator appearing never shifts the controls */
+.ga-page .ga-refresh {
+  min-width: 76px;
 }
 
-.ga-main {
+.ga-page .ga-selects {
+  flex: 1 1 560px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
   min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-lg);
 }
 
-.ga-fixed-stack {
+.ga-page .ga-field {
+  min-width: 0;
+}
+
+.ga-page .ga-field .form-label {
+  margin-bottom: 4px;
+}
+
+.ga-page .ga-field--season {
+  flex: 0 0 116px;
+}
+
+.ga-page .ga-field--month {
+  flex: 0 0 168px;
+}
+
+.ga-page .ga-field--game {
+  flex: 1 1 300px;
+  max-width: 440px;
+}
+
+.ga-page .ga-label-short {
+  display: none;
+}
+
+.ga-page .ga-hidden-save {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--spacing-sm);
 }
 
-.ga-empty-state {
+.ga-page .ga-hidden-save-button {
+  min-height: 32px;
+}
+
+.ga-page .ga-hidden-save-message {
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.ga-page .ga-hidden-save-message.is-error {
+  color: var(--color-negative);
+}
+
+/* ── Body: scoreboard + results ── */
+.ga-page .ga-body,
+.ga-page .ga-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.ga-page .ga-empty-state {
   padding: var(--spacing-xl);
   color: var(--color-text-secondary);
   text-align: center;
 }
 
-.four-factor .controls .form-row > .season-control {
-  flex: 0.68;
+.ga-page .ga-notice {
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: var(--color-background);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
 }
 
-.four-factor .controls .form-row > .month-control {
-  flex: 0.68;
-}
-
-.four-factor .controls .form-row > .game-control {
-  flex: 1.64;
-}
-
-.results {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding-right: var(--spacing-xs);
-}
-
-.game-header {
-  padding: var(--spacing-md) var(--spacing-lg);
-}
-
-.game-header-content {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  align-items: center;
-}
-
-.matchup-left {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--spacing-lg);
-}
-
-.team {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.team-abbr {
-  font-size: 1.5rem;
-  font-weight: 700;
+.ga-page .ga-notice strong {
   color: var(--color-text);
+  font-weight: 600;
 }
 
-.team-score {
-  font-size: 2.5rem;
-  font-weight: 700;
+.ga-page .ga-notice--warning {
+  border-left: 3px solid var(--color-accent);
 }
 
-.home-team .team-score {
-  color: var(--color-positive);
+/* ── Team identity ── */
+.ga-page .ga-team-marker {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: 0.05em;
 }
 
-.road-team .team-score {
+.ga-page .ga-team-marker--road {
+  background: var(--color-road);
+}
+
+.ga-page .ga-team-marker--home {
+  background: var(--color-home);
+}
+
+.ga-page .ga-text-road {
   color: var(--color-road);
 }
 
-.at-symbol {
-  font-size: 1.25rem;
-  color: var(--color-text-secondary);
-  font-weight: 500;
+.ga-page .ga-text-home {
+  color: var(--color-home);
 }
 
-.game-info-right {
+/* ── Scoreboard ── */
+.ga-page .ga-scoreboard {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--spacing-xl);
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px var(--spacing-xl);
+  padding: 12px var(--spacing-lg);
 }
 
-.game-info-details {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.125rem;
+.ga-page .ga-matchup {
+  display: grid;
+  grid-template-columns: auto auto auto;
+  grid-template-rows: auto auto;
+  column-gap: var(--spacing-md);
+  justify-items: center;
 }
 
-.game-date {
-  font-size: 1.25rem;
+/* Name and score of each team sit in the parent grid so "@" centers on the score row */
+.ga-page .ga-team {
+  display: contents;
+}
+
+.ga-page .ga-team-name {
+  grid-row: 1;
+  font-size: var(--text-md);
   font-weight: 600;
-  color: var(--color-text);
+  white-space: nowrap;
 }
 
-.game-type {
-  font-size: 1rem;
-  color: var(--color-text-secondary);
+.ga-page .ga-team-score {
+  grid-row: 2;
+  font-size: 34px;
+  line-height: 1.1;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
-.external-links {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.external-link {
-  font-size: 1rem;
-  color: var(--color-primary);
-  text-decoration: none;
-}
-
-.external-link:hover {
-  text-decoration: underline;
-}
-
-.linescore-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-xs);
-}
-
-.linescore-section {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-md);
-  margin-top: var(--spacing-md);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--color-border);
-  justify-content: center;
-}
-
-.linescore-table {
-  width: auto;
-  min-width: 280px;
-  font-size: 0.875rem;
-  border-collapse: collapse;
-}
-
-.linescore-table th,
-.linescore-table td {
-  padding: var(--spacing-xs) var(--spacing-sm);
-  text-align: center;
-}
-
-.linescore-table th {
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  font-size: 0.75rem;
-}
-
-.linescore-table td {
-  font-family: var(--font-family-mono);
-}
-
-.linescore-table .team-cell {
-  font-weight: 600;
-  text-align: left;
-  font-family: var(--font-family-base);
-}
-
-.linescore-table .total-cell {
+.ga-page .ga-team-score.is-winner {
   font-weight: 700;
 }
 
-.ot-indicator {
-  display: inline-block;
-  padding: 2px 8px;
-  background-color: var(--color-primary);
-  color: white;
-  border-radius: var(--border-radius-sm);
-  font-size: 0.75rem;
+.ga-page .ga-team--road > * {
+  grid-column: 1;
+  color: var(--color-road);
+}
+
+.ga-page .ga-team--home > * {
+  grid-column: 3;
+  color: var(--color-home);
+}
+
+.ga-page .ga-at {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+  font-size: var(--text-md);
+  color: var(--color-text-muted);
+}
+
+.ga-page .ga-linescore table {
+  width: auto;
+  font-size: var(--text-sm);
+}
+
+.ga-page .ga-linescore th,
+.ga-page .ga-linescore td {
+  padding: 3px 10px;
+  text-align: center;
+  border-bottom: 0;
+}
+
+.ga-page .ga-linescore thead th {
+  background: none;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ga-page .ga-linescore tbody tr:hover {
+  background: none;
+}
+
+.ga-page .ga-linescore tbody th.ga-linescore-team {
+  background: none;
+  text-align: left;
+  font-size: var(--text-sm);
   font-weight: 600;
-}
-
-.analysis-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: var(--spacing-lg);
-}
-
-.boxscore-view {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-  min-height: 0;
-}
-
-.boxscore-view-header {
-  padding: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: var(--spacing-sm);
-}
-
-.boxscore-segment-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-  justify-content: center;
-}
-
-.boxscore-segment-toggle button {
-  border: 1px solid var(--color-border);
-  background: var(--color-background);
-  color: var(--color-text-secondary);
-  border-radius: 999px;
-  padding: 0.22rem 0.6rem;
-  font-size: 0.76rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.boxscore-segment-toggle button:hover {
-  border-color: var(--color-primary);
   color: var(--color-text);
 }
 
-.boxscore-segment-toggle button.active {
-  border-color: var(--color-button-primary);
-  background: var(--color-button-primary);
-  color: #fff;
+.ga-page .ga-linescore td {
+  color: var(--color-text-secondary);
 }
 
-.boxscore-grid {
+.ga-page .ga-linescore .ga-linescore-total {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.ga-page .ga-linescore .is-winner .ga-linescore-total {
+  font-weight: 700;
+}
+
+.ga-page .ga-game-info {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-lg);
+}
+
+.ga-page .ga-game-meta {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-sm);
 }
 
-.boxscore-team-card {
+.ga-page .ga-game-date {
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ga-page .ga-game-type {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.ga-page .ga-external-links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+}
+
+/* ── View toolbars (period chips, data scope) ── */
+.ga-page .ga-view-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacing-sm) var(--spacing-md);
+}
+
+.ga-page .ga-name-short {
+  display: none;
+}
+
+/* Period chips scroll in this wrapper; fades show when more chips are off either edge */
+.ga-page .ga-period-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ga-page .ga-period-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.ga-page .ga-period-scroll .ga-period-seg {
+  max-width: none;
+  overflow: visible;
+}
+
+.ga-page .ga-period-scroll.has-more-right {
+  mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+
+.ga-page .ga-period-scroll.has-more-left {
+  mask-image: linear-gradient(to left, black calc(100% - 40px), transparent);
+}
+
+.ga-page .ga-period-scroll.has-more-left.has-more-right {
+  mask-image: linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent);
+}
+
+.ga-page .ga-scope-minutes {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.8;
+}
+
+/* ── Box score ── */
+.ga-page .ga-boxscore,
+.ga-page .ga-factor,
+.ga-page .ga-factor-content,
+.ga-page .ga-boxscore-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.ga-page .ga-boxscore-team {
   padding: 0;
   overflow: hidden;
 }
 
-.boxscore-team-header {
-  padding: 0.5rem var(--spacing-md);
+.ga-page .ga-boxscore-title {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 12px var(--spacing-md);
+  font-size: var(--text-md);
+  font-weight: 600;
   border-bottom: 1px solid var(--color-border);
 }
 
-.boxscore-table-wrap {
-  overflow-x: auto;
+.ga-page .ga-boxscore-side {
+  margin-left: 8px;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-text-muted);
 }
 
-.boxscore-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.88rem;
-}
-
-.boxscore-table th,
-.boxscore-table td {
-  padding: 0.45rem 0.65rem;
+.ga-page .ga-boxscore-table th,
+.ga-page .ga-boxscore-table td {
+  padding: 7px 10px;
   text-align: center;
   white-space: nowrap;
-  border-bottom: 1px solid var(--color-border);
 }
 
-.boxscore-table th {
-  background: var(--color-background-alt);
-  color: var(--color-text-secondary);
-  font-size: 0.69rem;
-  letter-spacing: 0.03em;
+.ga-page .ga-boxscore-table thead th {
+  letter-spacing: 0.02em;
 }
 
-.boxscore-table .player-column {
-  min-width: 180px;
+/* Player column stays pinned while the stats scroll horizontally */
+.ga-page .ga-boxscore-table .ga-player-col {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 168px;
   text-align: left;
+  box-shadow: inset -1px 0 0 var(--color-border);
 }
 
-.boxscore-table tbody td.player-column {
-  font-weight: 600;
+.ga-page .ga-boxscore-table tbody th.ga-player-col {
+  background: var(--color-background);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text);
 }
 
-.boxscore-table .boxscore-minutes,
-.boxscore-table .boxscore-plus-minus {
-  font-family: var(--font-family-mono);
-}
-
-.boxscore-totals-row td {
-  font-weight: 700;
+.ga-page .ga-boxscore-table .ga-bench-row th.ga-player-col,
+.ga-page .ga-boxscore-table .ga-bench-row td {
+  padding-top: 5px;
+  padding-bottom: 5px;
   background: var(--color-background-alt);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-text-secondary);
 }
 
-.analysis-view-toggle-card {
-  padding: var(--spacing-xs);
+.ga-page .ga-boxscore-table .ga-bench-row:hover {
+  background: none;
 }
 
-.analysis-view-toggle {
-  width: 100%;
+.ga-page .ga-boxscore-table tfoot th,
+.ga-page .ga-boxscore-table tfoot td {
+  background: var(--color-background-alt);
+  font-weight: 600;
+  color: var(--color-text);
+  border-bottom: 0;
+}
+
+.ga-page .ga-boxscore-table tfoot th.ga-player-col {
+  font-size: var(--text-sm);
+}
+
+/* ── Factor analysis ── */
+.ga-page .ga-factor-content.is-low-sample > * {
+  opacity: 0.6;
+  filter: grayscale(1);
+}
+
+.ga-page .ga-analysis-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
-  overflow: hidden;
-  background: var(--color-background-alt);
-}
-
-.analysis-view-toggle button {
-  border: 0;
-  background: transparent;
-  color: var(--color-text);
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.analysis-view-toggle button:hover {
-  background: var(--color-button-hover-muted);
-}
-
-.analysis-view-toggle button.active {
-  background: var(--color-button-primary);
-  color: #fff;
-}
-
-.data-scope-toggle-card {
-  padding: var(--spacing-sm);
-}
-
-.data-scope-header {
-  margin-bottom: var(--spacing-sm);
-}
-
-.data-scope-header .card-title {
-  margin-bottom: 0;
-}
-
-.data-scope-toggle {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
-  overflow: hidden;
-  background: var(--color-background-alt);
-}
-
-.data-scope-toggle button {
-  border: 0;
-  background: transparent;
-  color: var(--color-text);
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-
-.data-scope-toggle button + button {
-  border-left: 1px solid var(--color-border);
-}
-
-.data-scope-toggle button:hover {
-  background: var(--color-button-hover-muted);
-}
-
-.data-scope-toggle button.active {
-  background: var(--color-button-primary);
-  color: #fff;
-}
-
-.scope-notice {
-  color: var(--color-text-secondary);
-}
-
-.data-incomplete-notice {
-  border-left: 4px solid var(--color-warning, #d97706);
-  color: var(--color-text-secondary);
-}
-
-.timeline-content {
-  display: flex;
-  flex-direction: column;
   gap: var(--spacing-md);
 }
 
-.factors-table,
-.ratings-table {
-  overflow-x: auto;
-}
-
-.factors-table td.text-center,
-.ratings-table td.text-center {
-  font-family: var(--font-family-mono);
-}
-
-.bg-positive {
-  background-color: rgba(76, 175, 80, 0.15);
-}
-
-.bg-negative {
-  background-color: rgba(244, 67, 54, 0.15);
-}
-
-.table-legend {
+.ga-page .ga-table-legend,
+.ga-page .ga-chart-legend {
   display: flex;
-  gap: var(--spacing-md);
-  font-size: 0.8rem;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-sm);
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.legend-swatch {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border-radius: 2px;
-}
-
-.contributions-chart {
-  width: 100%;
-}
-
-.chart-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
   flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-md);
+  gap: 4px var(--spacing-md);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
 }
 
-.contributions-chart .card-title {
-  font-size: 1.25rem;
-  margin-bottom: 0;
+.ga-page .ga-table-legend {
+  margin: 4px 0 12px;
 }
 
-.chart-legend {
-  display: flex;
-  gap: var(--spacing-lg);
+.ga-page .ga-chart-legend {
+  font-size: var(--text-sm);
 }
 
-.chart-legend .legend-item {
-  font-size: 1rem;
+.ga-page .ga-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.chart-legend .legend-swatch {
-  width: 16px;
-  height: 16px;
+.ga-page .ga-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
 }
 
-.chart-axis-labels {
+.ga-page .ga-swatch--better {
+  background: var(--color-positive-bg);
+  border: 1px solid var(--chart-positive);
+}
+
+.ga-page .ga-swatch--worse {
+  background: var(--color-negative-bg);
+  border: 1px solid var(--chart-negative);
+}
+
+.ga-page .ga-swatch--home {
+  background: var(--color-home);
+}
+
+.ga-page .ga-swatch--road {
+  background: var(--color-road);
+}
+
+.ga-page .ga-swatch--error {
+  background: var(--chart-neutral);
+}
+
+.ga-page .ga-stat-table td {
+  padding: 8px 12px;
+}
+
+.ga-page .ga-stat-table th {
+  padding: 8px 12px;
+}
+
+.ga-page .bg-positive {
+  background-color: var(--color-positive-bg);
+}
+
+.ga-page .bg-negative {
+  background-color: var(--color-negative-bg);
+}
+
+.ga-page .ga-league-avg {
+  color: var(--color-text-secondary);
+}
+
+.ga-page .ga-chart-header {
   display: flex;
   justify-content: space-between;
-  margin: var(--spacing-xs) 30px 0 140px;
-  font-size: 1rem;
-  font-weight: 600;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm) var(--spacing-md);
+  margin-bottom: 12px;
 }
 
-.axis-label-left {
-  color: var(--color-negative);
-}
-
-.axis-label-right {
-  color: var(--color-positive);
-}
-
-.chart-subtitle {
-  font-size: 1rem;
-  color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-md);
-}
-
-/* AI Interpretation Box */
-.interpretation-box {
-  margin-top: var(--spacing-lg);
-}
-
-.interpretation-title {
-  margin: 0 0 var(--spacing-sm);
-  font-size: 1rem;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.interpretation-loading {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-md);
-  background-color: var(--color-background-alt);
-  border-radius: var(--border-radius-sm);
-  border-left: 3px solid var(--color-primary);
-  color: var(--color-text-secondary);
-  font-size: 0.9rem;
-}
-
-.interpretation-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--color-border);
-  border-top-color: var(--color-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.interpretation-content {
-  padding: var(--spacing-md);
-  background-color: var(--color-background-alt);
-  border-radius: var(--border-radius-sm);
-  border-left: 3px solid var(--color-primary);
-}
-
-.interpretation-text {
-}
-
-.interpretation-text p {
-  margin: 0;
-  color: var(--color-text);
-  line-height: 1.6;
-  font-size: 1.1rem;
-}
-
-.interpretation-text ul {
-  margin: 0;
-  padding-left: var(--spacing-lg);
-  list-style-type: disc;
-}
-
-.interpretation-text ul li {
-  color: var(--color-text);
-  line-height: 1.6;
-  font-size: 1.1rem;
-  margin-bottom: var(--spacing-sm);
-}
-
-.interpretation-text ul li:last-child {
-  margin-bottom: 0;
-}
-
-.interpretation-attribution {
-  margin-top: var(--spacing-md);
-  font-size: 0.85rem;
-  color: var(--color-text-secondary);
-  font-style: italic;
-}
-
-.chart-container {
+.ga-page .ga-chart {
   width: 100%;
-  min-height: 400px;
 }
 
-.glossary-section {
-  margin-top: var(--spacing-lg);
-}
-
-.glossary-toggle {
-  width: 100%;
+.ga-page .ga-axis-captions {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: var(--spacing-md);
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--color-text);
-  transition: background-color 0.2s;
-}
-
-.glossary-toggle:hover {
-  background-color: var(--color-background-alt);
-}
-
-.toggle-icon {
-  font-size: 1.5rem;
+  gap: var(--spacing-sm);
+  font-size: var(--text-sm);
   font-weight: 500;
+}
+
+.ga-page .ga-chart-tooltip {
+  max-width: 260px;
+  padding: 8px 12px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+
+.ga-page .ga-chart-tooltip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.ga-page .ga-chart-tooltip-meta {
   color: var(--color-text-secondary);
 }
 
-.glossary-content {
-  padding: var(--spacing-lg);
+/* AI-generated analysis: plain reading text, no box */
+.ga-page .ga-interpretation {
+  margin-top: var(--spacing-lg);
+  padding-top: var(--spacing-md);
   border-top: 1px solid var(--color-border);
 }
 
-.glossary-grid {
+.ga-page .ga-interpretation-title {
+  margin-bottom: var(--spacing-sm);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.ga-page .ga-interpretation-text {
+  max-width: 75ch;
+  font-size: var(--text-base);
+  font-weight: 400;
+  line-height: 1.65;
+  color: var(--color-text);
+}
+
+.ga-page .ga-interpretation-text ul {
+  padding-left: 20px;
+}
+
+.ga-page .ga-interpretation-text li + li {
+  margin-top: 6px;
+}
+
+/* ── Glossary (same look as the other pages' glossary, scoped) ── */
+.ga-page .ga-glossary {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ga-page .ga-glossary-toggle {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 20px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-text);
+  transition: background-color 0.15s ease;
+}
+
+.ga-page .ga-glossary-toggle:hover {
+  background-color: var(--color-background-alt);
+}
+
+.ga-page .ga-glossary-icon {
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+
+.ga-page .ga-glossary-content {
+  padding: 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.ga-page .ga-glossary-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-lg);
 }
 
-.glossary-section-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-}
-
-.glossary-section-group.full-width {
+.ga-page .ga-glossary-group--full {
   grid-column: 1 / -1;
 }
 
-.glossary-section-group h3 {
-  font-size: 1.125rem;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: var(--spacing-xs);
-  padding-bottom: var(--spacing-xs);
-  border-bottom: 2px solid var(--color-primary);
-}
-
-.glossary-section-group dl {
-  margin: 0;
-}
-
-.glossary-section-group dt {
-  font-weight: 600;
-  color: var(--color-text);
-  margin-top: var(--spacing-sm);
-  margin-bottom: var(--spacing-xs);
-}
-
-.glossary-section-group dd {
-  margin: 0;
+.ga-page .ga-glossary-group h3 {
+  font-size: var(--text-md);
+  padding-bottom: 6px;
   margin-bottom: var(--spacing-sm);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ga-page .ga-glossary-group dt {
+  font-weight: 600;
+  margin-top: 12px;
+}
+
+.ga-page .ga-glossary-group dd,
+.ga-page .ga-glossary-group p,
+.ga-page .ga-glossary-group ol {
   color: var(--color-text-secondary);
   line-height: 1.6;
 }
 
-.glossary-section-group p {
-  color: var(--color-text-secondary);
-  line-height: 1.6;
+.ga-page .ga-glossary-group p,
+.ga-page .ga-glossary-group ol {
   margin-bottom: var(--spacing-sm);
 }
 
-.glossary-section-group ol {
-  margin: var(--spacing-sm) 0;
+.ga-page .ga-glossary-group ol {
   padding-left: var(--spacing-lg);
-  color: var(--color-text-secondary);
 }
 
-.glossary-section-group ol li {
-  margin-bottom: var(--spacing-sm);
-  line-height: 1.6;
+.ga-page .ga-glossary-group li + li {
+  margin-top: 6px;
 }
 
-.model-formula {
+.ga-page .ga-model-formula {
+  padding: 12px var(--spacing-md);
   background-color: var(--color-background-alt);
-  padding: var(--spacing-md);
   border-radius: var(--border-radius-sm);
-  margin-top: var(--spacing-md);
-  font-family: var(--font-family);
 }
 
-.model-formula code {
+.ga-page .ga-model-formula code {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
   color: var(--color-text);
-  font-weight: 600;
 }
 
-@media (max-width: 768px) {
-  .ga-layout {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
-
-  .four-factor.container {
-    --ga-layout-height: auto;
-  }
-
-  .ga-sidebar {
-    padding: var(--spacing-md);
-    overflow: visible;
-  }
-
-  .ga-fixed-stack {
-    gap: var(--spacing-md);
-  }
-
-  .ga-sidebar-nav {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .boxscore-table .player-column {
-    min-width: 140px;
-  }
-
-  .results {
-    overflow: visible;
-    padding-right: 0;
-  }
-
-  .boxscore-view-header {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
-  }
-
-  .boxscore-segment-toggle {
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .ga-page .ga-selects {
     justify-content: flex-start;
   }
 
-  .analysis-grid {
+  .ga-page .ga-field--game {
+    max-width: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .ga-page .ga-analysis-grid,
+  .ga-page .ga-glossary-grid {
     grid-template-columns: 1fr;
   }
+}
 
-  .glossary-grid {
-    grid-template-columns: 1fr;
+@media (max-width: 640px) {
+  .ga-page {
+    gap: 12px;
   }
 
-  .game-header-content {
-    grid-template-columns: 1fr;
-    gap: var(--spacing-md);
+  .ga-page .ga-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
   }
 
-  .matchup-left {
-    gap: var(--spacing-md);
+  .ga-page .ga-title-group {
+    min-height: 0;
   }
 
-  .game-info-right {
-    align-items: center;
-    text-align: center;
+  .ga-page .ga-label-long {
+    display: none;
   }
 
-  .team-abbr {
-    font-size: 1.25rem;
+  .ga-page .ga-label-short {
+    display: inline;
   }
 
-  .team-score {
-    font-size: 2rem;
-  }
-
-  .game-date {
-    font-size: 1rem;
-  }
-
-  .linescore-center,
-  .linescore-section {
-    flex-direction: column;
-    gap: var(--spacing-sm);
-  }
-
-  .linescore-table {
-    min-width: auto;
+  .ga-page .ga-view-seg,
+  .ga-page .ga-scope-seg {
+    display: flex;
     width: 100%;
   }
 
-  .chart-header {
+  .ga-page .ga-view-seg .seg-btn,
+  .ga-page .ga-scope-seg .seg-btn {
+    flex: 1 1 0;
+    padding: 0 8px;
+  }
+
+  /* Scope buttons stack name over minutes so all three fit */
+  .ga-page .ga-scope-seg .seg-btn {
+    display: inline-flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.2;
+    padding: 4px 6px;
   }
 
-  .chart-axis-labels {
-    margin: var(--spacing-xs) var(--spacing-md) 0 var(--spacing-md);
-    font-size: 0.875rem;
+  .ga-page .ga-scope-minutes {
+    margin-left: 0;
+    font-size: var(--text-xs);
   }
 
-  .data-scope-toggle {
-    grid-template-columns: 1fr;
+  .ga-page .ga-selects {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .ga-page .ga-field--game {
+    grid-column: 1 / -1;
+  }
+
+  .ga-page .ga-scoreboard {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px var(--spacing-md);
+  }
+
+  .ga-page .ga-matchup {
+    justify-content: center;
+  }
+
+  .ga-page .ga-team-score {
+    font-size: 30px;
+  }
+
+  .ga-page .ga-linescore table {
+    width: 100%;
+  }
+
+  .ga-page .ga-game-info {
+    justify-content: space-between;
+    gap: var(--spacing-md);
+  }
+
+  .ga-page .ga-external-links {
+    align-items: flex-end;
+    gap: 0;
+  }
+
+  /* ≥40px hit area without enlarging the text */
+  .ga-page .ga-external-links a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 4px;
+    margin-right: -4px;
+  }
+
+  /* Fixed width so the road and home tables share one column grid */
+  .ga-page .ga-boxscore-table .ga-player-col {
+    width: 128px;
+    min-width: 128px;
+    max-width: 128px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ga-page .ga-glossary-content {
+    padding: var(--spacing-md);
+  }
+}
+
+/* Sticky player column: "G. Antetokounmpo" keeps every row one line high */
+@media (max-width: 600px) {
+  .ga-page .ga-name-full {
+    display: none;
+  }
+
+  .ga-page .ga-name-short {
+    display: inline;
   }
 }

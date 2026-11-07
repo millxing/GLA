@@ -1,56 +1,94 @@
 :root {
-  --layout-max-width: 1520px;
+  --layout-max-width: 1440px;
 
-  --color-positive: #22c55e;
+  /* ── Ink & surfaces ───────────────────────────── */
+  --color-text: #14161a;
+  --color-text-secondary: #4b5260;   /* 7.6:1 on white */
+  --color-text-muted: #667085;       /* 4.9:1 on white — smallest allowed text tone */
+  --color-background: #ffffff;       /* card / panel surface */
+  --color-background-alt: #f5f6f8;   /* page canvas */
+  --color-surface-sunken: #eef0f3;   /* table header, inset areas */
+  --color-row-hover: #f8f9fb;
+  --color-border: #e3e6eb;
+  --color-border-strong: #c9ced6;
+
+  /* ── Brand / accent ───────────────────────────── */
+  --color-ink: #14161a;              /* primary controls (active segment, primary button) */
+  --color-ink-hover: #2b2f36;
+  --color-accent: #d9480f;           /* basketball orange — used sparingly */
+  --color-link: #1d4ed8;             /* 6.7:1 on white */
+  --color-focus: #2563eb;
+
+  /* ── Semantic: TEXT-safe (≥ 4.5:1 on white) ───── */
+  --color-positive: #15803d;
+  --color-negative: #b91c1c;
+  --color-neutral: #4b5260;
+
+  /* ── Semantic: chart fills / swatches (≥ 3:1 graphics) ── */
+  --chart-positive: #16a34a;
+  --chart-negative: #dc2626;
+  --chart-neutral: #8a919e;
+  --chart-grid: #e8eaee;
+  --chart-axis: #667085;
+  --chart-reference: #14161a;
+  --chart-average: #2563eb;
+
+  /* Subtle tints for table cell shading */
+  --color-positive-bg: #e6f4ea;
+  --color-negative-bg: #fbe9e9;
+  --color-neutral-bg: #f1f2f4;
   --color-positive-light: #86efac;
-  --color-positive-bg: #dcfce7;
-
-  --color-negative: #ef4444;
   --color-negative-light: #fca5a5;
-  --color-negative-bg: #fee2e2;
-
-  --color-neutral: #6b7280;
   --color-neutral-light: #d1d5db;
-  --color-neutral-bg: #f3f4f6;
 
-  --color-highlight: #3b82f6;
+  /* ── Team identity (one mapping everywhere) ───── */
+  --color-home: #1d4ed8;
+  --color-road: #c2410c;
+  --color-home-bg: #e8eefc;
+  --color-road-bg: #fbece4;
+
+  /* Legacy aliases kept so existing rules resolve to the new palette */
+  --color-highlight: var(--color-focus);
   --color-highlight-light: #93c5fd;
-  --color-highlight-bg: #dbeafe;
-
-  --color-primary: #1e40af;
-  --color-primary-light: #3b82f6;
+  --color-highlight-bg: #e8eefc;
+  --color-primary: var(--color-link);
+  --color-primary-light: var(--color-link);
   --color-primary-dark: #1e3a8a;
+  --color-button-primary: var(--color-ink);
+  --color-button-primary-hover: var(--color-ink-hover);
+  --color-button-hover-muted: rgba(20, 22, 26, 0.06);
 
-  --color-button-primary: #000000;
-  --color-button-primary-hover: #1f2937;
-  --color-button-hover-muted: rgba(17, 24, 39, 0.08);
+  /* ── Type ─────────────────────────────────────── */
+  --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-family: var(--font-sans);
+  --font-family-base: var(--font-sans);
+  --font-family-mono: var(--font-mono);
 
-  --color-background: #ffffff;
-  --color-background-alt: #f9fafb;
-  --color-border: #e5e7eb;
+  /* root is 14px, so tokens are px to stay explicit */
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 22px;
 
-  --color-text: #111827;
-  --color-text-secondary: #6b7280;
-  --color-text-muted: #9ca3af;
+  /* ── Shape & depth ────────────────────────────── */
+  --border-radius-sm: 6px;
+  --border-radius: 8px;
+  --border-radius-lg: 12px;
 
-  --color-home: #3b82f6;
-  --color-road: #f97316;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.04);
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.04);
+  --shadow-lg: 0 8px 24px rgba(16, 24, 40, 0.10), 0 2px 6px rgba(16, 24, 40, 0.06);
 
-  --font-family: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --font-family-base: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-  --font-family-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  /* ── Spacing (4px base) ───────────────────────── */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
 
-  --border-radius-sm: 0.25rem;
-  --border-radius: 0.5rem;
-  --border-radius-lg: 0.75rem;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.05);
-
-  --spacing-xs: 0.25rem;
-  --spacing-sm: 0.5rem;
-  --spacing-md: 1rem;
-  --spacing-lg: 1.5rem;
-  --spacing-xl: 2rem;
+  --control-height: 40px;
+  --header-height: 56px;
 }

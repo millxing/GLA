@@ -13,25 +13,28 @@ import {
   ResponsiveContainer,
   ReferenceLine,
   Cell,
+  LabelList,
 } from 'recharts'
 import { getSeasons, getTeams, getLeagueSummary, getContributionAnalysis } from '../api'
 import { getTeamName } from '../constants/teams'
+import useMediaQuery from '../hooks/useMediaQuery'
+import { niceTicks, formatShortDate, TOOLTIP_WRAPPER_STYLE } from '../utils/chart'
 import './ContributionAnalysis.css'
 
 const DATE_RANGE_OPTIONS = [
   { value: 'season', label: 'Season' },
-  { value: 'season_regular', label: 'Season (Regular Season only)' },
-  { value: 'this_month', label: 'This Month' },
+  { value: 'season_regular', label: 'Regular season only' },
+  { value: 'this_month', label: 'This month' },
   { value: 'last_2_months', label: 'Last 2 months' },
   { value: 'last_3_months', label: 'Last 3 months' },
   { value: 'last_10_games', label: 'Last 10 games' },
   { value: 'last_15_games', label: 'Last 15 games' },
   { value: 'last_20_games', label: 'Last 20 games' },
-  { value: 'custom', label: 'Custom Date Range' },
+  { value: 'custom', label: 'Custom range…' },
 ]
 const DATA_SCOPE_OPTIONS = [
-  { value: 'all', label: 'All Data' },
-  { value: 'garbage_filtered', label: 'Garbage Time Filtered' },
+  { value: 'all', label: 'All data' },
+  { value: 'garbage_filtered', label: 'Excl. garbage time' },
 ]
 const VALID_DATE_RANGE_VALUES = new Set(DATE_RANGE_OPTIONS.map((option) => option.value))
 const VALID_DATA_SCOPE_VALUES = new Set(DATA_SCOPE_OPTIONS.map((option) => option.value))
@@ -82,13 +85,82 @@ const FACTOR_LABELS = {
   opp_free_throws: 'Opp Free Throws',
 }
 
-// Factors where lower values are better (opponent stats)
+const DECOMP_GAP_ROW = '__gap__'
+const DECOMP_TOTAL_ROW = 'Net rating (actual)'
+const DECOMP_ERROR_FILL = 'var(--chart-neutral)'
+const DECOMP_TOOLTIP_MAX_WIDTH = 260
+const DECOMP_MARGIN = { top: 4, right: 12, left: 0, bottom: 4 }
+const DECOMP_LABEL_GAP = 6
+const TEAM_AVERAGE_STROKE = 'var(--color-accent)'
+
+// Opponent factors: a lower opponent value helps the team (same direction as the model's contributions)
 const LOWER_IS_BETTER_FACTORS = new Set([
   'opp_shooting',
   'opp_ball_handling',
   'opp_orebounding',
   'opp_free_throws',
 ])
+const MOBILE_QUERY = '(max-width: 768px)'
+
+function formatSigned(value, digits) {
+  const n = Number(value) || 0
+  return `${n >= 0 ? '+' : ''}${n.toFixed(digits)}`
+}
+
+// Baseball-style win percentage: ".750", undefeated "1.000"
+function formatWinPct(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return ''
+  const text = n.toFixed(3)
+  return text.startsWith('0') ? text.slice(1) : text
+}
+
+// Approximate rendered width of a 12px tabular value label such as "+22.50"
+function estimateLabelWidth(text) {
+  return String(text).length * 7 + DECOMP_LABEL_GAP + 2
+}
+
+/*
+ * Domain for a horizontal bar chart with end-of-bar labels: grows [lo, hi] until every
+ * label fits inside the plot (right of positive bars, left of negative bars).
+ * plotWidth is the measured pixel width of the plotting area.
+ */
+function fitLabelDomain(values, plotWidth) {
+  let lo = Math.min(0, ...values)
+  let hi = Math.max(0, ...values)
+  if (lo === hi) hi = lo + 1
+  if (!(plotWidth > 0)) {
+    const pad = (hi - lo) * 0.3
+    return [lo < 0 ? lo - pad : lo, hi > 0 ? hi + pad : hi]
+  }
+  for (let i = 0; i < 8; i += 1) {
+    const unitsPerPx = (hi - lo) / plotWidth
+    let nextLo = lo
+    let nextHi = hi
+    values.forEach((v) => {
+      const need = estimateLabelWidth(formatSigned(v, 2)) * unitsPerPx
+      if (v >= 0) nextHi = Math.max(nextHi, v + need)
+      else nextLo = Math.min(nextLo, v - need)
+    })
+    if (nextLo === lo && nextHi === hi) break
+    lo = nextLo
+    hi = nextHi
+  }
+  return [lo, hi]
+}
+
+// Tracks an element's content width (0 until measured)
+function useElementWidth(ref, active) {
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width))
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref, active])
+  return width
+}
 
 function normalizeQueryToken(value) {
   return String(value || '')
@@ -142,6 +214,8 @@ function ContributionAnalysis() {
   const [error, setError] = useState(null)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
   const hasUserInteractedRef = useRef(false)
+  const isMobile = useMediaQuery(MOBILE_QUERY)
+  const decompChartRef = useRef(null)
   const urlSelections = useMemo(() => {
     const season = readSearchParam(searchParams, 'season').trim()
     const team = readSearchParam(searchParams, 'team').trim().toUpperCase()
@@ -298,10 +372,9 @@ function ContributionAnalysis() {
     let isCurrent = true
     async function loadTeamsAndBounds() {
       if (!selectedSeason) return
-      // Clear stale analysis immediately when (re)initializing season context.
-      // Doing this before async calls avoids wiping freshly loaded data later.
+      // Keep the previous analysis on screen (dimmed via .is-refreshing) while the
+      // new season context loads; it is replaced when the new analysis arrives.
       setInitializing(true)
-      if (isCurrent) setData(null)
       try {
         const [teamsRes, summaryRes] = await Promise.all([
           getTeams(selectedSeason, selectedDataScope),
@@ -310,6 +383,7 @@ function ContributionAnalysis() {
         if (!isCurrent) return
 
         setTeams(teamsRes.teams)
+        if (teamsRes.teams.length === 0) setData(null)
         // Keep persisted team if it exists in this season, otherwise default to BOS or first team
         setSelectedTeam(prevTeam => {
           if (urlSelections.team && teamsRes.teams.includes(urlSelections.team)) {
@@ -326,7 +400,10 @@ function ContributionAnalysis() {
           setSeasonBounds({ first: summaryRes.first_game_date, last: summaryRes.last_game_date })
         }
       } catch (err) {
-        if (isCurrent) setError(err.message)
+        if (isCurrent) {
+          setError(err.message)
+          setData(null)
+        }
       } finally {
         if (isCurrent) setInitializing(false)
       }
@@ -564,60 +641,62 @@ function ContributionAnalysis() {
     return () => { isCurrent = false }
   }, [selectedSeason, selectedDataScope, selectedTeam, dateRangeType, customStartDate, customEndDate, apiRangeType, apiStartDate, apiEndDate, apiLastNGames, apiExcludePlayoffs])
 
-  // Prepare main chart data
+  // Decomposition rows: the 8 factor contributions (most positive first) + Error, which
+  // together add up to the actual net rating; then a divider row and the actual total.
   const mainChartData = useMemo(() => {
     if (!data) return []
 
-    // Net Rating bar (blue)
-    const chartData = [
-      {
-        name: 'Net Rating',
-        value: data.net_rating,
-        fill: 'var(--color-primary)',
-        isNetRating: true,
-      },
-    ]
-
-    // Factor contributions sorted from most positive to most negative
     const contributionBars = FACTOR_ORDER.map((factor) => {
       const contribution = data.contributions[factor] || 0
-      const actualValue = data.factor_values?.[factor]
-      const leagueAvg = data.league_averages?.[factor]
       return {
         name: FACTOR_LABELS[factor] || factor,
-        factor: factor,
+        factor,
         value: contribution,
-        actualValue: actualValue,
-        leagueAvg: leagueAvg,
-        fill: contribution >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+        actualValue: data.factor_values?.[factor],
+        leagueAvg: data.league_averages?.[factor],
+        fill: contribution >= 0 ? 'var(--chart-positive)' : 'var(--chart-negative)',
       }
     }).sort((a, b) => b.value - a.value)
 
-    return [...chartData, ...contributionBars]
+    return [
+      ...contributionBars,
+      {
+        name: 'Error',
+        value: data.net_rating - data.predicted_net_rating,
+        fill: DECOMP_ERROR_FILL,
+        isError: true,
+      },
+      { name: DECOMP_GAP_ROW, value: null, isGap: true },
+      { name: DECOMP_TOTAL_ROW, value: data.net_rating, fill: 'var(--color-ink)', isNetRating: true },
+    ]
   }, [data])
 
-  // Y-axis config for main chart
-  const mainChartYAxis = useMemo(() => {
-    if (mainChartData.length === 0) return { domain: [-5, 5], ticks: [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5] }
+  const decompWidth = useElementWidth(decompChartRef, Boolean(data))
+  const decompYAxisWidth = isMobile ? 132 : 148
+  // The plot (right of the factor labels) is too narrow on phones for Recharts' own
+  // placement, so pin the tooltip's left edge such that it always ends inside the chart.
+  const decompTooltipMaxWidth = Math.min(DECOMP_TOOLTIP_MAX_WIDTH, Math.max(decompWidth - 8, 160))
+  const decompTooltipPosition = decompWidth > 0 && decompWidth < 560
+    ? { x: Math.max(0, decompWidth - decompTooltipMaxWidth) }
+    : undefined
 
-    const values = mainChartData.map(d => d.value)
-    const minVal = Math.min(...values)
-    const maxVal = Math.max(...values)
+  // X-axis: domain sized from the measured plot width so no end-of-bar label clips
+  const mainChartXAxis = useMemo(() => {
+    const values = mainChartData.filter((d) => !d.isGap).map((d) => d.value)
+    if (values.length === 0) return { domain: [-5, 5], ticks: [-5, 0, 5] }
+    const plotWidth = decompWidth - decompYAxisWidth - DECOMP_MARGIN.left - DECOMP_MARGIN.right
+    const [lo, hi] = fitLabelDomain(values, plotWidth)
+    const ticks = niceTicks(lo, hi, isMobile ? 4 : 6).filter((t) => t >= lo - 1e-9 && t <= hi + 1e-9)
+    return { domain: [lo, hi], ticks }
+  }, [mainChartData, decompWidth, decompYAxisWidth, isMobile])
 
-    // Minimal padding - just round to nearest integer
-    const tickMin = Math.floor(minVal)
-    const tickMax = Math.ceil(maxVal)
-
-    const ticks = []
-    for (let t = tickMin; t <= tickMax; t += 1) {
-      ticks.push(t)
-    }
-
-    return { domain: [tickMin, tickMax], ticks }
-  }, [mainChartData])
+  const isBusy = loading || initializing
+  const decompRowHeight = isMobile ? 30 : 32
+  const decompHeight = mainChartData.length * decompRowHeight + 36
+  const predictionError = data ? data.net_rating - data.predicted_net_rating : 0
 
   return (
-    <div className="contribution-analysis container">
+    <div className="ca-page">
       <div className="page-header">
         <div className="page-title-row">
           <h1 className="page-title">Contribution Analysis</h1>
@@ -627,16 +706,17 @@ function ContributionAnalysis() {
         </div>
       </div>
 
-      <div className="controls card">
+      <div className="ca-controls card">
         <div className="form-row">
           <div className="form-group">
-            <label className="form-label">Season</label>
+            <label className="form-label" htmlFor="ca-season">Season</label>
             <select
+              id="ca-season"
               className="form-select"
               value={selectedSeason}
               onChange={(e) => handleSeasonChange(e.target.value)}
             >
-              <option value="">Select season...</option>
+              {seasons.length === 0 && <option value="">Loading seasons…</option>}
               {seasons.map((season) => (
                 <option key={season} value={season}>{season}</option>
               ))}
@@ -644,14 +724,15 @@ function ContributionAnalysis() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Team</label>
+            <label className="form-label" htmlFor="ca-team">Team</label>
             <select
+              id="ca-team"
               className="form-select"
               value={selectedTeam}
               onChange={(e) => handleTeamChange(e.target.value)}
               disabled={!selectedSeason || teams.length === 0}
             >
-              <option value="">Select team...</option>
+              {teams.length === 0 && <option value="">Loading teams…</option>}
               {teams.map((team) => (
                 <option key={team} value={team}>{team}</option>
               ))}
@@ -659,8 +740,9 @@ function ContributionAnalysis() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Data Scope</label>
+            <label className="form-label" htmlFor="ca-scope">Data Scope</label>
             <select
+              id="ca-scope"
               className="form-select"
               value={selectedDataScope}
               onChange={(e) => handleDataScopeChange(e.target.value)}
@@ -672,8 +754,9 @@ function ContributionAnalysis() {
           </div>
 
           <div className="form-group">
-            <label className="form-label">Date Range</label>
+            <label className="form-label" htmlFor="ca-range">Date Range</label>
             <select
+              id="ca-range"
               className="form-select"
               value={dateRangeType}
               onChange={(e) => handleDateRangeChange(e.target.value)}
@@ -683,14 +766,14 @@ function ContributionAnalysis() {
               ))}
             </select>
           </div>
-
         </div>
 
         {dateRangeType === 'custom' && (
-          <div className="form-row custom-dates">
+          <div className="form-row ca-custom-dates">
             <div className="form-group">
-              <label className="form-label">Start Date</label>
+              <label className="form-label" htmlFor="ca-start-date">Start Date</label>
               <input
+                id="ca-start-date"
                 type="date"
                 className="form-input"
                 value={customStartDate}
@@ -698,8 +781,9 @@ function ContributionAnalysis() {
               />
             </div>
             <div className="form-group">
-              <label className="form-label">End Date</label>
+              <label className="form-label" htmlFor="ca-end-date">End Date</label>
               <input
+                id="ca-end-date"
                 type="date"
                 className="form-input"
                 value={customEndDate}
@@ -708,161 +792,233 @@ function ContributionAnalysis() {
             </div>
           </div>
         )}
+
+        <div className="ca-status" role="status" aria-live="polite">
+          {isBusy && data && (
+            <span className="refresh-indicator">
+              <span className="loading-spinner" aria-hidden="true"></span>
+              Updating…
+            </span>
+          )}
+        </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {(loading || initializing) && (
+      {isBusy && !data && (
         <div className="loading">
           <div className="loading-spinner"></div>
           Loading analysis...
         </div>
       )}
 
-      {data && !loading && !initializing && (
-        <div className="results">
-          <div className="summary-header card">
-            <div className="summary-dates-info">
-              <div className="date-range-label">{data.date_range_label}</div>
-              <div className="date-range-dates">{data.start_date} to {data.end_date}</div>
-              <div className="games-count">{data.games_analyzed} games</div>
-            </div>
-            <div className="summary-team">
-              <div className="team-name">{getTeamName(data.team)}</div>
-              <div className="team-record">
-                <span className="record-wl">{data.wins}-{data.losses}</span>
-                <span className="record-win-pct">.{(data.win_pct * 1000).toFixed(0).padStart(3, '0')}</span>
+      {data && (
+        <div className={`ca-results${isBusy ? ' is-refreshing' : ''}`} aria-busy={isBusy}>
+          <div className="ca-summary card">
+            <div className="ca-summary-team">
+              <div className="ca-team-name">{getTeamName(data.team)}</div>
+              <div className="ca-team-record">
+                <span>{data.wins}-{data.losses}</span>
+                <span className="ca-team-pct">{formatWinPct(data.win_pct)}</span>
               </div>
             </div>
-            <div className="summary-ratings">
-              <div className="rating-row">
-                <span className="rating-label">Actual Net Rating:</span>
-                <span className={`rating-value ${data.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
-                  {data.net_rating >= 0 ? '+' : ''}{data.net_rating.toFixed(1)}
+            <dl className="ca-summary-range">
+              <div>
+                <dt>Range</dt>
+                <dd>{data.date_range_label}</dd>
+              </div>
+              <div>
+                <dt>Games played</dt>
+                <dd>
+                  {data.games_analyzed} {data.games_analyzed === 1 ? 'game' : 'games'}:{' '}
+                  <span className="ca-nowrap">{data.start_date}</span> – <span className="ca-nowrap">{data.end_date}</span>
+                </dd>
+              </div>
+            </dl>
+            <div className="ca-summary-stats">
+              <div className="ca-stat">
+                <span className="ca-stat-label">Actual net rating</span>
+                <span className={`ca-stat-value ${data.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                  {formatSigned(data.net_rating, 1)}
                 </span>
               </div>
-              <div className="rating-row">
-                <span className="rating-label">Predicted Net Rating:</span>
-                <span className="rating-value">
-                  {data.predicted_net_rating >= 0 ? '+' : ''}{data.predicted_net_rating.toFixed(1)}
-                </span>
+              <div className="ca-stat">
+                <span className="ca-stat-label">Predicted</span>
+                <span className="ca-stat-value">{formatSigned(data.predicted_net_rating, 1)}</span>
               </div>
-              <div className="rating-row">
-                <span className="rating-label">Error =</span>
-                <span className="rating-value">
-                  {(data.net_rating - data.predicted_net_rating) >= 0 ? '+' : ''}{(data.net_rating - data.predicted_net_rating).toFixed(1)}
-                </span>
+              <div className="ca-stat">
+                <span className="ca-stat-label">Error</span>
+                <span className="ca-stat-value">{formatSigned(predictionError, 1)}</span>
               </div>
             </div>
           </div>
 
-          <div className="main-chart card">
-            <div className="chart-header">
+          <div className="ca-decomp card">
+            <div className="ca-chart-header">
               <h2 className="card-title">Net Rating Decomposition</h2>
-              <div className="chart-legend">
-                <span className="legend-item">
-                  <span className="legend-swatch bg-positive"></span>
-                  Above Avg
-                </span>
-                <span className="legend-item">
-                  <span className="legend-swatch bg-negative"></span>
-                  Below Avg
-                </span>
-              </div>
+              <ul className="ca-legend" aria-label="Chart legend">
+                <li className="ca-legend-item">
+                  <span className="ca-swatch ca-swatch--positive" aria-hidden="true"></span>
+                  Helps {data.team}
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-swatch ca-swatch--negative" aria-hidden="true"></span>
+                  Hurts {data.team}
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-swatch ca-swatch--error" aria-hidden="true"></span>
+                  Error (actual − predicted)
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-swatch ca-swatch--total" aria-hidden="true"></span>
+                  Net rating (actual)
+                </li>
+              </ul>
             </div>
-            <div className="chart-wrapper">
-              <div className="y-axis-labels">
-                <span className="axis-label-positive">Above Avg</span>
-                <span className="axis-label-negative">Below Avg</span>
-              </div>
-              <div className="chart-container chart-container--main">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={mainChartData}
-                    margin={{ top: 5, right: 50, left: 10, bottom: 8 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fill: 'var(--color-text)', fontSize: 12 }}
-                      angle={-28}
-                      textAnchor="end"
-                      tickMargin={8}
-                      height={72}
-                      interval="preserveStartEnd"
-                      minTickGap={12}
-                    />
-                    <YAxis
-                      domain={mainChartYAxis.domain}
-                      ticks={mainChartYAxis.ticks}
-                      tick={{ fill: 'var(--color-text-secondary)' }}
-                      width={40}
-                    />
-                    <Tooltip
-                      content={({ active, payload }) => {
-                        if (!active || !payload || !payload.length) return null
-                        const d = payload[0].payload
+            <div className="ca-decomp-chart" ref={decompChartRef} style={{ height: decompHeight }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={mainChartData}
+                  layout="vertical"
+                  margin={DECOMP_MARGIN}
+                  barCategoryGap="22%"
+                >
+                  <CartesianGrid horizontal={false} stroke="var(--chart-grid)" />
+                  <XAxis
+                    type="number"
+                    domain={mainChartXAxis.domain}
+                    ticks={mainChartXAxis.ticks}
+                    tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={false}
+                    height={24}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={decompYAxisWidth}
+                    tick={<DecompCategoryTick />}
+                    tickLine={false}
+                    axisLine={false}
+                    interval={0}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'rgba(20, 22, 26, 0.04)' }}
+                    allowEscapeViewBox={{ x: false, y: false }}
+                    wrapperStyle={{ ...TOOLTIP_WRAPPER_STYLE, maxWidth: decompTooltipMaxWidth }}
+                    position={decompTooltipPosition}
+                    content={({ active, payload }) => {
+                      if (!active || !payload || !payload.length) return null
+                      const d = payload[0].payload
+                      if (d.isGap) return null
+                      if (d.isError) {
                         return (
-                          <div style={{
-                            backgroundColor: '#ffffff',
-                            border: '1px solid var(--color-border)',
-                            borderRadius: '4px',
-                            padding: '8px 12px',
-                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                          }}>
-                            <div style={{ fontWeight: 600, marginBottom: '4px' }}>{d.name}</div>
-                            {!d.isNetRating && d.actualValue != null && (
-                              <div style={{ color: '#6b7280', marginBottom: '4px' }}>
-                                {d.actualValue.toFixed(1)} (Lg Avg: {d.leagueAvg?.toFixed(1)})
-                              </div>
-                            )}
+                          <div className="ca-tooltip">
+                            <div className="ca-tooltip-title">Error</div>
+                            <div className="ca-tooltip-sub">Actual − predicted (not explained by the factors)</div>
                             <div>
-                              {d.isNetRating ? 'Net Rating' : 'Contribution'}: {d.value >= 0 ? '+' : ''}{d.value.toFixed(2)}
+                              {formatSigned(data.net_rating, 2)} − {formatSigned(data.predicted_net_rating, 2)} = {formatSigned(d.value, 2)}
                             </div>
                           </div>
                         )
-                      }}
-                    />
-                    <ReferenceLine y={0} stroke="var(--color-text)" strokeWidth={2} />
-                    <Bar dataKey="value" barSize={45}>
-                      {mainChartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} stroke="#000" strokeWidth={1} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+                      }
+                      if (d.isNetRating) {
+                        return (
+                          <div className="ca-tooltip">
+                            <div className="ca-tooltip-title">{DECOMP_TOTAL_ROW}</div>
+                            <div className="ca-tooltip-sub">
+                              Factors {formatSigned(data.predicted_net_rating, 2)} + error {formatSigned(data.net_rating - data.predicted_net_rating, 2)}
+                            </div>
+                            <div>{formatSigned(d.value, 2)}</div>
+                          </div>
+                        )
+                      }
+                      return (
+                        <div className="ca-tooltip">
+                          <div className="ca-tooltip-title">{d.name}</div>
+                          {d.actualValue != null && (
+                            <div className="ca-tooltip-sub">
+                              {d.actualValue.toFixed(1)} (Lg Avg: {d.leagueAvg?.toFixed(1)})
+                            </div>
+                          )}
+                          <div>
+                            Contribution: {formatSigned(d.value, 2)}{' '}
+                            <span className={d.value >= 0 ? 'text-positive' : 'text-negative'}>
+                              ({d.value >= 0 ? 'helps' : 'hurts'} {data.team})
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    }}
+                  />
+                  <ReferenceLine x={0} stroke="var(--chart-axis)" />
+                  <ReferenceLine y={DECOMP_GAP_ROW} stroke="var(--color-border-strong)" />
+                  <Bar dataKey="value" isAnimationActive={false}>
+                    {mainChartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.fill} />
+                    ))}
+                    <LabelList dataKey="value" content={DecompValueLabel} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
 
-          <div className="top-contributors-section">
-            <h2 className="section-title">Top Contributing Factors</h2>
-            <div className="top-contributors grid grid-2">
+          <section className="ca-top" aria-labelledby="ca-top-title">
+            <div className="ca-top-header">
+              <h2 className="section-title" id="ca-top-title">Top Contributing Factors</h2>
+              <ul className="ca-legend" aria-label="Mini chart legend">
+                <li className="ca-legend-item">
+                  <span className="ca-swatch ca-swatch--positive" aria-hidden="true"></span>
+                  Game helps {data.team}
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-swatch ca-swatch--negative" aria-hidden="true"></span>
+                  Game hurts {data.team}
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-legend-line ca-legend-line--moving" aria-hidden="true"></span>
+                  5-game avg
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-legend-line ca-legend-line--team" aria-hidden="true"></span>
+                  Team avg
+                </li>
+                <li className="ca-legend-item">
+                  <span className="ca-legend-line ca-legend-line--league" aria-hidden="true"></span>
+                  League avg (bar baseline)
+                </li>
+              </ul>
+            </div>
+            <div className="ca-top-grid">
               {data.top_contributors.map((contributor, index) => (
                 <MiniContributorChart
                   key={contributor.factor}
                   contributor={contributor}
                   index={index + 1}
+                  team={data.team}
                 />
               ))}
             </div>
-          </div>
+          </section>
 
-          <div className="glossary-section card">
+          <div className="ca-glossary card">
             <button
-              className="glossary-toggle"
+              type="button"
+              className="ca-glossary-toggle"
               onClick={() => setGlossaryExpanded(!glossaryExpanded)}
               aria-expanded={glossaryExpanded}
+              aria-controls="ca-glossary-content"
             >
               <span>Glossary</span>
-              <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
+              <span className="ca-toggle-icon" aria-hidden="true">{glossaryExpanded ? '−' : '+'}</span>
             </button>
 
             {glossaryExpanded && (
-              <div className="glossary-content">
-                <dl className="glossary-list">
+              <div className="ca-glossary-content" id="ca-glossary-content">
+                <dl className="ca-glossary-list">
                   {GLOSSARY_ITEMS.map(item => (
-                    <div key={item.term} className="glossary-item">
+                    <div key={item.term} className="ca-glossary-item">
                       <dt>{item.term}</dt>
                       <dd>{item.definition}</dd>
                     </div>
@@ -877,60 +1033,112 @@ function ContributionAnalysis() {
   )
 }
 
-function MiniContributorChart({ contributor, index }) {
-  const chartData = contributor.trend_data.map(point => ({
-    ...point,
-    xLabel: `${point.home_away === 'road' ? '@' : 'vs '}${point.opponent}`,
-    tooltipLabel: `${point.game_date}: ${point.home_away === 'road' ? '@' : 'vs '}${point.opponent}`,
-  }))
+function DecompCategoryTick({ x, y, payload }) {
+  if (payload?.value === DECOMP_GAP_ROW) return null
+  const isTotal = payload?.value === DECOMP_TOTAL_ROW
+  return (
+    <text
+      x={x - 8}
+      y={y}
+      dy={4}
+      textAnchor="end"
+      fontSize={12}
+      fontWeight={isTotal ? 600 : 400}
+      fill="var(--color-text)"
+    >
+      {payload?.value}
+    </text>
+  )
+}
+
+// Value printed just past the end of each bar (left of negative bars, right of positive ones)
+function DecompValueLabel({ x, y, width, height, value }) {
+  if (value == null || !Number.isFinite(value)) return null
+  const left = Math.min(x, x + width)
+  const right = Math.max(x, x + width)
+  const isNegative = value < 0
+  return (
+    <text
+      x={isNegative ? left - 6 : right + 6}
+      y={y + height / 2}
+      dy={4}
+      textAnchor={isNegative ? 'end' : 'start'}
+      fontSize={12}
+      fill="var(--color-text-secondary)"
+      style={{ fontVariantNumeric: 'tabular-nums' }}
+    >
+      {formatSigned(value, 2)}
+    </text>
+  )
+}
+
+// First/last date ticks, anchored inward so neither is clipped at the plot edges
+function EdgeDateTick({ x, y, payload, index }) {
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={12}
+      textAnchor={index === 0 ? 'start' : 'end'}
+      fontSize={11}
+      fill="var(--chart-axis)"
+    >
+      {formatShortDate(payload?.value)}
+    </text>
+  )
+}
+
+function MiniContributorChart({ contributor, index, team }) {
+  const leagueAvg = contributor.league_avg
+  // +1 when a higher value helps the team, −1 for opponent factors (lower opp value helps)
+  const direction = LOWER_IS_BETTER_FACTORS.has(contributor.factor) ? -1 : 1
+
+  // Each game is a deviation bar from the league average: [baseline, value]
+  const chartData = contributor.trend_data.map((point) => {
+    const value = point.value == null ? null : Number(point.value)
+    const deviation = value == null ? null : value - leagueAvg
+    return {
+      ...point,
+      deviationRange: value == null ? null : [leagueAvg, value],
+      deviation,
+      helps: deviation != null && deviation * direction >= 0,
+      tooltipLabel: `${point.game_date}: ${point.home_away === 'road' ? '@' : 'vs '}${point.opponent}`,
+    }
+  })
 
   const yAxisConfig = useMemo(() => {
-    if (chartData.length === 0) return { domain: [0, 100], ticks: [] }
-
-    const values = chartData.map(d => d.value).filter(v => v != null)
+    const values = [
+      ...chartData.map((d) => d.value),
+      ...chartData.map((d) => d.ma_5),
+      leagueAvg,
+      contributor.value,
+    ].filter((v) => v != null && Number.isFinite(Number(v))).map(Number)
     if (values.length === 0) return { domain: [0, 100], ticks: [] }
-
-    const minVal = Math.min(...values)
-    const maxVal = Math.max(...values)
-
-    // Calculate evenly spaced ticks
-    const padding = 2
-    const tickMin = Math.floor(minVal - padding)
-    const tickMax = Math.ceil(maxVal + padding)
-    const range = tickMax - tickMin
-
-    // Aim for 4-6 ticks with nice intervals
-    let tickInterval
-    if (range <= 10) tickInterval = 2
-    else if (range <= 20) tickInterval = 4
-    else if (range <= 30) tickInterval = 5
-    else tickInterval = 10
-
-    const ticks = []
-    const startTick = Math.floor(tickMin / tickInterval) * tickInterval
-    for (let t = startTick; t <= tickMax; t += tickInterval) {
-      ticks.push(t)
-    }
-
+    const ticks = niceTicks(Math.min(...values), Math.max(...values), 4, { integer: true })
     return { domain: [ticks[0], ticks[ticks.length - 1]], ticks }
-  }, [chartData])
+  }, [chartData, leagueAvg, contributor.value])
+
+  const xTicks = chartData.length > 1
+    ? [chartData[0].game_date, chartData[chartData.length - 1].game_date]
+    : chartData.map((d) => d.game_date)
 
   const isPositive = contributor.contribution >= 0
 
-  // Custom tooltip that only shows date and opponent
+  // Tooltip: date, opponent, the game's value and its deviation from the league average
   const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length > 0) {
-      const data = payload[0].payload
+      const point = payload[0].payload
       return (
-        <div style={{
-          backgroundColor: '#ffffff',
-          border: '1px solid #e5e7eb',
-          borderRadius: '4px',
-          padding: '6px 10px',
-          fontSize: '12px',
-          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-        }}>
-          {data.tooltipLabel}
+        <div className="ca-tooltip ca-tooltip--mini">
+          <div>{point.tooltipLabel}</div>
+          {point.value != null && (
+            <div className="ca-tooltip-sub">
+              {Number(point.value).toFixed(1)} vs Lg Avg {leagueAvg.toFixed(1)}{' '}
+              <span className={point.helps ? 'text-positive' : 'text-negative'}>
+                ({formatSigned(point.deviation, 1)}, {point.helps ? 'helps' : 'hurts'} {team})
+              </span>
+            </div>
+          )}
         </div>
       )
     }
@@ -938,65 +1146,77 @@ function MiniContributorChart({ contributor, index }) {
   }
 
   return (
-    <div className="contributor-card card">
-      <div className="contributor-header">
-        <div className="contributor-rank">#{index}</div>
-        <div className="contributor-info">
-          <h3 className="contributor-title">{contributor.factor_label}</h3>
-          <div className="contributor-stats">
-            <span className="stat">Value: {contributor.value.toFixed(1)}</span>
-            <span className="stat">League Avg: {contributor.league_avg.toFixed(1)}</span>
-            <span className={`stat contribution ${isPositive ? 'positive' : 'negative'}`}>
+    <div className="ca-mini card">
+      <div className="ca-mini-header">
+        <span className="ca-mini-rank">#{index}</span>
+        <div className="ca-mini-info">
+          <h3 className="ca-mini-title">{contributor.factor_label}</h3>
+          <div className="ca-mini-stats">
+            <span>Value: {contributor.value.toFixed(1)}</span>
+            <span>League Avg: {leagueAvg.toFixed(1)}</span>
+            <span className={`ca-mini-contribution ${isPositive ? 'text-positive' : 'text-negative'}`}>
               Contribution: {isPositive ? '+' : ''}{contributor.contribution.toFixed(2)}
             </span>
           </div>
         </div>
       </div>
-      <div className="mini-chart-container">
-        <ResponsiveContainer width="100%" height={180}>
+      <div className="ca-mini-chart">
+        <ResponsiveContainer width="100%" height={170}>
           <ComposedChart
             data={chartData}
-            margin={{ top: 10, right: 10, left: 0, bottom: 5 }}
+            margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-            <XAxis dataKey="xLabel" hide />
+            <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+            <XAxis
+              dataKey="game_date"
+              ticks={xTicks}
+              interval={0}
+              tick={<EdgeDateTick />}
+              tickLine={false}
+              axisLine={{ stroke: 'var(--color-border-strong)' }}
+              height={20}
+              padding={{ left: 8, right: 8 }}
+            />
             <YAxis
               domain={yAxisConfig.domain}
               ticks={yAxisConfig.ticks}
-              tick={{ fill: 'var(--color-text-secondary)', fontSize: 10 }}
-              width={35}
+              tick={{ fill: 'var(--chart-axis)', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              width={32}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip
+              content={<CustomTooltip />}
+              cursor={{ fill: 'rgba(20, 22, 26, 0.04)' }}
+              allowEscapeViewBox={{ x: false, y: false }}
+              wrapperStyle={TOOLTIP_WRAPPER_STYLE}
+            />
+            <Bar dataKey="deviationRange" maxBarSize={10} isAnimationActive={false}>
+              {chartData.map((point) => (
+                <Cell
+                  key={point.game_id ?? point.game_date}
+                  fill={point.helps ? 'var(--chart-positive)' : 'var(--chart-negative)'}
+                />
+              ))}
+            </Bar>
             <ReferenceLine
-              y={contributor.league_avg}
-              stroke="#000000"
+              y={leagueAvg}
+              stroke="var(--chart-reference)"
               strokeWidth={1.5}
             />
             <ReferenceLine
               y={contributor.value}
-              stroke={(() => {
-                const isLowerBetter = LOWER_IS_BETTER_FACTORS.has(contributor.factor)
-                const isBetter = isLowerBetter
-                  ? contributor.value < contributor.league_avg
-                  : contributor.value >= contributor.league_avg
-                return isBetter ? 'var(--color-positive)' : 'var(--color-negative)'
-              })()}
+              stroke={TEAM_AVERAGE_STROKE}
               strokeWidth={1.5}
-            />
-            <Bar
-              dataKey="value"
-              barSize={8}
-              fill="#d1d5db"
-              stroke="#6b7280"
-              strokeWidth={0.5}
+              strokeDasharray="6 3"
             />
             <Line
-              type="monotone"
+              type="linear"
               dataKey="ma_5"
-              stroke="#2563eb"
+              stroke="var(--chart-average)"
               strokeWidth={2}
-              strokeDasharray="4 4"
               dot={false}
+              isAnimationActive={false}
             />
           </ComposedChart>
         </ResponsiveContainer>

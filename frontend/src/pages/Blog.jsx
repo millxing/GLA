@@ -1,65 +1,55 @@
-import { parseBlogPosts, renderMarkdownBlocks } from '../utils/blogMarkdown.jsx'
+import { Link } from 'react-router-dom'
+import { visibleBlogPosts } from '../utils/blogMarkdown.jsx'
 import './Blog.css'
 
-const postModules = import.meta.glob('../content/blog/*.md', {
-  eager: true,
-  query: '?raw',
-  import: 'default',
-})
+export function BlogPostMeta({ post }) {
+  if (!post.displayDate && !post.label && post.tags.length === 0) return null
 
-const posts = parseBlogPosts(postModules).filter((post) => post.visible)
+  return (
+    <div className="blog-meta">
+      {post.displayDate ? <time dateTime={post.date}>{post.displayDate}</time> : null}
+      {post.label ? <span className="blog-meta-label">{post.label}</span> : null}
+      {post.tags.length > 0 ? (
+        <ul className="blog-tags" aria-label="Tags">
+          {post.tags.map((tag) => (
+            <li className="blog-tag" key={tag}>
+              #{tag}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
 
 function Blog() {
   return (
     <div className="blog-page">
-      <div className="blog-shell">
-        <section className="blog-hero">
-          <h1 className="blog-title">Extra Pass Analytics Blog</h1>
-          <p className="blog-subtitle">
-            Observations about NBA team performance using advanced analytics.
+      <header className="page-header">
+        <div className="page-title-row">
+          <h1 className="page-title">Blog</h1>
+        </div>
+      </header>
+
+      {visibleBlogPosts.length > 0 ? (
+        <ul className="blog-index card">
+          {visibleBlogPosts.map((post) => (
+            <li className="blog-index-item" key={post.slug}>
+              <h2 className="blog-index-title">
+                <Link to={`/blog/${post.slug}`}>{post.title}</Link>
+              </h2>
+              <BlogPostMeta post={post} />
+              {post.summary ? <p className="blog-index-summary">{post.summary}</p> : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="blog-empty card">
+          <p>
+            No posts yet. Add a Markdown file to <code>frontend/src/content/blog</code>.
           </p>
-        </section>
-
-        <section className="blog-feed">
-          {posts.length > 0 ? (
-            posts.map((post) => (
-              <article className="blog-post card" key={post.slug}>
-                <header className="blog-post-header">
-                  <div>
-                    <p className="blog-post-label">{post.label}</p>
-                    <h2 className="blog-post-title">{post.title}</h2>
-                  </div>
-                </header>
-
-                {post.summary ? <p className="blog-post-summary">{post.summary}</p> : null}
-                {post.displayDate || post.tags.length > 0 ? (
-                  <div className="blog-post-meta-row">
-                    {post.displayDate ? <p className="blog-post-meta">{post.displayDate}</p> : null}
-                    {post.tags.length > 0 ? (
-                      <div className="blog-post-tags" aria-label="Post tags">
-                        {post.tags.map((tag) => (
-                          <span className="blog-post-tag" key={`${post.slug}-${tag}`}>
-                            #{tag}
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-
-                <div className="blog-post-body">{renderMarkdownBlocks(post.content, post.slug)}</div>
-              </article>
-            ))
-          ) : (
-            <div className="blog-empty card">
-              <p className="blog-post-label">No Posts Yet</p>
-              <p className="blog-empty-copy">
-                Add a Markdown file to <code>frontend/src/content/blog</code> to populate the hidden blog.
-              </p>
-            </div>
-          )}
-        </section>
-      </div>
+        </div>
+      )}
     </div>
   )
 }

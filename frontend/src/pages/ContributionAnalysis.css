@@ -1,373 +1,395 @@
-.contribution-analysis {
+/* Contribution Analysis — every selector is scoped under .ca-page */
+
+/* .site-main owns the page gutter; the root only caps the width */
+.ca-page {
   max-width: var(--layout-max-width);
+  margin: 0 auto;
 }
 
-.page-header {
+/* Controls */
+.ca-page .ca-controls {
+  position: relative;
   margin-bottom: var(--spacing-md);
 }
 
-.page-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: var(--spacing-lg);
-  flex-wrap: wrap;
-  min-width: 0;
-}
-
-.page-title {
-  font-size: 1.5rem;
-  font-weight: 600;
+.ca-page .ca-controls .form-group {
   margin-bottom: 0;
 }
 
-.page-description {
-  color: var(--color-text-secondary);
-  margin-bottom: 0;
-  min-width: 0;
-}
-
-.controls {
-  margin-bottom: var(--spacing-lg);
-}
-
-.custom-dates {
-  margin-top: var(--spacing-md);
-  padding-top: var(--spacing-md);
+.ca-page .ca-custom-dates {
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid var(--color-border);
 }
 
-.results {
+/* Sits in the card's top-right corner (label row) so it never shifts the layout */
+.ca-page .ca-status {
+  position: absolute;
+  top: 14px;
+  right: 20px;
+}
+
+.ca-page .ca-results {
   display: flex;
   flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+/* Summary */
+.ca-page .ca-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  align-items: center;
   gap: var(--spacing-lg);
 }
 
-/* Summary Header */
-.summary-header {
+.ca-page .ca-team-name {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.ca-page .ca-team-record {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--spacing-lg);
-  border: 2px solid var(--color-text);
-  border-radius: 12px;
-  padding: var(--spacing-lg) var(--spacing-xl);
-  background: var(--color-bg);
-}
-
-.summary-dates-info {
-  text-align: center;
-  flex: 1;
-}
-
-.date-range-label {
-  font-size: 0.875rem;
+  gap: 12px;
+  font-size: var(--text-md);
   color: var(--color-text-secondary);
-  margin-bottom: var(--spacing-xs);
+  font-variant-numeric: tabular-nums;
 }
 
-.date-range-dates {
-  font-size: 0.875rem;
+.ca-page .ca-summary-range {
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+
+.ca-page .ca-summary-range > div {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ca-page .ca-summary-range dt {
+  flex: 0 0 92px;
   color: var(--color-text-secondary);
 }
 
-.games-count {
-  font-size: 0.875rem;
-  color: var(--color-text-secondary);
+.ca-page .ca-summary-range dd {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.summary-team {
-  text-align: center;
-  flex: 1;
+.ca-page .ca-nowrap {
+  white-space: nowrap;
 }
 
-.team-name {
-  font-size: 1.5rem;
-  font-weight: 700;
+.ca-page .ca-summary-stats {
+  display: flex;
 }
 
-.team-record {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 18px;
-  font-size: 1.25rem;
-  color: var(--color-text-secondary);
-  margin-top: var(--spacing-xs);
-}
-
-.summary-ratings {
-  flex: 1;
+.ca-page .ca-stat {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  gap: 2px;
+  padding: 0 20px;
 }
 
-.rating-row {
-  display: flex;
-  justify-content: center;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-xs);
+.ca-page .ca-stat + .ca-stat {
+  border-left: 1px solid var(--color-border);
 }
 
-.rating-row:last-child {
-  margin-bottom: 0;
+.ca-page .ca-stat:last-child {
+  padding-right: 0;
 }
 
-.rating-label {
-  font-size: 0.875rem;
+.ca-page .ca-stat-label {
+  font-size: var(--text-xs);
   color: var(--color-text-secondary);
+  white-space: nowrap;
 }
 
-.rating-value {
-  font-size: 0.875rem;
+.ca-page .ca-stat-value {
+  font-size: var(--text-xl);
   font-weight: 600;
-  min-width: 40px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
-/* Main Chart */
-.main-chart {
-  overflow: hidden;
-}
-
-.card-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0 0 var(--spacing-xs) 0;
-}
-
-.chart-subtitle {
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  margin: 0 0 var(--spacing-sm) 0;
-}
-
-.chart-header {
+/* Legends (decomposition + mini charts); swatches use the real series fills */
+.ca-page .ca-legend {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
   flex-wrap: wrap;
-  gap: var(--spacing-sm);
-  margin-bottom: var(--spacing-sm);
+  gap: 6px 16px;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 
-.chart-header .card-title {
-  margin-bottom: 0;
-}
-
-.chart-legend {
-  display: flex;
-  gap: var(--spacing-lg);
-}
-
-.chart-legend .legend-item {
-  display: flex;
+.ca-page .ca-legend-item {
+  display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  font-size: 1rem;
+  gap: 6px;
+  white-space: nowrap;
 }
 
-.chart-legend .legend-swatch {
-  display: inline-block;
-  width: 16px;
-  height: 16px;
+.ca-page .ca-swatch {
+  width: 12px;
+  height: 12px;
   border-radius: 2px;
 }
 
-.chart-wrapper {
-  position: relative;
+.ca-page .ca-swatch--positive {
+  background-color: var(--chart-positive);
 }
 
-.y-axis-labels {
-  position: absolute;
-  left: 0;
-  top: 5px;
-  bottom: 40px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  font-size: 1rem;
-  font-weight: 600;
-  width: 70px;
-  text-align: center;
+.ca-page .ca-swatch--negative {
+  background-color: var(--chart-negative);
 }
 
-.axis-label-positive {
-  color: var(--color-positive);
+.ca-page .ca-swatch--total {
+  background-color: var(--color-ink);
 }
 
-.axis-label-negative {
-  color: var(--color-negative);
+.ca-page .ca-swatch--error {
+  background-color: var(--chart-neutral);
 }
 
-.chart-container {
-  width: 100%;
+.ca-page .ca-legend-line {
+  width: 20px;
+  height: 0;
+  border-top: 2px solid;
 }
 
-.chart-wrapper .chart-container {
-  margin-left: 70px;
+.ca-page .ca-legend-line--moving {
+  border-top-color: var(--chart-average);
 }
 
-.chart-container--main {
-  height: 170px;
+.ca-page .ca-legend-line--team {
+  border-top: 2px dashed var(--color-accent);
 }
 
-/* Top Contributors Section */
-.top-contributors-section {
-  margin-top: var(--spacing-md);
+.ca-page .ca-legend-line--league {
+  border-top-color: var(--chart-reference);
 }
 
-.section-title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0 0 var(--spacing-md) 0;
-}
-
-.top-contributors {
-  gap: var(--spacing-md);
-}
-
-/* Contributor Card */
-.contributor-card {
-  padding: var(--spacing-md);
-}
-
-.contributor-header {
-  display: flex;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-sm);
-}
-
-.contributor-rank {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: var(--color-primary);
-  min-width: 32px;
-}
-
-.contributor-info {
-  flex: 1;
-}
-
-.contributor-title {
-  font-size: 0.875rem;
-  font-weight: 600;
-  margin: 0 0 var(--spacing-xs) 0;
-}
-
-.contributor-stats {
-  display: flex;
-  gap: var(--spacing-md);
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-}
-
-.contributor-stats .stat.contribution {
-  font-weight: 600;
-}
-
-.contributor-stats .stat.contribution.positive {
-  color: var(--color-positive);
-}
-
-.contributor-stats .stat.contribution.negative {
-  color: var(--color-negative);
-}
-
-.mini-chart-container {
-  margin-top: var(--spacing-sm);
-}
-
-/* Glossary */
-.glossary-section {
-  margin-top: var(--spacing-md);
-}
-
-.glossary-toggle {
-  width: 100%;
+/* Decomposition chart */
+.ca-page .ca-chart-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: none;
-  border: none;
-  padding: 0;
-  font-size: 1rem;
+  flex-wrap: wrap;
+  gap: 6px var(--spacing-md);
+  margin-bottom: var(--spacing-sm);
+}
+
+.ca-page .ca-decomp-chart {
+  width: 100%;
+}
+
+.ca-page .ca-tooltip {
+  white-space: normal;
+  overflow-wrap: break-word;
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  padding: var(--spacing-sm) 12px;
+  box-shadow: var(--shadow-lg);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-page .ca-tooltip--mini {
+  padding: 6px 10px;
+  font-size: var(--text-xs);
+}
+
+.ca-page .ca-tooltip-title {
   font-weight: 600;
-  color: var(--color-text);
-  cursor: pointer;
+  margin-bottom: 2px;
 }
 
-.glossary-toggle:hover {
-  color: var(--color-primary);
+.ca-page .ca-tooltip-sub {
+  color: var(--color-text-secondary);
 }
 
-.toggle-icon {
-  font-size: 1.25rem;
-  font-weight: 500;
+/* Top contributing factors */
+.ca-page .ca-top-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px var(--spacing-md);
+  margin: var(--spacing-sm) 0 12px;
 }
 
-.glossary-content {
-  margin-top: var(--spacing-md);
-  padding-top: var(--spacing-md);
-  border-top: 1px solid var(--color-border);
-}
-
-.glossary-list {
-  margin: 0;
+.ca-page .ca-top-grid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--spacing-md);
 }
 
-.glossary-item {
+.ca-page .ca-mini-header {
   display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+  gap: 12px;
+  margin-bottom: var(--spacing-sm);
 }
 
-.glossary-item dt {
+.ca-page .ca-mini-rank {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  min-width: 24px;
+}
+
+.ca-page .ca-mini-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.ca-page .ca-mini-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.ca-page .ca-mini-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--spacing-md);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ca-page .ca-mini-contribution {
+  font-weight: 600;
+}
+
+/* Glossary */
+.ca-page .ca-glossary {
+  padding: 0;
+}
+
+.ca-page .ca-glossary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--spacing-sm) 20px;
+  background: none;
+  border: none;
+  border-radius: var(--border-radius-lg);
+  cursor: pointer;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--color-text);
 }
 
-.glossary-item dd {
-  margin: 0;
-  color: var(--color-text-secondary);
-  font-size: 0.875rem;
-  line-height: 1.5;
+.ca-page .ca-glossary-toggle:hover {
+  background-color: var(--color-button-hover-muted);
 }
 
-/* Responsive */
+.ca-page .ca-toggle-icon {
+  font-size: var(--text-lg);
+  color: var(--color-text-secondary);
+}
+
+.ca-page .ca-glossary-content {
+  padding: var(--spacing-md) 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.ca-page .ca-glossary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.ca-page .ca-glossary-item dt {
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 2px;
+}
+
+.ca-page .ca-glossary-item dd {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+
+@media (max-width: 1024px) {
+  .ca-page .ca-summary {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  }
+
+  .ca-page .ca-summary-stats {
+    grid-column: 1 / -1;
+    padding-top: 12px;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .ca-page .ca-stat:first-child {
+    padding-left: 0;
+  }
+}
+
 @media (max-width: 768px) {
-  .page-title-row {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--spacing-xs);
+  /* Compact filter grid: Season + Team side by side, long-label selects full width */
+  .ca-page .ca-controls .form-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
   }
 
-  .summary-header {
-    flex-direction: column;
-    gap: var(--spacing-md);
-    padding: var(--spacing-md);
+  .ca-page .ca-controls .form-row > * {
+    min-width: 0;
   }
 
-  .summary-dates-info,
-  .summary-team,
-  .summary-ratings {
-    text-align: center;
+  .ca-page .ca-controls .form-row:not(.ca-custom-dates) > .form-group:nth-child(n + 3) {
+    grid-column: 1 / -1;
   }
 
-  .rating-row {
-    justify-content: center;
+  .ca-page .ca-status {
+    top: 12px;
+    right: 14px;
   }
 
-  .form-row {
-    flex-direction: column;
+  .ca-page .ca-summary {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 
-  .top-contributors {
+  .ca-page .ca-summary-stats {
+    grid-column: auto;
+  }
+
+  .ca-page .ca-stat {
+    flex: 1 1 0;
+    padding: 0 12px;
+  }
+
+  .ca-page .ca-stat-value {
+    font-size: var(--text-lg);
+  }
+
+  .ca-page .ca-legend {
+    gap: 4px 12px;
+    font-size: var(--text-xs);
+  }
+
+  .ca-page .ca-top-grid {
     grid-template-columns: 1fr;
   }
 
-  .contributor-stats {
-    flex-wrap: wrap;
+  .ca-page .ca-glossary-toggle,
+  .ca-page .ca-glossary-content {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .ca-page .ca-glossary-list {
+    grid-template-columns: 1fr;
   }
 }

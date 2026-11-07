@@ -117,6 +117,8 @@ function stripInlineMarkdown(text) {
     .trim()
 }
 
+const TABLE_WRAP_THRESHOLD = 32
+
 function isNumericTableCell(cell) {
   const value = stripInlineMarkdown(cell)
 
@@ -320,22 +322,25 @@ export function renderMarkdownBlocks(content, slug) {
       const numericColumns = headers.map((_, columnIndex) =>
         rows.length > 0 && rows.every((row) => isNumericTableCell(row[columnIndex] || ''))
       )
+      // Long prose columns may wrap; everything else stays on one line and the table scrolls.
+      const wrapColumns = headers.map((_, columnIndex) =>
+        rows.some((row) => stripInlineMarkdown(row[columnIndex] || '').length > TABLE_WRAP_THRESHOLD)
+      )
+      const cellClass = (columnIndex) =>
+        [
+          numericColumns[columnIndex] ? 'blog-table-cell--numeric' : '',
+          wrapColumns[columnIndex] ? 'blog-table-cell--wrap' : '',
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined
 
       blocks.push(
-        <div className="blog-table-wrapper" key={`${slug}-table-${index}`}>
+        <div className="table-scroll blog-table-scroll" key={`${slug}-table-${index}`}>
           <table className="blog-table">
-            <colgroup>
-              {headers.map((_, columnIndex) => (
-                <col key={`${slug}-table-col-${columnIndex}`} style={{ width: `${100 / headers.length}%` }} />
-              ))}
-            </colgroup>
             <thead>
               <tr>
                 {headers.map((header, headerIndex) => (
-                  <th
-                    key={`${slug}-table-head-${headerIndex}`}
-                    className={numericColumns[headerIndex] ? 'blog-table-cell--numeric' : undefined}
-                  >
+                  <th key={`${slug}-table-head-${headerIndex}`} className={cellClass(headerIndex)}>
                     {renderInlineMarkdown(header, `${slug}-table-head-${headerIndex}`)}
                   </th>
                 ))}
@@ -345,10 +350,7 @@ export function renderMarkdownBlocks(content, slug) {
               {rows.map((row, rowIndex) => (
                 <tr key={`${slug}-table-row-${rowIndex}`}>
                   {row.map((cell, cellIndex) => (
-                    <td
-                      key={`${slug}-table-cell-${rowIndex}-${cellIndex}`}
-                      className={numericColumns[cellIndex] ? 'blog-table-cell--numeric' : undefined}
-                    >
+                    <td key={`${slug}-table-cell-${rowIndex}-${cellIndex}`} className={cellClass(cellIndex)}>
                       {renderInlineMarkdown(cell, `${slug}-table-cell-${rowIndex}-${cellIndex}`)}
                     </td>
                   ))}
@@ -490,3 +492,12 @@ export function parseBlogPosts(postModules) {
     })
     .sort((a, b) => (a.date < b.date ? 1 : -1))
 }
+
+const postModules = import.meta.glob('../content/blog/*.md', {
+  eager: true,
+  query: '?raw',
+  import: 'default',
+})
+
+// Posts with `visible: false` front matter are excluded from the index and from direct links.
+export const visibleBlogPosts = parseBlogPosts(postModules).filter((post) => post.visible)

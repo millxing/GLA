@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { getSeasons, getLeagueSummary, getLeagueTopContributors } from '../api'
 import { usePersistedState } from '../hooks/usePersistedState'
-import { ScatterChart, Scatter, XAxis, YAxis, ReferenceLine, ResponsiveContainer, LabelList, Tooltip } from 'recharts'
+import { ScatterChart, Scatter, XAxis, YAxis, ReferenceLine, ResponsiveContainer, Tooltip } from 'recharts'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import SegmentedControl from '../components/SegmentedControl'
+import useMediaQuery from '../hooks/useMediaQuery'
 import './LeagueSummary.css'
 
 const VIEW_FOUR_FACTORS = 'four_factors'
@@ -117,10 +119,97 @@ const SHOOTING_SCOPED_COLUMNS = [
   { key: 'opp_fg3a_rate', label: '3ptAr', labelLine2: 'Opp', sortable: true, higherBetter: false, isOpp: true },
 ]
 
-const SECTION_START_COLUMNS = {
-  [VIEW_FOUR_FACTORS]: new Set(['off_rating', 'efg_pct', 'opp_efg_pct', 'pace']),
-  [VIEW_SHOOTING]: new Set(['off_rating', 'ft_pct', 'opp_ft_pct']),
-  [VIEW_SOS_ADJUSTMENTS]: new Set(['net_rating', 'sos', 'adj_net_rating']),
+const RECORD_COLUMN_KEYS = new Set(['games', 'wins', 'losses', 'win_pct'])
+const SAMPLE_COLUMN_KEYS = new Set(['scope_games', 'scope_time_pct'])
+const RATING_COLUMN_KEYS = new Set(['off_rating', 'def_rating', 'net_rating'])
+const OFFENSE_COLUMN_KEYS = new Set(['efg_pct', 'ball_handling', 'oreb_pct', 'ft_rate', 'ft_pct', 'fg2_pct', 'fg3_pct', 'fg3a_rate'])
+const SCHEDULE_COLUMN_KEYS = new Set(['sos', 'off_sos', 'def_sos'])
+
+// Column groups drive the grouped header row and the group divider borders.
+function getColumnGroup(column) {
+  const { key } = column
+  if (key === 'team') return { id: 'team', label: '' }
+  if (RECORD_COLUMN_KEYS.has(key)) return { id: 'record', label: 'Record' }
+  if (SAMPLE_COLUMN_KEYS.has(key)) return { id: 'sample', label: '' }
+  if (RATING_COLUMN_KEYS.has(key)) return { id: 'ratings', label: 'Ratings' }
+  if (column.isOpp) return { id: 'defense', label: 'Defense (Opp)' }
+  if (OFFENSE_COLUMN_KEYS.has(key)) return { id: 'offense', label: 'Offense' }
+  if (SCHEDULE_COLUMN_KEYS.has(key)) return { id: 'schedule', label: 'Schedule' }
+  if (key.startsWith('adj_')) return { id: 'adjusted', label: 'Adjusted' }
+  return { id: key, label: '' }
+}
+
+// On narrow screens the Ratings group moves next to Team so NRtg is visible without scrolling.
+function orderColumnsForDisplay(columns, compact) {
+  if (!compact) return columns
+  const ratings = columns.filter((column) => RATING_COLUMN_KEYS.has(column.key))
+  const rest = columns.filter((column) => column.key !== 'team' && !RATING_COLUMN_KEYS.has(column.key))
+  const team = columns.filter((column) => column.key === 'team')
+  return [...team, ...ratings, ...rest]
+}
+
+function buildColumnGroups(columns) {
+  const groups = []
+  columns.forEach((column) => {
+    const group = getColumnGroup(column)
+    const last = groups[groups.length - 1]
+    if (last && last.id === group.id) {
+      last.span += 1
+    } else {
+      groups.push({ ...group, span: 1, startKey: column.key })
+    }
+  })
+  return groups
+}
+
+// Color scale direction per column: 1 = higher is better, -1 = lower is better, 0 = no tint.
+// Volume/context columns (GP, sample size, pace, 3PA rate, schedule strength) are descriptive,
+// not good/bad, so they stay neutral. Opponent stats are lower-is-better (Opp BH high = opponents
+// protected the ball).
+const NEUTRAL_TINT_COLUMN_KEYS = new Set([
+  'games', 'scope_games', 'scope_time_pct', 'pace', 'fg3a_rate', 'opp_fg3a_rate', 'sos', 'off_sos', 'def_sos',
+])
+
+function getTintDirection(column) {
+  if (column.key === 'team' || NEUTRAL_TINT_COLUMN_KEYS.has(column.key)) return 0
+  if (column.higherBetter === true) return 1
+  if (column.higherBetter === false) return -1
+  return 0
+}
+
+const TINT_Z_FLOOR = 0.5
+const TINT_Z_CAP = 2
+
+function parseIsoDate(value) {
+  return new Date(`${value}T00:00:00`)
+}
+
+const formatMonthDay = (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+const formatFullDate = (date) => date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+
+// "Nov 1–2, 2026", "Oct 20 – Nov 6, 2026", "Dec 20, 2025 – Jan 6, 2026"
+function formatDateRange(start, end) {
+  if (!start || !end) return ''
+  const startDate = parseIsoDate(start)
+  const endDate = parseIsoDate(end)
+  if (start === end) return formatFullDate(endDate)
+  const sameYear = startDate.getFullYear() === endDate.getFullYear()
+  if (sameYear && startDate.getMonth() === endDate.getMonth()) {
+    return `${formatMonthDay(startDate)}–${endDate.getDate()}, ${endDate.getFullYear()}`
+  }
+  if (sameYear) return `${formatMonthDay(startDate)} – ${formatFullDate(endDate)}`
+  return `${formatFullDate(startDate)} – ${formatFullDate(endDate)}`
+}
+
+const TABLE_VIEW_TITLES = {
+  [VIEW_FOUR_FACTORS]: 'Four Factors',
+  [VIEW_SHOOTING]: 'Shooting',
+  [VIEW_SOS_ADJUSTMENTS]: 'Strength of Schedule',
+}
+
+const TABLE_COLUMN_WIDTHS = {
+  regular: { rank: 44, team: 64, stat: 64, timePct: 84 },
+  compact: { rank: 36, team: 54, stat: 58, timePct: 76 },
 }
 
 const ALL_LEAGUE_SUMMARY_COLUMNS = [
@@ -213,7 +302,7 @@ const TABLE_VIEWPORT_BOTTOM_GUTTER = 24
 const MIN_TABLE_VIEWPORT_HEIGHT = 320
 
 const GLOSSARY_ITEMS = [
-  { term: 'Rank', definition: 'League rank based on the currently selected sort column.' },
+  { term: 'Rank', definition: 'Rank by the sorted column (by NRtg when sorted by Team).' },
   { term: 'Team', definition: 'Team abbreviation.' },
   { term: 'GP', definition: 'Games Played' },
   { term: 'G', definition: 'Games containing the selected data-scope segment.' },
@@ -299,28 +388,28 @@ function getHeaderTooltip(columnKey, isOpponentColumn = false) {
 
 const DATE_RANGE_OPTIONS = [
   { value: 'season', label: 'Season' },
-  { value: 'season_regular', label: 'Regular Season' },
-  { value: 'this_month', label: 'This Month' },
+  { value: 'season_regular', label: 'Regular season only' },
+  { value: 'this_month', label: 'This month' },
   { value: 'last_2_months', label: 'Last 2 months' },
   { value: 'last_3_months', label: 'Last 3 months' },
   { value: 'last_10_games', label: 'Last 10 games' },
   { value: 'last_15_games', label: 'Last 15 games' },
   { value: 'last_20_games', label: 'Last 20 games' },
-  { value: 'custom', label: 'Custom Dates' },
+  { value: 'custom', label: 'Custom range…' },
 ]
 const DATA_SCOPE_OPTIONS = [
-  { value: 'all', label: 'All Data' },
+  { value: 'all', label: 'All data' },
   { value: 'q1', label: 'Q1' },
   { value: 'q2', label: 'Q2' },
   { value: 'q3', label: 'Q3' },
   { value: 'q4', label: 'Q4' },
   { value: 'ot', label: 'OT' },
   { value: 'h1', label: 'H1' },
-  { value: 'h2', label: 'H2 (incl OT)' },
-  { value: 'garbage_filtered', label: 'Non-Garbage Time' },
-  { value: 'garbage_time', label: 'Garbage Time' },
-  { value: 'clutch', label: 'Clutch Time' },
-  { value: 'non_clutch_time', label: 'Non-Clutch Time' },
+  { value: 'h2', label: 'H2 (incl. OT)' },
+  { value: 'garbage_filtered', label: 'Excl. garbage time' },
+  { value: 'garbage_time', label: 'Garbage time only' },
+  { value: 'clutch', label: 'Clutch time' },
+  { value: 'non_clutch_time', label: 'Non-clutch time' },
 ]
 const DERIVED_SCOPE_VALUES = new Set(['garbage_time', 'non_clutch_time'])
 const VALID_DATE_RANGE_VALUES = new Set(DATE_RANGE_OPTIONS.map((option) => option.value))
@@ -385,7 +474,31 @@ const SORT_DIRECTION_ALIASES = {
   descending: 'desc',
 }
 
-const EFFICIENCY_CHART_MARGIN = { top: 20, right: 56, bottom: 54, left: 56 }
+const EFFICIENCY_CHART_LAYOUT = {
+  regular: { margin: { top: 12, right: 16, bottom: 4, left: 4 }, yAxisWidth: 56, xAxisHeight: 44 },
+  compact: { margin: { top: 8, right: 8, bottom: 6, left: 0 }, yAxisWidth: 46, xAxisHeight: 40 },
+}
+const POINT_RADIUS = 4.5
+const LABEL_FONT_SIZE = 11
+const LABEL_CHAR_WIDTH = 7.4
+const LABEL_HEIGHT = 11
+// Candidate label offsets relative to the point centre (text baseline), tried in order.
+const LABEL_CANDIDATES = [
+  { dx: 0, dy: -8, anchor: 'middle' },
+  { dx: 0, dy: 16, anchor: 'middle' },
+  { dx: 7, dy: 4, anchor: 'start' },
+  { dx: -7, dy: 4, anchor: 'end' },
+  { dx: 6, dy: -6, anchor: 'start' },
+  { dx: -6, dy: -6, anchor: 'end' },
+  { dx: 6, dy: 14, anchor: 'start' },
+  { dx: -6, dy: 14, anchor: 'end' },
+  { dx: 0, dy: -16, anchor: 'middle' },
+  { dx: 0, dy: 24, anchor: 'middle' },
+  { dx: 12, dy: 4, anchor: 'start' },
+  { dx: -12, dy: 4, anchor: 'end' },
+]
+// Breathing room around label boxes so near-touching labels count as collisions.
+const LABEL_PADDING = 2
 const TEAM_NAME_BY_ABBR = {
   ATL: 'Atlanta Hawks',
   BOS: 'Boston Celtics',
@@ -470,42 +583,155 @@ const TEAM_CITY_BY_ABBR = {
   WSB: 'Washington',
 }
 
-function renderXAxisTitle(props) {
-  const { viewBox } = props || {}
-  if (!viewBox) return null
-  const x = viewBox.x
-  const y = viewBox.y + viewBox.height + 28
-  return (
-    <text
-      x={x}
-      y={y}
-      textAnchor="middle"
-      dominantBaseline="middle"
-      fill="var(--color-text-secondary)"
-      fontSize="15"
-    >
-      Offensive Rating
-    </text>
-  )
+function getNiceTicks([min, max], targetCount) {
+  const span = max - min
+  if (!(span > 0)) return []
+  const rough = span / targetCount
+  const magnitude = 10 ** Math.floor(Math.log10(rough))
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((candidate) => candidate >= rough) || 10 * magnitude
+  const ticks = []
+  for (let value = Math.ceil(min / step) * step; value <= max + 1e-9; value += step) {
+    ticks.push(Number(value.toFixed(2)))
+  }
+  return ticks
 }
 
-function renderYAxisTitle(props) {
-  const { viewBox } = props || {}
-  if (!viewBox) return null
-  const x = viewBox.x - 28
-  const y = viewBox.y
+const formatTick = (value) => (Number.isInteger(value) ? String(value) : value.toFixed(1))
+
+function getBoxOverlap(a, b) {
+  const width = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+  const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+  return width > 0 && height > 0 ? width * height : 0
+}
+
+function getLabelBox(x, y, text, anchor) {
+  const width = text.length * LABEL_CHAR_WIDTH
+  const left = anchor === 'middle' ? x - width / 2 : anchor === 'end' ? x - width : x
+  return {
+    left: left - LABEL_PADDING,
+    right: left + width + LABEL_PADDING,
+    top: y - LABEL_HEIGHT + 2 - LABEL_PADDING,
+    bottom: y + 2 + LABEL_PADDING,
+  }
+}
+
+/**
+ * Greedy label placement: each label takes the first candidate offset that does not
+ * collide with points, already-placed labels, or the reference-line captions.
+ * Returns Map(team -> { dx, dy, anchor }); teams missing from the map are unlabeled.
+ */
+function placePointLabels({ points, labeledTeams, size, layout, domains, averages }) {
+  const placements = new Map()
+  if (!points.length) return placements
+  const { margin, yAxisWidth, xAxisHeight } = layout
+  const plotLeft = margin.left + yAxisWidth
+  const plotTop = margin.top
+  const plotWidth = size.width - plotLeft - margin.right
+  const plotHeight = size.height - margin.top - margin.bottom - xAxisHeight
+
+  if (!(plotWidth > 0 && plotHeight > 0)) {
+    points.forEach((point) => {
+      if (labeledTeams.has(point.team)) placements.set(point.team, LABEL_CANDIDATES[0])
+    })
+    return placements
+  }
+
+  const [xMin, xMax] = domains.x
+  const [yMin, yMax] = domains.y
+  const toPixel = (point) => ({
+    x: plotLeft + ((point.off_rating - xMin) / (xMax - xMin)) * plotWidth,
+    // Y axis is reversed: the lowest (best) defensive rating sits at the top.
+    y: plotTop + ((point.def_rating - yMin) / (yMax - yMin)) * plotHeight,
+  })
+  const pixels = new Map(points.map((point) => [point.team, toPixel(point)]))
+  const avgX = plotLeft + ((averages.off - xMin) / (xMax - xMin)) * plotWidth
+  const avgY = plotTop + ((averages.def - yMin) / (yMax - yMin)) * plotHeight
+
+  const obstacles = [
+    // Reference-line captions (see renderAverageLabel)
+    { left: avgX + 2, right: avgX + 86, top: plotTop, bottom: plotTop + 16 },
+    { left: plotLeft + plotWidth - 86, right: plotLeft + plotWidth, top: avgY - 16, bottom: avgY },
+    ...points.map((point) => {
+      const { x, y } = pixels.get(point.team)
+      return { team: point.team, left: x - POINT_RADIUS, right: x + POINT_RADIUS, top: y - POINT_RADIUS, bottom: y + POINT_RADIUS }
+    }),
+  ]
+  const bounds = { left: plotLeft - 4, right: plotLeft + plotWidth + 4, top: plotTop - 4, bottom: plotTop + plotHeight + 4 }
+
+  const order = points
+    .filter((point) => labeledTeams.has(point.team))
+    .sort((a, b) => {
+      const distance = (point) => {
+        const { x, y } = pixels.get(point.team)
+        return Math.hypot((x - avgX) / plotWidth, (y - avgY) / plotHeight)
+      }
+      return distance(b) - distance(a)
+    })
+
+  order.forEach((point) => {
+    const { x, y } = pixels.get(point.team)
+    let best = null
+    LABEL_CANDIDATES.forEach((candidate, index) => {
+      const box = getLabelBox(x + candidate.dx, y + candidate.dy, point.team, candidate.anchor)
+      // A label may touch its own point (the padding would otherwise reject the "above" slot).
+      let score = obstacles.reduce(
+        (sum, obstacle) => (obstacle.team === point.team ? sum : sum + getBoxOverlap(box, obstacle)),
+        0
+      )
+      if (box.left < bounds.left || box.right > bounds.right || box.top < bounds.top || box.bottom > bounds.bottom) {
+        score += 1000
+      }
+      score += index * 0.01
+      if (!best || score < best.score) best = { score, candidate, box }
+    })
+    placements.set(point.team, best.candidate)
+    obstacles.push(best.box)
+  })
+
+  return placements
+}
+
+// Callback-ref based so it attaches whenever the (conditionally rendered) node mounts.
+function useElementSize() {
+  const [node, setNode] = useState(null)
+  const [size, setSize] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    if (!node || typeof ResizeObserver === 'undefined') return undefined
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      setSize((prev) => (prev.width === width && prev.height === height ? prev : { width, height }))
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [node])
+
+  return [setNode, size]
+}
+
+function renderAverageLabel(text, orientation) {
+  return function AverageLabel({ viewBox }) {
+    if (!viewBox) return null
+    const isVertical = orientation === 'vertical'
+    return (
+      <text
+        x={isVertical ? viewBox.x + 5 : viewBox.x + viewBox.width - 4}
+        y={isVertical ? viewBox.y + 11 : viewBox.y - 5}
+        textAnchor={isVertical ? 'start' : 'end'}
+        fill="var(--color-text-muted)"
+        fontSize="11"
+      >
+        {text}
+      </text>
+    )
+  }
+}
+
+function DownloadIcon() {
   return (
-    <text
-      x={x}
-      y={y}
-      textAnchor="middle"
-      dominantBaseline="middle"
-      fill="var(--color-text-secondary)"
-      fontSize="15"
-      transform={`rotate(-90 ${x} ${y})`}
-    >
-      Defensive Rating
-    </text>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 2v8m0 0L4.75 6.75M8 10l3.25-3.25M2.75 11.5v1.25c0 .41.34.75.75.75h9c.41 0 .75-.34.75-.75V11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -620,11 +846,16 @@ function LeagueSummary() {
   const [sortDirection, setSortDirection] = useState('desc')
   const [tableView, setTableView] = usePersistedState('leaguesummary_view', VIEW_FOUR_FACTORS)
   const [glossaryExpanded, setGlossaryExpanded] = useState(false)
+  const [colorScaleOn, setColorScaleOn] = usePersistedState('leaguesummary_colorscale', false)
   const [topContributors, setTopContributors] = useState(null)
   const [contributorsLoading, setContributorsLoading] = useState(false)
   const [topContributorsNote, setTopContributorsNote] = useState('')
   const [hoverTooltip, setHoverTooltip] = useState(null)
   const [tableMaxHeight, setTableMaxHeight] = useState(null)
+  const [loadedDataKey, setLoadedDataKey] = useState('')
+  const isCompact = useMediaQuery('(max-width: 768px)')
+  const isNarrow = useMediaQuery('(max-width: 600px)')
+  const [chartRef, chartSize] = useElementSize()
   const hasUserInteractedRef = useRef(false)
   const tableContainerRef = useRef(null)
   const isCustomDateRangeVisible = dateRangePreset === 'custom'
@@ -777,8 +1008,6 @@ function LeagueSummary() {
     setCustomStartDate(shouldUseCustomDates ? customStartDate : '')
     setCustomEndDate(shouldUseCustomDates ? customEndDate : '')
     setSeasonBounds({ first: '', last: '' })
-    setData(null)
-    setTopContributors(null)
     setTopContributorsNote('')
   }, [
     selectedSeason,
@@ -970,6 +1199,11 @@ function LeagueSummary() {
     tableView,
   ])
 
+  // Identifies the data the current filters ask for; while it differs from the loaded
+  // data's key the previous table stays on screen, dimmed.
+  const requestKey = [selectedSeason, selectedDataScope, startDate, endDate, lastNGames, excludePlayoffs].join('|')
+  const isRefreshing = Boolean(data) && !error && (loading || loadedDataKey !== requestKey)
+
   // Load data with calculated date range
   useEffect(() => {
     if (!selectedSeason) return
@@ -989,6 +1223,7 @@ function LeagueSummary() {
         )
         if (isCurrent) {
           setData(res)
+          setLoadedDataKey(requestKey)
           setError(null)
         }
       } catch (err) {
@@ -1007,7 +1242,7 @@ function LeagueSummary() {
     if (!lastNGames && (!startDate || !endDate)) return
     if (DERIVED_SCOPE_VALUES.has(selectedDataScope)) {
       setTopContributors(null)
-      setTopContributorsNote('Top contributors are currently unavailable for Garbage Time and Non-Clutch Time views.')
+      setTopContributorsNote('Top contributors are currently unavailable for the garbage-time-only and non-clutch-time views.')
       setContributorsLoading(false)
       return
     }
@@ -1093,46 +1328,49 @@ function LeagueSummary() {
     return sorted
   }, [data, sortColumn, sortDirection, activeColumns])
 
-  // Compute min/max for sorted column only
-  const sortedColumnStats = useMemo(() => {
-    if (!data?.teams || data.teams.length === 0) return null
-    const col = activeColumns.find(c => c.key === sortColumn)
-    if (!col || col.key === 'team' || col.higherBetter === null) return null
-    const values = data.teams.map(t => t[sortColumn]).filter(v => typeof v === 'number')
-    if (values.length === 0) return null
-    return {
-      min: Math.min(...values),
-      max: Math.max(...values),
-      higherBetter: col.higherBetter,
-      isOpp: col.isOpp,
-    }
-  }, [data, sortColumn, activeColumns])
+  // Mean / SD per tinted column, for the optional color scale.
+  const columnTintStats = useMemo(() => {
+    const stats = new Map()
+    if (!data?.teams?.length) return stats
+    activeColumns.forEach((column) => {
+      const direction = getTintDirection(column)
+      if (!direction) return
+      const values = data.teams.map((team) => team[column.key]).filter((value) => typeof value === 'number')
+      if (values.length < 2) return
+      const mean = values.reduce((sum, value) => sum + value, 0) / values.length
+      const sd = Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length)
+      if (sd > 0) stats.set(column.key, { mean, sd, direction })
+    })
+    return stats
+  }, [data, activeColumns])
 
-  const getCellColor = (column, value) => {
-    // Only color the sorted column
-    if (column !== sortColumn || !sortedColumnStats) return null
-    const { min, max, higherBetter, isOpp } = sortedColumnStats
-    if (min === max) return null
-
-    const normalized = (value - min) / (max - min)
-
-    // For "higher is better" stats: high values = green, low values = red
-    // For "lower is better" stats (like DRtg, or Opp stats): reverse - low values = green
-    // isOpp stats: higher opponent values are BAD for your team, so reverse gradient
-    const shouldReverse = higherBetter === false || isOpp
-
-    if (shouldReverse) {
-      // Low = green (good), High = red (bad)
-      const green = `rgba(34, 197, 94, ${0.15 + (1 - normalized) * 0.35})`
-      const red = `rgba(239, 68, 68, ${0.15 + normalized * 0.35})`
-      return normalized < 0.5 ? green : red
-    } else {
-      // High = green (good), Low = red (bad)
-      const green = `rgba(34, 197, 94, ${0.15 + normalized * 0.35})`
-      const red = `rgba(239, 68, 68, ${0.15 + (1 - normalized) * 0.35})`
-      return normalized > 0.5 ? green : red
-    }
+  // Restrained diverging tint by z-score, mixed toward the tint tokens and capped.
+  const getCellTint = (columnKey, value) => {
+    if (!colorScaleOn || typeof value !== 'number') return undefined
+    const stats = columnTintStats.get(columnKey)
+    if (!stats) return undefined
+    const z = ((value - stats.mean) / stats.sd) * stats.direction
+    const magnitude = Math.min(Math.abs(z), TINT_Z_CAP)
+    if (magnitude < TINT_Z_FLOOR) return undefined
+    const token = z > 0 ? '--color-positive-bg' : '--color-negative-bg'
+    const strength = (magnitude - TINT_Z_FLOOR) / (TINT_Z_CAP - TINT_Z_FLOOR)
+    return `color-mix(in srgb, var(${token}) ${Math.round(40 + strength * 60)}%, transparent)`
   }
+
+  // Rank follows the sorted column; an alphabetical (Team) sort has no meaningful order, so
+  // rank by NRtg instead.
+  const netRatingRankByTeam = useMemo(() => {
+    const ranks = new Map()
+    if (!data?.teams) return ranks
+    ;[...data.teams]
+      .sort((a, b) => b.net_rating - a.net_rating)
+      .forEach((team, index) => ranks.set(team.team, index + 1))
+    return ranks
+  }, [data])
+
+  const getRank = (team, index) => (
+    sortColumn === 'team' ? netRatingRankByTeam.get(team.team) ?? index + 1 : index + 1
+  )
 
   const handleSort = (column) => {
     if (sortColumn === column) {
@@ -1140,17 +1378,36 @@ function LeagueSummary() {
       updateUrlFromUserChange({ sortColumn: column, sortDirection: nextDirection })
       setSortDirection(nextDirection)
     } else {
-      const col = activeColumns.find((c) => c.key === column)
-      const nextDirection = col?.higherBetter === false ? 'asc' : 'desc'
+      const nextDirection = getDefaultSortDirectionForColumn(column)
       updateUrlFromUserChange({ sortColumn: column, sortDirection: nextDirection })
       setSortColumn(column)
       setSortDirection(nextDirection)
     }
   }
 
-  const isSectionStart = (columnKey) => {
-    return SECTION_START_COLUMNS[tableView]?.has(columnKey) || false
+  const displayColumns = useMemo(
+    () => orderColumnsForDisplay(activeColumns, isCompact),
+    [activeColumns, isCompact]
+  )
+
+  const columnGroups = useMemo(() => buildColumnGroups(displayColumns), [displayColumns])
+
+  // Group dividers start at every group after the first stat group (Team has its own sticky edge).
+  const groupStartKeys = useMemo(
+    () => new Set(columnGroups.slice(2).map((group) => group.startKey)),
+    [columnGroups]
+  )
+
+  const columnWidths = isCompact ? TABLE_COLUMN_WIDTHS.compact : TABLE_COLUMN_WIDTHS.regular
+  const getColumnWidth = (columnKey) => {
+    if (columnKey === 'team') return columnWidths.team
+    if (columnKey === 'scope_time_pct') return columnWidths.timePct
+    return columnWidths.stat
   }
+  const tableMinWidth = displayColumns.reduce(
+    (sum, column) => sum + getColumnWidth(column.key),
+    columnWidths.rank
+  )
 
   const handleOpenTrendFromCell = (teamAbbr, columnKey) => {
     if (!teamAbbr || !selectedSeason) return
@@ -1166,13 +1423,6 @@ function LeagueSummary() {
         dataScope: trendsScope,
       },
     })
-  }
-
-  const handleCellKeyDown = (event, teamAbbr, columnKey) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      handleOpenTrendFromCell(teamAbbr, columnKey)
-    }
   }
 
   const showHoverTooltip = (event, tooltipContent) => {
@@ -1194,10 +1444,6 @@ function LeagueSummary() {
 
   const hideHoverTooltip = () => {
     setHoverTooltip(null)
-  }
-
-  const isHeaderCenteredValueColumn = (columnKey) => {
-    return ['games', 'wins', 'losses', 'win_pct', 'scope_games', 'scope_time_pct'].includes(columnKey)
   }
 
   const formatValue = (value, column) => {
@@ -1423,27 +1669,17 @@ function LeagueSummary() {
     }
   }, [data, efficiencyChartData])
 
-  const efficiencySubtitle = useMemo(() => {
-    const nowLabel = new Date().toLocaleDateString('en-US', {
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    })
+  // Describes the range actually applied, ending at the last game in range rather than today.
+  const effectiveRangeLabel = useMemo(() => {
+    const throughLabel = seasonBounds.last ? `through ${formatFullDate(parseIsoDate(seasonBounds.last))}` : ''
+    const withThrough = (prefix) => [prefix, throughLabel].filter(Boolean).join(' · ')
+    if (lastNGames) return withThrough(`Last ${lastNGames} games`)
+    if (dateRangePreset === 'season') return withThrough('Season to date')
+    if (dateRangePreset === 'season_regular') return withThrough('Regular season')
+    return formatDateRange(startDate, endDate)
+  }, [lastNGames, dateRangePreset, startDate, endDate, seasonBounds.last])
 
-    let rangeLabel = 'Season-to-Date'
-    if (lastNGames) {
-      rangeLabel = `Last ${lastNGames} games`
-    } else if (startDate && seasonBounds.first && startDate !== seasonBounds.first) {
-      const startLabel = new Date(`${startDate}T00:00:00`).toLocaleDateString('en-US', {
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric',
-      })
-      rangeLabel = `Since ${startLabel}`
-    }
-
-    return `${nowLabel} | ${rangeLabel}`
-  }, [lastNGames, startDate, seasonBounds.first])
+  const dataScopeLabel = DATA_SCOPE_OPTIONS.find((option) => option.value === selectedDataScope)?.label || ''
 
   const quadrantTeams = useMemo(() => {
     const offCut = efficiencyLeagueAverages.off
@@ -1466,32 +1702,135 @@ function LeagueSummary() {
     }
   }, [efficiencyChartData, efficiencyLeagueAverages])
 
+  const efficiencyLayout = isCompact ? EFFICIENCY_CHART_LAYOUT.compact : EFFICIENCY_CHART_LAYOUT.regular
+
+  const efficiencyTicks = useMemo(() => ({
+    x: getNiceTicks(efficiencyDomains.x, isNarrow ? 4 : 8),
+    y: getNiceTicks(efficiencyDomains.y, isNarrow ? 4 : 8),
+  }), [efficiencyDomains, isNarrow])
+
+  // Below 600px only the extremes are labeled; every point still has a tap/hover tooltip.
+  const labeledTeams = useMemo(() => {
+    if (!isNarrow) return new Set(efficiencyChartData.map((point) => point.team))
+    const extremes = new Set()
+    const pick = (key, direction) => {
+      const sorted = [...efficiencyChartData].sort((a, b) => (direction === 'max' ? b[key] - a[key] : a[key] - b[key]))
+      if (sorted[0]) extremes.add(sorted[0].team)
+    }
+    pick('net_rating', 'max')
+    pick('net_rating', 'min')
+    pick('off_rating', 'max')
+    pick('off_rating', 'min')
+    pick('def_rating', 'max')
+    pick('def_rating', 'min')
+    return extremes
+  }, [efficiencyChartData, isNarrow])
+
+  const labelPlacements = useMemo(() => placePointLabels({
+    points: efficiencyChartData,
+    labeledTeams,
+    size: chartSize,
+    layout: efficiencyLayout,
+    domains: efficiencyDomains,
+    averages: efficiencyLeagueAverages,
+  }), [efficiencyChartData, labeledTeams, chartSize, efficiencyLayout, efficiencyDomains, efficiencyLeagueAverages])
+
+  const renderEfficiencyPoint = ({ cx, cy, payload }) => {
+    if (typeof cx !== 'number' || typeof cy !== 'number') return null
+    const placement = labelPlacements.get(payload.team)
+    return (
+      <g className="ls-point">
+        <circle cx={cx} cy={cy} r={POINT_RADIUS} fill="var(--color-link)" fillOpacity={0.9} />
+        {placement && (
+          <text
+            x={cx + placement.dx}
+            y={cy + placement.dy}
+            textAnchor={placement.anchor}
+            fontSize={LABEL_FONT_SIZE}
+            fontWeight={500}
+            fill="var(--color-text-secondary)"
+            stroke="var(--color-background)"
+            strokeWidth={3}
+            strokeLinejoin="round"
+            paintOrder="stroke"
+            pointerEvents="none"
+          >
+            {payload.team}
+          </text>
+        )}
+      </g>
+    )
+  }
+
   const formatSignedNetRating = (value) => `${value >= 0 ? '+' : ''}${value.toFixed(1)}`
 
   const renderQuadrantNote = (title, teams, keyPrefix) => (
-    <>
-      <h3 className="efficiency-note-title">{title}</h3>
-      <div className="efficiency-note-columns">
+    <div className={`ls-quadrant ls-quadrant--${keyPrefix}`}>
+      <h3 className="ls-quadrant-title">{title}</h3>
+      <div className="ls-quadrant-head" aria-hidden="true">
         <span>Team</span>
         <span>NRtg</span>
       </div>
       {teams.length > 0 ? (
-        <ul className="efficiency-note-list">
+        <ul className="ls-quadrant-list">
           {teams.map((team) => (
-            <li key={`${keyPrefix}-${team.team}`} className="efficiency-note-list-item">
-              <span className="efficiency-note-team">{team.team_city}</span>
-              <span className="efficiency-note-net">{formatSignedNetRating(team.net_rating)}</span>
+            <li key={`${keyPrefix}-${team.team}`} className="ls-quadrant-item">
+              <span className="ls-quadrant-team">{team.team_city}</span>
+              <span className={`ls-quadrant-net ${team.net_rating >= 0 ? 'text-positive' : 'text-negative'}`}>
+                {formatSignedNetRating(team.net_rating)}
+              </span>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="efficiency-note-empty">No teams</div>
+        <p className="ls-quadrant-empty">No teams</p>
       )}
-    </>
+    </div>
   )
 
+  const renderContributorsTable = (items, tone) => (
+    <table className="ls-contrib-table">
+      <thead>
+        <tr>
+          <th scope="col">Team</th>
+          <th scope="col">Factor</th>
+          <th scope="col" className="text-right">Value</th>
+          <th scope="col" className="text-right">Contribution</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.map((item, index) => (
+          <tr
+            key={`${tone}-${index}`}
+            onMouseEnter={(event) => showHoverTooltip(event, getContributorTooltip(item))}
+            onMouseLeave={hideHoverTooltip}
+          >
+            <td className="ls-contrib-team">{item.team}</td>
+            <td>{item.factor_label}</td>
+            <td className="text-right">{item.value.toFixed(1)}</td>
+            <td className={`text-right ls-contrib-value ${tone === 'positive' ? 'text-positive' : 'text-negative'}`}>
+              {tone === 'positive' ? '+' : ''}{item.contribution.toFixed(2)}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+
+  const getSortLabel = (direction) => (direction === 'asc' ? 'ascending' : 'descending')
+
+  const viewOptions = [
+    { value: VIEW_FOUR_FACTORS, label: 'Four Factors' },
+    { value: VIEW_SHOOTING, label: 'Shooting' },
+    {
+      value: VIEW_SOS_ADJUSTMENTS,
+      label: isCustomDateRangeVisible || isNarrow ? 'SOS' : 'Strength of Schedule',
+      title: 'Strength of Schedule',
+    },
+  ]
+
   return (
-    <div className="league-summary container">
+    <div className="ls-page">
       <div className="page-header">
         <div className="page-title-row">
           <h1 className="page-title">League Summary</h1>
@@ -1501,25 +1840,30 @@ function LeagueSummary() {
         </div>
       </div>
 
-      <div className="controls card">
-        <div className="form-row controls-top-row">
-          <div className="form-group season-control">
-            <label className="form-label">Season</label>
+      <div className="card ls-controls">
+        <div className="ls-filters">
+          <div className="ls-field ls-field--season">
+            <label className="form-label" htmlFor="ls-season">Season</label>
             <select
+              id="ls-season"
               className="form-select"
               value={selectedSeason}
               onChange={(e) => handleSeasonChange(e.target.value)}
             >
-              <option value="">Select season...</option>
+              {/* Placeholder only while seasons load; once loaded a season is always selected */}
+              {(!seasons.length || !selectedSeason) && (
+                <option value="" disabled hidden>{seasons.length ? 'Select season...' : 'Loading…'}</option>
+              )}
               {seasons.map((season) => (
                 <option key={season} value={season}>{season}</option>
               ))}
             </select>
           </div>
 
-          <div className="form-group data-scope-control">
-            <label className="form-label">Data Scope</label>
+          <div className="ls-field">
+            <label className="form-label" htmlFor="ls-scope">Data Scope</label>
             <select
+              id="ls-scope"
               className="form-select"
               value={selectedDataScope}
               onChange={(e) => handleDataScopeChange(e.target.value)}
@@ -1530,9 +1874,10 @@ function LeagueSummary() {
             </select>
           </div>
 
-          <div className="form-group date-range-control">
-            <label className="form-label">Date Range</label>
+          <div className="ls-field ls-field--range">
+            <label className="form-label" htmlFor="ls-range">Date Range</label>
             <select
+              id="ls-range"
               className="form-select"
               value={dateRangePreset}
               onChange={(e) => handleDateRangeChange(e.target.value)}
@@ -1542,382 +1887,407 @@ function LeagueSummary() {
               ))}
             </select>
           </div>
-        </div>
 
-        {isCustomDateRangeVisible && (
-          <div className="form-row custom-dates-row">
-            <div className="form-group custom-date-control">
-              <label className="form-label">Start Date</label>
-              <input
-                type="date"
-                className="form-input"
-                value={customStartDate}
-                min={seasonBounds.first || undefined}
-                max={seasonBounds.last || undefined}
-                onChange={(e) => handleCustomStartDateChange(e.target.value)}
-              />
-            </div>
+          {isCustomDateRangeVisible && (
+            <>
+              <div className="ls-field ls-field--date">
+                <label className="form-label" htmlFor="ls-start-date">Start Date</label>
+                <input
+                  id="ls-start-date"
+                  type="date"
+                  className="form-input"
+                  value={customStartDate}
+                  min={seasonBounds.first || undefined}
+                  max={seasonBounds.last || undefined}
+                  onChange={(e) => handleCustomStartDateChange(e.target.value)}
+                />
+              </div>
 
-            <div className="form-group custom-date-control">
-              <label className="form-label">End Date</label>
-              <input
-                type="date"
-                className="form-input"
-                value={customEndDate}
-                min={seasonBounds.first || undefined}
-                max={seasonBounds.last || undefined}
-                onChange={(e) => handleCustomEndDateChange(e.target.value)}
-              />
-            </div>
+              <div className="ls-field ls-field--date">
+                <label className="form-label" htmlFor="ls-end-date">End Date</label>
+                <input
+                  id="ls-end-date"
+                  type="date"
+                  className="form-input"
+                  value={customEndDate}
+                  min={seasonBounds.first || undefined}
+                  max={seasonBounds.last || undefined}
+                  onChange={(e) => handleCustomEndDateChange(e.target.value)}
+                />
+              </div>
+            </>
+          )}
+
+          <div className="ls-field ls-field--view">
+            <span className="form-label" aria-hidden="true">Table View</span>
+            <SegmentedControl
+              label="Table view"
+              options={viewOptions}
+              value={tableView}
+              onChange={handleTableViewChange}
+              block={isCompact}
+            />
           </div>
-        )}
 
-        <div className="form-row table-view-row">
-          <div className="form-group table-view-control inline-toggle-control">
-            <label className="form-label">Table View:</label>
-            <div className="view-toggle-group">
-              <button
-                type="button"
-                className={`view-toggle-btn ${tableView === VIEW_FOUR_FACTORS ? 'active' : ''}`}
-                onClick={() => handleTableViewChange(VIEW_FOUR_FACTORS)}
-              >
-                Four Factors
-              </button>
-              <button
-                type="button"
-                className={`view-toggle-btn ${tableView === VIEW_SHOOTING ? 'active' : ''}`}
-                onClick={() => handleTableViewChange(VIEW_SHOOTING)}
-              >
-                Shooting
-              </button>
-              <button
-                type="button"
-                className={`view-toggle-btn ${tableView === VIEW_SOS_ADJUSTMENTS ? 'active' : ''}`}
-                onClick={() => handleTableViewChange(VIEW_SOS_ADJUSTMENTS)}
-              >
-                {isCustomDateRangeVisible ? 'SOS' : 'Strength of Schedule'}
-              </button>
-            </div>
+          <div className="ls-refresh-slot" role="status" aria-live="polite">
+            {isRefreshing && (
+              <span className="refresh-indicator">
+                <span className="loading-spinner" aria-hidden="true"></span>
+                Updating…
+              </span>
+            )}
           </div>
         </div>
       </div>
 
       {error && <div className="error">{error}</div>}
 
-      {loading && (
+      {!data && loading && (
         <div className="loading">
           <div className="loading-spinner"></div>
           Loading league data...
         </div>
       )}
 
-      {data && !loading && (
-        <div className="card">
-          <div
-            ref={tableContainerRef}
-            className="table-container"
-            style={tableMaxHeight ? { '--league-summary-table-max-height': `${tableMaxHeight}px` } : undefined}
-          >
-            <table className="summary-table">
-              <thead>
-                <tr>
-                  <th
-                    className="rank-col"
-                    onMouseEnter={(event) => showHoverTooltip(event, { lines: [getHeaderTooltip('rank')] })}
-                    onMouseLeave={hideHoverTooltip}
-                  >
-                    <div className="header-content">
-                      <span className="header-line1">Rank</span>
-                    </div>
-                  </th>
-                  {activeColumns.map((col) => (
+      {data && (
+        <div className={`ls-results${isRefreshing ? ' is-refreshing' : ''}`} aria-busy={isRefreshing}>
+          <section className="card ls-table-card">
+            <div className="ls-table-head">
+              <div className="ls-card-head">
+                <h2 className="card-title">{TABLE_VIEW_TITLES[tableView]}</h2>
+                <span className="ls-card-meta">
+                  {[dataScopeLabel, effectiveRangeLabel].filter(Boolean).join(' · ')}
+                </span>
+              </div>
+              <div className="ls-table-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary ls-scale-toggle"
+                  aria-pressed={colorScaleOn}
+                  title="Tint each stat column from worse (red) to better (green) than the league"
+                  onClick={() => setColorScaleOn((on) => !on)}
+                >
+                  <span className="ls-scale-swatch" aria-hidden="true"></span>
+                  Color scale
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleExport}
+                  disabled={!sortedTeams.length}
+                >
+                  <DownloadIcon />
+                  Export CSV
+                </button>
+              </div>
+            </div>
+
+            <div
+              ref={tableContainerRef}
+              className="table-scroll ls-table-scroll"
+              role="region"
+              aria-label="League summary table"
+              tabIndex={0}
+              style={tableMaxHeight ? { '--ls-table-max-height': `${tableMaxHeight}px` } : undefined}
+            >
+              <table
+                className="ls-table"
+                style={{ minWidth: `${tableMinWidth}px`, '--ls-rank-width': `${columnWidths.rank}px` }}
+              >
+                <colgroup>
+                  <col style={{ width: `${columnWidths.rank}px` }} />
+                  {displayColumns.map((col) => (
+                    <col key={col.key} style={{ width: `${getColumnWidth(col.key)}px` }} />
+                  ))}
+                </colgroup>
+                <thead>
+                  <tr className="ls-group-row">
+                    {columnGroups.map((group, index) => (
+                      <th
+                        key={`${group.id}-${group.startKey}`}
+                        scope="colgroup"
+                        colSpan={index === 0 ? group.span + 1 : group.span}
+                        className={[
+                          index === 0 ? 'ls-sticky ls-sticky--corner' : '',
+                          groupStartKeys.has(group.startKey) ? 'ls-group-start' : '',
+                        ].filter(Boolean).join(' ') || undefined}
+                      >
+                        {group.label}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="ls-col-row">
                     <th
-                      key={col.key}
-                      className={`stat-header ${col.sortable ? 'sortable' : ''} ${sortColumn === col.key ? 'sorted' : ''} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-header' : ''}`}
-                      onClick={() => col.sortable && handleSort(col.key)}
-                      onMouseEnter={(event) => showHoverTooltip(event, { lines: [getHeaderTooltip(col.key, col.labelLine2 === 'Opp')] })}
+                      scope="col"
+                      className="ls-rank ls-sticky"
+                      onMouseEnter={(event) => showHoverTooltip(event, { lines: [getHeaderTooltip('rank')] })}
                       onMouseLeave={hideHoverTooltip}
                     >
-                      <div className="header-content">
-                        {col.labelLine2 && <span className="header-line2">{col.labelLine2}</span>}
-                        <span className="header-line1">
-                          {col.label}
-                          {sortColumn === col.key && (
-                            <span className="sort-indicator">
-                              {sortDirection === 'asc' ? ' ↑' : ' ↓'}
-                            </span>
-                          )}
-                        </span>
-                      </div>
+                      Rank
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedTeams.map((team, index) => (
-                  <tr key={team.team}>
-                    <td
-                      className="rank-col trend-link-cell"
-                      role="button"
-                      tabIndex={0}
-                      title={`Click to open Statistical Trends: ${team.team} Net Rating`}
-                      onClick={() => handleOpenTrendFromCell(team.team, 'net_rating')}
-                      onKeyDown={(event) => handleCellKeyDown(event, team.team, 'net_rating')}
-                    >
-                      <span className="rank-value">{index + 1}</span>
-                    </td>
-                    {activeColumns.map((col) => {
-                      const trendStat = resolveTrendStatForColumn(col.key)
-                      const trendLabel = TRENDS_STAT_LABELS[trendStat] || 'Net Rating'
-                      const fromLabel = col.labelLine2 ? `${col.labelLine2} ${col.label}` : col.label
-                      const title = TRENDS_DIRECT_STAT_COLUMNS.has(col.key)
-                        ? `Click to open Statistical Trends: ${team.team} ${fromLabel}`
-                        : `Click to open Statistical Trends: ${team.team} ${trendLabel} (from ${fromLabel})`
+                    {displayColumns.map((col) => {
+                      const isSorted = sortColumn === col.key
+                      const isOpponent = col.labelLine2 === 'Opp'
+                      const tooltip = { lines: [getHeaderTooltip(col.key, isOpponent)] }
+                      const classes = [
+                        col.key === 'team' ? 'ls-team ls-sticky' : 'ls-num',
+                        isSorted ? 'is-sorted' : '',
+                        groupStartKeys.has(col.key) ? 'ls-group-start' : '',
+                      ].filter(Boolean).join(' ')
 
                       return (
-                        <td
+                        <th
                           key={col.key}
-                          style={col.key !== 'team' ? { backgroundColor: getCellColor(col.key, team[col.key]) } : {}}
-                          className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} trend-link-cell ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-col' : ''}`}
-                          role="button"
-                          tabIndex={0}
-                          title={title}
-                          onClick={() => handleOpenTrendFromCell(team.team, col.key)}
-                          onKeyDown={(event) => handleCellKeyDown(event, team.team, col.key)}
+                          scope="col"
+                          className={classes}
+                          aria-sort={isSorted ? getSortLabel(sortDirection) : undefined}
+                          onMouseEnter={(event) => showHoverTooltip(event, tooltip)}
+                          onMouseLeave={hideHoverTooltip}
                         >
-                          {col.key === 'team' ? (
-                            formatValue(team[col.key], col.key)
-                          ) : (
-                            <span className={`ls-stat-value ${isHeaderCenteredValueColumn(col.key) ? 'ls-stat-value--center' : ''}`}>
-                              {formatValue(team[col.key], col.key)}
+                          <button
+                            type="button"
+                            className="th-sort"
+                            onClick={() => handleSort(col.key)}
+                            onFocus={(event) => showHoverTooltip(event, tooltip)}
+                            onBlur={hideHoverTooltip}
+                          >
+                            {isOpponent && <span className="sr-only">Opponent </span>}
+                            {col.label}
+                            <span className="ls-sort-icon" aria-hidden="true">
+                              {isSorted ? (sortDirection === 'asc' ? '↑' : '↓') : ''}
                             </span>
-                          )}
-                        </td>
+                          </button>
+                        </th>
                       )
                     })}
                   </tr>
-                ))}
-                {/* League Averages Row */}
-                {leagueAverages && (
-                  <tr className="league-avg-row">
-                    <td className="rank-col"></td>
-                    {activeColumns.map((col) => (
+                </thead>
+                <tbody>
+                  {sortedTeams.map((team, index) => (
+                    <tr key={team.team}>
                       <td
-                        key={col.key}
-                        className={`${col.key === 'team' ? 'team-cell' : 'stat-cell'} ${isSectionStart(col.key) ? 'section-divider' : ''} ${col.key === 'scope_time_pct' ? 'time-pct-col' : ''}`}
+                        className="ls-rank ls-sticky ls-cell-link"
+                        title={`Click to open Statistical Trends: ${team.team} Net Rating`}
+                        onClick={() => handleOpenTrendFromCell(team.team, 'net_rating')}
                       >
-                        {col.key === 'team' ? (
-                          formatValue(leagueAverages[col.key], col.key)
-                        ) : (
-                          <span className={`ls-stat-value ${isHeaderCenteredValueColumn(col.key) ? 'ls-stat-value--center' : ''}`}>
-                            {formatValue(leagueAverages[col.key], col.key)}
-                          </span>
-                        )}
+                        {getRank(team, index)}
                       </td>
-                    ))}
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      {displayColumns.map((col) => {
+                        if (col.key === 'team') {
+                          return (
+                            <th key={col.key} scope="row" className="ls-team ls-sticky">
+                              <button
+                                type="button"
+                                className="ls-team-link"
+                                title={`Open Statistical Trends: ${team.team} Net Rating`}
+                                onClick={() => handleOpenTrendFromCell(team.team, col.key)}
+                              >
+                                {team.team}
+                              </button>
+                            </th>
+                          )
+                        }
 
-          <div className="export-section">
-            <button className="btn btn-primary" onClick={handleExport}>
-              Export to Excel
-            </button>
-          </div>
+                        const trendStat = resolveTrendStatForColumn(col.key)
+                        const trendLabel = TRENDS_STAT_LABELS[trendStat] || 'Net Rating'
+                        const fromLabel = col.labelLine2 ? `${col.labelLine2} ${col.label}` : col.label
+                        const title = TRENDS_DIRECT_STAT_COLUMNS.has(col.key)
+                          ? `Click to open Statistical Trends: ${team.team} ${fromLabel}`
+                          : `Click to open Statistical Trends: ${team.team} ${trendLabel} (from ${fromLabel})`
+
+                        return (
+                          <td
+                            key={col.key}
+                            className={`ls-num ls-cell-link${groupStartKeys.has(col.key) ? ' ls-group-start' : ''}`}
+                            style={{ backgroundColor: getCellTint(col.key, team[col.key]) }}
+                            title={title}
+                            onClick={() => handleOpenTrendFromCell(team.team, col.key)}
+                          >
+                            {formatValue(team[col.key], col.key)}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+                {leagueAverages && (
+                  <tfoot>
+                    <tr className="ls-avg-row">
+                      <td className="ls-rank ls-sticky"></td>
+                      {displayColumns.map((col) => (
+                        col.key === 'team' ? (
+                          <th key={col.key} scope="row" className="ls-team ls-sticky" title="League average">Avg</th>
+                        ) : (
+                          <td
+                            key={col.key}
+                            className={`ls-num${groupStartKeys.has(col.key) ? ' ls-group-start' : ''}`}
+                          >
+                            {formatValue(leagueAverages[col.key], col.key)}
+                          </td>
+                        )
+                      ))}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </section>
 
           {!!efficiencyChartData.length && (
-            <div className="efficiency-landscape card">
-              <h2 className="efficiency-title">The Efficiency Landscape (@KirkGoldsberry)</h2>
-              <div className="efficiency-subtitle">{efficiencySubtitle}</div>
-              <div className="efficiency-chart-shell">
-                <div className="efficiency-chart-container">
+            <section className="card ls-chart-card">
+              <div className="ls-card-head">
+                <h2 className="card-title">Efficiency Landscape</h2>
+                <span className="ls-card-meta">{effectiveRangeLabel}</span>
+              </div>
+              <div className="ls-landscape">
+                <div className="ls-landscape-chart" ref={chartRef}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <ScatterChart margin={EFFICIENCY_CHART_MARGIN}>
+                    <ScatterChart margin={efficiencyLayout.margin}>
                       <XAxis
                         type="number"
                         dataKey="off_rating"
                         domain={efficiencyDomains.x}
-                        ticks={[]}
-                        tick={false}
+                        ticks={efficiencyTicks.x}
+                        tickFormatter={formatTick}
+                        tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
                         tickLine={false}
-                        axisLine={false}
+                        axisLine={{ stroke: 'var(--chart-grid)' }}
+                        height={efficiencyLayout.xAxisHeight}
+                        label={{
+                          value: 'Offensive Rating',
+                          position: 'insideBottom',
+                          offset: 0,
+                          fill: 'var(--color-text-secondary)',
+                          fontSize: 12,
+                        }}
                       />
                       <YAxis
                         type="number"
                         dataKey="def_rating"
                         domain={efficiencyDomains.y}
                         reversed
-                        ticks={[]}
-                        tick={false}
+                        ticks={efficiencyTicks.y}
+                        tickFormatter={formatTick}
+                        tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
                         tickLine={false}
-                        axisLine={false}
+                        axisLine={{ stroke: 'var(--chart-grid)' }}
+                        width={efficiencyLayout.yAxisWidth}
+                        label={{
+                          value: 'Defensive Rating',
+                          angle: -90,
+                          position: 'insideLeft',
+                          offset: 4,
+                          fill: 'var(--color-text-secondary)',
+                          fontSize: 12,
+                          style: { textAnchor: 'middle' },
+                        }}
                       />
                       <ReferenceLine
                         x={efficiencyLeagueAverages.off}
-                        stroke="var(--color-text-muted)"
+                        stroke="var(--chart-axis)"
+                        strokeDasharray="4 4"
                         strokeWidth={1}
-                        label={renderXAxisTitle}
+                        label={renderAverageLabel(`Lg avg ${efficiencyLeagueAverages.off.toFixed(1)}`, 'vertical')}
                       />
                       <ReferenceLine
                         y={efficiencyLeagueAverages.def}
-                        stroke="var(--color-text-muted)"
+                        stroke="var(--chart-axis)"
+                        strokeDasharray="4 4"
                         strokeWidth={1}
-                        label={renderYAxisTitle}
+                        label={renderAverageLabel(`Lg avg ${efficiencyLeagueAverages.def.toFixed(1)}`, 'horizontal')}
                       />
                       <Tooltip
                         cursor={false}
                         content={<EfficiencyTooltip />}
                         wrapperStyle={{ outline: 'none' }}
                       />
-                      <Scatter data={efficiencyChartData} fill="var(--color-primary)">
-                        <LabelList dataKey="team" position="top" offset={8} fontSize={11} fill="var(--color-text)" />
-                      </Scatter>
+                      <Scatter data={efficiencyChartData} shape={renderEfficiencyPoint} isAnimationActive={false} />
                     </ScatterChart>
                   </ResponsiveContainer>
-                  <div className="efficiency-quadrant-notes">
-                    <div className="efficiency-note efficiency-note--left-top efficiency-note--data">
-                      {renderQuadrantNote('Bad Offense & Good Defense', quadrantTeams.badOffGoodDef, 'bad-off-good-def')}
-                    </div>
-                    <div className="efficiency-note efficiency-note--right-top efficiency-note--data">
-                      {renderQuadrantNote('Good Offense & Good Defense', quadrantTeams.goodOffGoodDef, 'good-off-good-def')}
-                    </div>
-                    <div className="efficiency-note efficiency-note--left-bottom efficiency-note--data">
-                      {renderQuadrantNote('Bad Offense & Bad Defense', quadrantTeams.badOffBadDef, 'bad-off-bad-def')}
-                    </div>
-                    <div className="efficiency-note efficiency-note--right-bottom efficiency-note--data">
-                      {renderQuadrantNote('Good Offense & Bad Defense', quadrantTeams.goodOffBadDef, 'good-off-bad-def')}
-                    </div>
+                </div>
+                {renderQuadrantNote('Bad Offense & Good Defense', quadrantTeams.badOffGoodDef, 'tl')}
+                {renderQuadrantNote('Good Offense & Good Defense', quadrantTeams.goodOffGoodDef, 'tr')}
+                {renderQuadrantNote('Bad Offense & Bad Defense', quadrantTeams.badOffBadDef, 'bl')}
+                {renderQuadrantNote('Good Offense & Bad Defense', quadrantTeams.goodOffBadDef, 'br')}
+              </div>
+              <p className="ls-chart-credit">Chart concept: Kirk Goldsberry</p>
+            </section>
+          )}
+
+          {(topContributors || contributorsLoading || topContributorsNote) && (
+            <section className="card ls-contrib-card">
+              <div className="ls-card-head">
+                <h2 className="card-title">Top Contributors to Net Rating</h2>
+                {topContributors && contributorPeriodHeadingLabel ? (
+                  <span className="ls-card-meta">{contributorPeriodHeadingLabel}</span>
+                ) : null}
+              </div>
+
+              {topContributors && (
+                <div className={`ls-contrib-grid${contributorsLoading && !isRefreshing ? ' is-refreshing' : ''}`}>
+                  <div className="ls-contrib-column">
+                    <h3 className="ls-contrib-title text-positive">Top Positive Contributors</h3>
+                    {renderContributorsTable(topContributors.top_positive, 'positive')}
+                  </div>
+                  <div className="ls-contrib-column">
+                    <h3 className="ls-contrib-title text-negative">Top Negative Contributors</h3>
+                    {renderContributorsTable(topContributors.top_negative, 'negative')}
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
+              )}
 
-          {topContributors && !contributorsLoading && (
-            <div className="top-contributors-section">
-              <h2 className="section-title">
-                Top Contributors to Net Rating
-                {contributorPeriodHeadingLabel ? <span className="section-title-context"> ({contributorPeriodHeadingLabel})</span> : null}
-              </h2>
-              <div className="contributors-grid">
-                <div className="contributors-column">
-                  <h3 className="column-title positive">Top Positive Contributors</h3>
-                  <table className="contributors-table">
-                    <thead>
-                      <tr>
-                        <th>Team</th>
-                        <th>Factor</th>
-                        <th className="value-header">Value</th>
-                        <th className="contribution-header">Contribution</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topContributors.top_positive.map((item, index) => (
-                        <tr
-                          key={`pos-${index}`}
-                          className="contributors-data-row"
-                          onMouseEnter={(event) => showHoverTooltip(event, getContributorTooltip(item))}
-                          onMouseLeave={hideHoverTooltip}
-                        >
-                          <td className="team-cell">{item.team}</td>
-                          <td>{item.factor_label}</td>
-                          <td className="value-cell">{item.value.toFixed(1)}</td>
-                          <td className="contribution-cell positive">
-                            +{item.contribution.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {!topContributors && contributorsLoading && (
+                <div className="loading">
+                  <div className="loading-spinner"></div>
+                  Loading top contributors...
                 </div>
-                <div className="contributors-column">
-                  <h3 className="column-title negative">Top Negative Contributors</h3>
-                  <table className="contributors-table">
-                    <thead>
-                      <tr>
-                        <th>Team</th>
-                        <th>Factor</th>
-                        <th className="value-header">Value</th>
-                        <th className="contribution-header">Contribution</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {topContributors.top_negative.map((item, index) => (
-                        <tr
-                          key={`neg-${index}`}
-                          className="contributors-data-row"
-                          onMouseEnter={(event) => showHoverTooltip(event, getContributorTooltip(item))}
-                          onMouseLeave={hideHoverTooltip}
-                        >
-                          <td className="team-cell">{item.team}</td>
-                          <td>{item.factor_label}</td>
-                          <td className="value-cell">{item.value.toFixed(1)}</td>
-                          <td className="contribution-cell negative">
-                            {item.contribution.toFixed(2)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
+              )}
 
-          {topContributorsNote && !contributorsLoading && (
-            <div className="contributors-loading">
-              {topContributorsNote}
-            </div>
-          )}
-
-          {contributorsLoading && (
-            <div className="contributors-loading">
-              <div className="loading-spinner"></div>
-              Loading top contributors...
-            </div>
+              {topContributorsNote && !contributorsLoading && (
+                <p className="ls-contrib-note">{topContributorsNote}</p>
+              )}
+            </section>
           )}
         </div>
       )}
 
       {hoverTooltip && (
         <div
-          className={`header-tooltip-popover header-tooltip-popover--${hoverTooltip.placement}`}
+          className={`ls-tooltip ls-tooltip--${hoverTooltip.placement}`}
           style={{ left: `${hoverTooltip.x}px`, top: `${hoverTooltip.y}px` }}
           role="tooltip"
           aria-hidden="true"
         >
-          {hoverTooltip.title ? <div className="header-tooltip-title">{hoverTooltip.title}</div> : null}
+          {hoverTooltip.title ? <div className="ls-tooltip-title">{hoverTooltip.title}</div> : null}
           {(hoverTooltip.lines || []).map((line, index) => (
-            <div key={`${line}-${index}`} className="header-tooltip-line">{line}</div>
+            <div key={`${line}-${index}`}>{line}</div>
           ))}
         </div>
       )}
 
-      <div className="glossary-section card">
-          <button
-            className="glossary-toggle"
-            onClick={() => setGlossaryExpanded(!glossaryExpanded)}
-            aria-expanded={glossaryExpanded}
-          >
-            <span>Glossary</span>
-            <span className="toggle-icon">{glossaryExpanded ? '−' : '+'}</span>
-          </button>
+      <section className="card ls-glossary">
+        <button
+          type="button"
+          className="ls-glossary-toggle"
+          onClick={() => setGlossaryExpanded(!glossaryExpanded)}
+          aria-expanded={glossaryExpanded}
+          aria-controls="ls-glossary-list"
+        >
+          <span>Glossary</span>
+          <span className="ls-glossary-icon" aria-hidden="true">{glossaryExpanded ? '−' : '+'}</span>
+        </button>
 
-          {glossaryExpanded && (
-            <div className="glossary-content">
-              <dl className="glossary-list">
-                {GLOSSARY_ITEMS.map(item => (
-                  <div key={item.term} className="glossary-item">
-                    <dt>{item.term}</dt>
-                    <dd>{item.definition}</dd>
-                  </div>
-                ))}
-              </dl>
-            </div>
-          )}
-        </div>
+        {glossaryExpanded && (
+          <dl id="ls-glossary-list" className="ls-glossary-list">
+            {GLOSSARY_ITEMS.map((item) => (
+              <div key={item.term} className="ls-glossary-item">
+                <dt>{item.term}</dt>
+                <dd>{item.definition}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </section>
     </div>
   )
 }
