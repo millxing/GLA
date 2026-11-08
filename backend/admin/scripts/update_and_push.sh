@@ -22,6 +22,11 @@ RENDER_API_BASE_URL="${RENDER_API_BASE_URL:-https://extrapass-api.onrender.com}"
 REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS="${REMOTE_PUBLISH_WAIT_TIMEOUT_SECONDS:-180}"
 REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS="${REMOTE_PUBLISH_WAIT_INTERVAL_SECONDS:-5}"
 MIN_PBP_STATE_FREE_GB="${MIN_PBP_STATE_FREE_GB:-8}"
+# Scheduled run hour (keep in sync with run_daily_update_if_due.sh). A run that
+# starts after midnight but before this hour is an "early" run: it must not mark
+# the day as done, or the scheduled run would skip games still in progress.
+RUN_HOUR="${RUN_HOUR:-6}"
+START_HOUR="$(date +%H)"
 # --------------------------
 
 cd "$PROJECT_DIR"
@@ -496,15 +501,28 @@ if [ "$DRY_RUN" = "1" ]; then
     echo "[dry-run] Skipping update-data (no CLI dry-run mode available)"
     report_line "SKIPPED" "Season data update skipped due to dry run"
 else
+    UPDATE_DATA_LOG="$(mktemp)"
+    run_update_data() {
+        "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" update-data --season "$SEASON" 2>&1 | tee "$UPDATE_DATA_LOG"
+    }
     run_step \
         "Update season data (team_game_logs/linescores/box_score_advanced) for $SEASON" \
-        "$ENV_PYTHON" -m backend.admin.cli --repo-dir "$REPO_DIR" update-data --season "$SEASON"
+        run_update_data
+
+    # Games not yet final (in progress, or stats not caught up) are held out of
+    # team_game_logs, and so out of every downstream artifact, until a later run.
+    PENDING_GAMES="$(sed -n 's/^\[pending\] Holding back //p' "$UPDATE_DATA_LOG")"
+    rm -f "$UPDATE_DATA_LOG"
+    if [ -n "$PENDING_GAMES" ]; then
+        while IFS= read -r game_line; do
+            report_line "INFO" "Game held back until final: $game_line"
+        done <<< "$PENDING_GAMES"
+    fi
 
     # Games whose advanced box score NBA hasn't published yet are kept out of
     # box_score_advanced (and so out of contributions) and retried next run.
     INCOMPLETE_GAMES="$(
 "$ENV_PYTHON" - <<PY
-from datetime import datetime
 from pathlib import Path
 import pandas as pd
 from backend.config import build_data_filename, get_canonical_data_relative_path
@@ -514,8 +532,7 @@ logs = pd.read_csv(repo / get_canonical_data_relative_path(build_data_filename("
 adv_path = repo / get_canonical_data_relative_path(build_data_filename("box_score_advanced", "$SEASON"))
 adv_ids = set(pd.read_csv(adv_path, dtype={"game_id": str})["game_id"].str.zfill(10)) if adv_path.exists() else set()
 logs["game_id"] = logs["game_id"].str.zfill(10)
-today = datetime.now().strftime("%Y-%m-%d")
-for _, r in logs[(logs["game_date"].astype(str) != today) & ~logs["game_id"].isin(adv_ids)].iterrows():
+for _, r in logs[~logs["game_id"].isin(adv_ids)].iterrows():
     print(f"{r['game_id']} {r['game_date']} {r['team_abbreviation_road']} @ {r['team_abbreviation_home']}")
 PY
     )" || INCOMPLETE_GAMES=""
@@ -534,7 +551,7 @@ if [ "$ENABLE_BOX_SCORE_TRADITIONAL_V3" = "1" ]; then
     else
         run_step \
             "Update BoxScoreTraditionalV3 (players/teams/starter_bench) for $SEASON" \
-            "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/download_boxscore_traditional_v3.py" --season "$SEASON" --repo-dir "$REPO_DIR"
+            "$ENV_PYTHON" "$PROJECT_DIR/backend/admin/download_boxscore_traditional_v3.py" --season "$SEASON" --repo-dir "$REPO_DIR" --include-today
     fi
 else
     echo "[run] BoxScoreTraditionalV3 update disabled; skipping"
@@ -743,6 +760,10 @@ fi
 
 if [ "$INTERP_EXIT" -ne 0 ] || [ "$INTERP_COMMIT_EXIT" -ne 0 ]; then
     report_line "WARN" "Daily update finished with interpretation warnings (generation_exit=${INTERP_EXIT} commit_exit=${INTERP_COMMIT_EXIT})"
+elif [ "$START_HOUR" -lt "$RUN_HOUR" ]; then
+    # Deliberately not the "Daily update finished successfully" marker that
+    # run_daily_update_if_due.sh looks for, so the scheduled run still happens.
+    report_line "SUCCESS" "Early update finished successfully (started before ${RUN_HOUR}:00; scheduled run will still execute)"
 else
     report_line "SUCCESS" "Daily update finished successfully"
 fi

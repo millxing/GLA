@@ -38,14 +38,14 @@ import tarfile
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, TypeVar
 
 import pandas as pd
 
 # Data pulls
-from nba_api.stats.endpoints import leaguegamelog, boxscoresummaryv3, boxscoreadvancedv3
+from nba_api.stats.endpoints import leaguegamelog, boxscoresummaryv3, boxscoreadvancedv3, scoreboardv3
 
 # Import calculation functions for interpretation generation
 import sys
@@ -715,6 +715,98 @@ def _teamlogs_to_gamelogs(team_df: pd.DataFrame, season: str, game_type: str = "
 
     out = pd.DataFrame(out_rows)
     return out
+
+
+# ------------------------- completed-game gate -------------------------
+
+# LeagueGameLog lists games while they are still in progress, with partial stats.
+# Gamelog rows are append-only and every downstream artifact keys off them, so a
+# game may only enter the gamelog once it is verified final. New games dated
+# today or yesterday (local time) are checked against the NBA scoreboard; older
+# games are assumed final.
+FINAL_CHECK_LOOKBACK_DAYS = 1
+# If the scoreboard can't be read, yesterday's games are trusted only after this
+# local hour (late west-coast games can run past midnight Eastern).
+UNVERIFIED_GAMES_SAFE_HOUR = 4
+SCOREBOARD_FINAL_STATUS = 3
+
+
+def _fetch_scoreboard_games(game_date: str) -> Optional[Dict[str, Dict[str, Any]]]:
+    """Return {game_id: {"status", "status_text", "scores": {team_id: pts}}} for game_date.
+
+    Returns None when the scoreboard can't be read.
+    """
+    def _do_fetch() -> list[pd.DataFrame]:
+        return scoreboardv3.ScoreboardV3(game_date=game_date, league_id="00", timeout=30).get_data_frames()
+
+    try:
+        frames = _call_with_timeout(_do_fetch, timeout=60)
+    except Exception as e:
+        print(f"[data] Warning: scoreboard fetch failed for {game_date}: {e}")
+        return None
+    if not frames or len(frames) < 3:
+        print(f"[data] Warning: scoreboard unavailable for {game_date}")
+        return None
+
+    header, teams = frames[1], frames[2]
+    games: Dict[str, Dict[str, Any]] = {}
+    for _, row in header.iterrows():
+        gid = _normalize_game_id(row.get("gameId"))
+        if gid:
+            games[gid] = {
+                "status": int(row.get("gameStatus") or 0),
+                "status_text": str(row.get("gameStatusText") or "").strip(),
+                "scores": {},
+            }
+    for _, row in teams.iterrows():
+        gid = _normalize_game_id(row.get("gameId"))
+        if gid in games and pd.notna(row.get("teamId")) and pd.notna(row.get("score")):
+            games[gid]["scores"][int(row["teamId"])] = int(row["score"])
+    return games
+
+
+def _hold_back_unfinished_games(fresh: pd.DataFrame, existing_ids: set[str]) -> pd.DataFrame:
+    """Drop new recent games that aren't verified final, so they're retried next run."""
+    now = datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
+    cutoff_str = (now - timedelta(days=FINAL_CHECK_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+
+    ids = fresh["game_id"].astype(str)
+    dates = fresh["game_date"].astype(str)
+    to_check = fresh[(dates >= cutoff_str) & ~ids.isin(existing_ids)]
+    if to_check.empty:
+        return fresh
+
+    held: set[str] = set()
+    for game_date, day_rows in to_check.groupby(to_check["game_date"].astype(str)):
+        scoreboard = _fetch_scoreboard_games(game_date)
+        for _, row in day_rows.iterrows():
+            gid = str(row["game_id"])
+            label = f"{gid} {game_date} {row['team_abbreviation_road']} @ {row['team_abbreviation_home']}"
+            reason = None
+            if scoreboard is None:
+                if game_date >= today_str or now.hour < UNVERIFIED_GAMES_SAFE_HOUR:
+                    reason = "final status could not be verified (scoreboard unavailable)"
+            elif gid not in scoreboard:
+                reason = "not found on scoreboard"
+            elif scoreboard[gid]["status"] != SCOREBOARD_FINAL_STATUS:
+                reason = f"not final ({scoreboard[gid]['status_text'] or 'status ' + str(scoreboard[gid]['status'])})"
+            else:
+                expected = scoreboard[gid]["scores"]
+                logged = {
+                    int(row["team_id_home"]): int(row["pts_home"]) if pd.notna(row["pts_home"]) else None,
+                    int(row["team_id_road"]): int(row["pts_road"]) if pd.notna(row["pts_road"]) else None,
+                }
+                if logged != expected:
+                    reason = f"gamelog score {logged} does not yet match final score {expected}"
+            if reason:
+                held.add(gid)
+                print(f"[pending] Holding back {label}: {reason}; will retry next run")
+
+    if not held:
+        return fresh
+    print(f"[data] Held back {len(held)} unfinished/unverified game(s)")
+    return fresh[~ids.isin(held)].copy()
 
 
 # ------------------------- boxscore fetching (linescore + advanced) -------------------------
@@ -1517,6 +1609,8 @@ def _build_game_metadata_from_local_gamelog(
                 "game_type",
                 "team_abbreviation_home",
                 "team_abbreviation_road",
+                "pts_home",
+                "pts_road",
             ],
         )
     except Exception:
@@ -1558,9 +1652,34 @@ def _build_game_metadata_from_local_gamelog(
             "GAME_DATE": game_date,
             "MATCHUP": matchup,
             "SEASON_TYPE": season_type_label,
+            "PTS_HOME": row.get("pts_home"),
+            "PTS_ROAD": row.get("pts_road"),
         }
 
     return out
+
+
+def _pbp_final_score_mismatch(pbp_df: pd.DataFrame, meta: Dict[str, Any]) -> Optional[str]:
+    """Describe a mismatch between PBP's last score and the gamelog final, else None.
+
+    Scores are compared as an unordered pair because PBP and the gamelog can
+    disagree on home/road designation (e.g. neutral-site games).
+    """
+    try:
+        logged = sorted([int(meta["PTS_HOME"]), int(meta["PTS_ROAD"])])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if pbp_df.empty or "scoreHome" not in pbp_df.columns or "scoreAway" not in pbp_df.columns:
+        return "PBP has no score columns"
+    home = pd.to_numeric(pbp_df["scoreHome"], errors="coerce")
+    away = pd.to_numeric(pbp_df["scoreAway"], errors="coerce")
+    scored = home.notna() & away.notna()
+    if not scored.any():
+        return "PBP has no scores yet"
+    last_home, last_away = int(home[scored].iloc[-1]), int(away[scored].iloc[-1])
+    if sorted([last_home, last_away]) != logged:
+        return f"PBP last score {last_home}-{last_away} does not match gamelog final {logged[1]}-{logged[0]}"
+    return None
 
 
 def _normalize_api_pbpv3_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -1916,6 +2035,9 @@ def _update_pbp_for_season_type(
         season=season,
         season_type=season_type,
     )
+    # update-data only admits verified-final games to the local gamelog, so today's
+    # finished games are safe. The API fallback lists in-progress games too.
+    meta_is_final_only = bool(game_meta)
     if game_meta:
         print(f"[pbp] Using local game logs for {season} ({season_type}); games={len(game_meta)}")
     else:
@@ -1937,9 +2059,10 @@ def _update_pbp_for_season_type(
         return 0
 
     today = datetime.now().strftime("%Y-%m-%d")
+    recent_cutoff = (datetime.now() - timedelta(days=FINAL_CHECK_LOOKBACK_DAYS)).strftime("%Y-%m-%d")
     candidate_game_ids = sorted(
         gid for gid, meta in game_meta.items()
-        if meta.get("GAME_DATE") and meta.get("GAME_DATE") != today
+        if meta.get("GAME_DATE") and (meta_is_final_only or meta.get("GAME_DATE") != today)
     )
     existing_game_ids = _existing_game_ids_from_pbp_csv(out_path)
     if overwrite_existing:
@@ -1981,6 +2104,7 @@ def _update_pbp_for_season_type(
     fetched_frames: list[pd.DataFrame] = []
     ok = 0
     failed = 0
+    pending = 0
     workers = max(1, int(max_workers))
     timeout_s = float(request_timeout)
     retry_count = max(1, int(retries))
@@ -2009,7 +2133,15 @@ def _update_pbp_for_season_type(
                 source_name = ""
                 err_msg = _short_error(e)
 
-            if pbp_df is not None and not pbp_df.empty:
+            # Raw PBP is append-only by game_id, so a just-finished game whose feed
+            # hasn't caught up must not be saved; it's refetched next run.
+            mismatch = None
+            if pbp_df is not None and not pbp_df.empty and game_meta.get(gid, {}).get("GAME_DATE", "") >= recent_cutoff:
+                mismatch = _pbp_final_score_mismatch(pbp_df, game_meta[gid])
+            if mismatch:
+                pending += 1
+                print(f"[pbp]   [{idx}/{total}] {gid} PENDING ({mismatch}); will retry next run")
+            elif pbp_df is not None and not pbp_df.empty:
                 fetched_frames.append(pbp_df)
                 ok += 1
                 print(f"[pbp]   [{idx}/{total}] {gid} OK ({source_name}, rows={len(pbp_df)})")
@@ -2052,7 +2184,7 @@ def _update_pbp_for_season_type(
     _update_pbp_manifest_for_csv(repo_dir, output_source, season, season_type, out_path)
 
     print(f"[pbp] Wrote {out_path.name}: rows {existing_rows} -> {len(combined)}")
-    print(f"[pbp] Fetch summary: success={ok}, failed={failed}")
+    print(f"[pbp] Fetch summary: success={ok}, failed={failed}, pending={pending}")
     return 1 if failed else 0
 
 
@@ -2465,13 +2597,9 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
 
         fresh = _normalize_game_level_df(fresh_raw)
 
-        # Skip today's games to avoid incomplete data from in-progress games
-        today_str = datetime.now().strftime("%Y-%m-%d")
-        games_today = fresh["game_date"] == today_str
-        if games_today.any():
-            skipped_count = games_today.sum()
-            print(f"[data] Skipping {skipped_count} game(s) from today ({today_str}) - may be in progress")
-            fresh = fresh[~games_today].copy()
+        # Keep in-progress (or not-yet-final) games out of the append-only gamelog.
+        known_ids = set() if existing is None else set(existing["game_id"].astype(str).tolist())
+        fresh = _hold_back_unfinished_games(fresh, known_ids)
 
         if existing is None or existing.empty:
             merged = fresh
@@ -2546,11 +2674,8 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
                     context="Existing advanced box score data",
                 )
 
-            # Determine which games need boxscore data (excluding today's games)
-            today_str = datetime.now().strftime("%Y-%m-%d")
-            all_game_ids = set(
-                merged[merged["game_date"] != today_str]["game_id"].astype(str).tolist()
-            )
+            # Determine which games need boxscore data (the gamelog holds only final games)
+            all_game_ids = set(merged["game_id"].astype(str).tolist())
             existing_ls_ids = set(existing_ls["game_id"].astype(str).tolist()) if existing_ls is not None else set()
             existing_adv_ids = set(existing_adv["game_id"].astype(str).tolist()) if existing_adv is not None else set()
 
@@ -2625,11 +2750,8 @@ def update_data(season: str, repo_dir: Path, force_refresh: bool = False) -> int
             print(f"  latest: {latest_date}")
         print(f"  time: {elapsed:.1f}s")
         if advanced_path.exists():
-            today_str = datetime.now().strftime("%Y-%m-%d")
             final_adv_ids = set(final_adv["game_id"].astype(str))
-            incomplete = merged[
-                (merged["game_date"] != today_str) & ~merged["game_id"].astype(str).isin(final_adv_ids)
-            ]
+            incomplete = merged[~merged["game_id"].astype(str).isin(final_adv_ids)]
             for _, row in incomplete.iterrows():
                 print(
                     f"[warn] Incomplete game data: {row['game_id']} {row['game_date']} "

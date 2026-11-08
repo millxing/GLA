@@ -48,10 +48,17 @@ Notes:
 - It verifies `nba_api==1.11.4` and `scikit-learn==1.8.0` before running.
 - It writes a run report to `reports/updateYYYYMMDD.txt`.
 - After each successful `NBA_Data` push, it waits for the updated files to appear on GitHub raw and then clears the Render API cache automatically, so the deployed site should refresh without waiting for the old 30-minute in-memory cache TTL.
+- Safe to run any time, including mid-slate: `update-data` admits a game to `team_game_logs` only after the NBA scoreboard marks it Final and the gamelog score matches the final score. Unfinished games are logged as `Game held back until final` in the report and picked up by a later run. Everything downstream keys off `team_game_logs`, so in-progress games never reach box scores, PBP, contributions, or interpretations. Raw PBP for a recent game is saved only when its last score matches the gamelog.
+- A run that starts between midnight and 6am writes `Early update finished successfully` rather than the daily success marker, so the scheduled 6am run still happens.
 - Automatic cache clearing targets `https://extrapass-api.onrender.com/api/admin/clear-cache` and requires the updater environment to provide `CACHE_CLEAR_KEY` or `ADMIN_SECRET_KEY`.
 
 Useful variants:
 ```bash
+# Early update (e.g. 10pm while games are still in progress). Goes through the
+# scheduler wrapper so it can't overlap the 6am run.
+cd /Users/robschoen/Dropbox/CC/GLA
+FORCE_RUN=1 bash backend/admin/scripts/run_daily_update_if_due.sh
+
 # Preview without writes/commits
 cd /Users/robschoen/Dropbox/CC/GLA
 DRY_RUN=1 SEASON=2025-26 bash backend/admin/scripts/update_and_push.sh
