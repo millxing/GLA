@@ -1426,10 +1426,18 @@ def compute_pbp_traditional_boxscore(
                         )
 
                 prev_clock = 720.0 if period <= 4 else 300.0
+                lineup_clock = None
+                scoring_lineups = current_lineups
 
                 for _, row in period_df.iterrows():
                     clock_seconds = _clock_to_seconds_remaining(row.get("clock"))
                     current_clock = prev_clock if clock_seconds is None else clock_seconds
+                    if current_clock != lineup_clock:
+                        # Match GameRotation's boundary convention: points at
+                        # a substitution clock belong to the outgoing lineup,
+                        # including free throws recorded after the substitution.
+                        scoring_lineups = {team_id: set(lineup) for team_id, lineup in current_lineups.items()}
+                        lineup_clock = current_clock
                     elapsed = max(0.0, prev_clock - current_clock)
                     include_segment = _raw_row_segment_match(row, segment, include_map)
                     if include_segment and elapsed > 0.0:
@@ -1451,9 +1459,9 @@ def compute_pbp_traditional_boxscore(
                         road_delta = int(new_score_road) - score_road
                         if (home_delta or road_delta) and include_segment:
                             plus_minus_delta = home_delta - road_delta
-                            for token_in_lineup in current_lineups[meta["home_team_id"]]:
+                            for token_in_lineup in scoring_lineups[meta["home_team_id"]]:
                                 stats_by_team[meta["home_team_id"]][token_in_lineup]["plus_minus"] += plus_minus_delta
-                            for token_in_lineup in current_lineups[meta["road_team_id"]]:
+                            for token_in_lineup in scoring_lineups[meta["road_team_id"]]:
                                 stats_by_team[meta["road_team_id"]][token_in_lineup]["plus_minus"] -= plus_minus_delta
                         score_home = int(new_score_home)
                         score_road = int(new_score_road)

@@ -1481,16 +1481,30 @@ def _prepare_events_for_processing(events_df: pd.DataFrame) -> tuple[pd.DataFram
 
     d["period_raw"] = pd.to_numeric(d.get("period"), errors="coerce").fillna(0).astype("int64")
 
+    # Corrected plays can receive late actionNumbers while retaining their
+    # original actionIds and period. Do not promote them into a later quarter
+    # when both neighbors in actionId order corroborate the original period
+    # (e.g. CHI @ NYK 0022600177, actionIds 411-413).
+    id_order = d.assign(_id=pd.to_numeric(d.get("actionId"), errors="coerce"))
+    id_order = id_order[id_order["_id"].notna()].sort_values("_id", kind="stable")
+    supported_period = (
+        id_order["period_raw"].eq(id_order["period_raw"].shift())
+        & id_order["period_raw"].eq(id_order["period_raw"].shift(-1))
+        & ~id_order["_id"].duplicated(keep=False)
+    )
+    supported_indices = set(id_order.index[supported_period])
+
     corrected_periods: list[int] = []
     period_backtracks = 0
     max_period_seen = 0
-    for _, row in d.iterrows():
+    for idx, row in d.iterrows():
         period_raw = _to_optional_int(row.get("period_raw")) or 0
         action_type = _normalize_text(row.get("action_type_norm", row.get("actionType")))
         corrected_period = period_raw
         if period_raw > max_period_seen:
             max_period_seen = period_raw
-        if period_raw > 0 and max_period_seen > 0 and period_raw < max_period_seen and action_type != "period":
+        if (period_raw > 0 and max_period_seen > 0 and period_raw < max_period_seen
+                and action_type != "period" and idx not in supported_indices):
             corrected_period = max_period_seen
             period_backtracks += 1
         corrected_periods.append(corrected_period)

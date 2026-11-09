@@ -1,0 +1,275 @@
+gameId,actionNumber,actionId,period,clock,teamId,personId,playerName,playerNameI,description,actionType,subType,shotResult,shotValue,isFieldGoal,scoreHome,scoreAway
+0022600177,376,267,3,PT12M00.00S,0,0,,,Start of 3rd Period (9:01 PM EST),period,start,,0,0,84.0,52.0
+0022600177,377,268,3,PT11M48.00S,1610612741,1643410,Wilson,C. Wilson,MISS Wilson 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,378,269,3,PT11M48.00S,1610612752,1626157,Towns,K. Towns,Towns REBOUND (Off:0 Def:7),Rebound,Unknown,,0,0,,
+0022600177,379,270,3,PT11M39.00S,1610612752,1626157,Towns,K. Towns,Towns 25' 3PT Jump Shot (8 PTS) (Bridges 4 AST),Made Shot,Jump Shot,Made,3,1,87.0,52.0
+0022600177,381,271,3,PT11M24.00S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis 1' Cutting Dunk Shot (8 PTS) (Collins 3 AST),Made Shot,Cutting Dunk Shot,Made,2,1,87.0,54.0
+0022600177,383,272,3,PT11M07.00S,1610612752,1626157,Towns,K. Towns,Towns 26' 3PT Jump Shot (11 PTS) (Anunoby 1 AST),Made Shot,Jump Shot,Made,3,1,90.0,54.0
+0022600177,385,273,3,PT10M55.00S,1610612741,1641824,Buzelis,M. Buzelis,MISS Buzelis 26' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,386,274,3,PT10M55.00S,1610612752,1628384,Anunoby,O. Anunoby,Anunoby REBOUND (Off:0 Def:2),Rebound,Unknown,,0,0,,
+0022600177,387,275,3,PT10M33.00S,1610612752,1628969,Bridges,M. Bridges,MISS Bridges 20' Jump Shot,Missed Shot,Jump Shot,Missed,2,1,,
+0022600177,388,276,3,PT10M33.00S,1610612752,1628384,Anunoby,O. Anunoby,Anunoby REBOUND (Off:1 Def:2),Rebound,Unknown,,0,0,,
+0022600177,389,277,3,PT10M28.00S,1610612752,1628384,Anunoby,O. Anunoby,MISS Anunoby 5' Putback Layup,Missed Shot,Putback Layup Shot,Missed,2,1,,
+0022600177,390,278,3,PT10M28.00S,1610612752,1626157,Towns,K. Towns,Towns REBOUND (Off:1 Def:7),Rebound,Unknown,,0,0,,
+0022600177,391,279,3,PT10M26.00S,1610612741,1628380,Collins,Z. Collins,Collins S.FOUL (P5.T1) (B.Haskill),Foul,Shooting,,0,0,,
+0022600177,393,280,3,PT10M26.00S,1610612752,1626157,Towns,K. Towns,MISS Towns Free Throw 1 of 2,Free Throw,Free Throw 1 of 2,,0,0,,
+0022600177,394,281,3,PT10M26.00S,0,1610612752,,,KNICKS Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,395,283,3,PT10M26.00S,1610612752,1626157,Towns,K. Towns,Towns Free Throw 2 of 2 (12 PTS),Free Throw,Free Throw 2 of 2,,0,0,91.0,54.0
+0022600177,397,282,3,PT10M26.00S,1610612741,1628380,Collins,Z. Collins,SUB: Williams FOR Collins,Substitution,,,0,0,,
+0022600177,399,285,3,PT10M17.00S,1610612752,1626157,Towns,K. Towns,Towns S.FOUL (P1.T1) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,401,286,3,PT10M17.00S,1610612741,1626181,Powell,N. Powell,Powell Free Throw 1 of 1 (7 PTS),Free Throw,Free Throw 1 of 1,,0,0,91.0,55.0
+0022600177,402,284,3,PT10M17.00S,1610612741,1626181,Powell,N. Powell,Powell 7' Driving Floating Jump Shot (9 PTS) (Williams 2 AST),Made Shot,Driving Floating Jump Shot,Made,2,1,91.0,57.0
+0022600177,404,287,3,PT09M58.00S,1610612752,1626157,Towns,K. Towns,Towns 2' Driving Layup (14 PTS),Made Shot,Driving Layup Shot,Made,2,1,93.0,57.0
+0022600177,405,288,3,PT09M47.00S,1610612741,1643410,Wilson,C. Wilson,MISS Wilson 24' 3PT Step Back Jump Shot,Missed Shot,Step Back Jump shot,Missed,3,1,,
+0022600177,406,289,3,PT09M47.00S,1610612752,1626157,Towns,K. Towns,Towns REBOUND (Off:1 Def:8),Rebound,Unknown,,0,0,,
+0022600177,407,290,3,PT09M38.00S,1610612752,1628973,Brunson,J. Brunson,Brunson 15' Step Back Jump Shot (28 PTS),Made Shot,Step Back Jump shot,Made,2,1,95.0,57.0
+0022600177,408,291,3,PT09M36.00S,0,1610612741,,,Bulls Timeout: Regular (Reg.4 Short 0),Timeout,Regular,,0,0,,
+0022600177,409,292,3,PT09M23.00S,1610612741,1630172,Williams,P. Williams,Williams 3' Driving Finger Roll Layup (2 PTS) (Giddey 5 AST),Made Shot,Driving Finger Roll Layup Shot,Made,2,1,95.0,59.0
+0022600177,411,293,3,PT09M03.00S,1610612752,1628973,Brunson,J. Brunson,Brunson 27' 3PT Pullup Jump Shot (31 PTS),Made Shot,Pullup Jump shot,Made,3,1,98.0,59.0
+0022600177,413,294,3,PT08M48.00S,1610612752,1628384,Anunoby,O. Anunoby,Anunoby S.FOUL (P4.T2) (B.Forte),Foul,Shooting,,0,0,,
+0022600177,415,296,3,PT08M48.00S,1610612741,1626181,Powell,N. Powell,MISS Powell Free Throw 1 of 2,Free Throw,Free Throw 1 of 2,,0,0,,
+0022600177,416,295,3,PT08M48.00S,0,1610612752,,,KNICKS Violation: Delay of game Violation,Violation,Delay Of Game,,0,0,,
+0022600177,417,297,3,PT08M48.00S,0,1610612741,,,Bulls Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,418,298,3,PT08M48.00S,1610612741,1626181,Powell,N. Powell,Powell Free Throw 2 of 2 (10 PTS),Free Throw,Free Throw 2 of 2,,0,0,98.0,60.0
+0022600177,419,299,3,PT08M36.00S,1610612752,1628973,Brunson,J. Brunson,MISS Brunson 25' 3PT Step Back Jump Shot,Missed Shot,Step Back Jump shot,Missed,3,1,,
+0022600177,420,300,3,PT08M36.00S,0,1610612741,,,Bulls Rebound,Rebound,Unknown,,0,0,,
+0022600177,422,301,3,PT08M18.00S,1610612741,1626181,Powell,N. Powell,MISS Powell 10' Pullup Jump Shot,Missed Shot,Pullup Jump shot,Missed,2,1,,
+0022600177,423,302,3,PT08M18.00S,1610612752,1626157,Towns,K. Towns,Towns REBOUND (Off:1 Def:9),Rebound,Unknown,,0,0,,
+0022600177,425,303,3,PT07M52.00S,1610612752,1628384,Anunoby,O. Anunoby,MISS Anunoby 26' 3PT Step Back Jump Shot,Missed Shot,Step Back Jump shot,Missed,3,1,,
+0022600177,426,304,3,PT07M52.00S,0,1610612752,,,KNICKS Rebound,Rebound,Unknown,,0,0,,
+0022600177,427,305,3,PT07M51.00S,0,1610612752,,,KNICKS Turnover: Shot Clock (T#6),Turnover,Shot Clock Turnover,,0,0,,
+0022600177,428,306,3,PT07M36.00S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis Driving Dunk (10 PTS) (Giddey 6 AST),Made Shot,Driving Dunk Shot,Made,2,1,98.0,62.0
+0022600177,430,307,3,PT07M18.00S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis P.FOUL (P2.T2) (B.Haskill),Foul,Personal,,0,0,,
+0022600177,433,308,3,PT07M18.00S,1610612752,1629013,Shamet,L. Shamet,SUB: McBride FOR Shamet,Substitution,,,0,0,,
+0022600177,434,309,3,PT07M16.00S,1610612741,1630172,Williams,P. Williams,Williams S.FOUL (P2.T3) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,436,310,3,PT07M16.00S,1610612752,1626157,Towns,K. Towns,MISS Towns Free Throw 1 of 2,Free Throw,Free Throw 1 of 2,,0,0,,
+0022600177,437,311,3,PT07M16.00S,0,1610612752,,,KNICKS Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,438,312,3,PT07M16.00S,1610612752,1626157,Towns,K. Towns,Towns Free Throw 2 of 2 (15 PTS),Free Throw,Free Throw 2 of 2,,0,0,99.0,62.0
+0022600177,439,313,3,PT07M04.00S,1610612741,1626181,Powell,N. Powell,MISS Powell 1' Driving Reverse Layup,Missed Shot,Driving Reverse Layup Shot,Missed,2,1,,
+0022600177,440,314,3,PT07M04.00S,1610612752,1628384,Anunoby,O. Anunoby,Anunoby REBOUND (Off:1 Def:3),Rebound,Unknown,,0,0,,
+0022600177,441,315,3,PT06M57.00S,1610612752,1630540,McBride,M. McBride,MISS McBride 3PT Running Jump Shot,Missed Shot,Running Jump Shot,Missed,3,1,,
+0022600177,442,316,3,PT06M57.00S,1610612752,1626157,Towns,K. Towns,Towns REBOUND (Off:2 Def:9),Rebound,Unknown,,0,0,,
+0022600177,443,317,3,PT06M53.00S,1610612752,1626157,Towns,K. Towns,Towns 3' Putback Layup (17 PTS),Made Shot,Putback Layup Shot,Made,2,1,101.0,62.0
+0022600177,444,318,3,PT06M46.00S,1610612752,1628969,Bridges,M. Bridges,Bridges S.FOUL (P1.T3) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,446,319,3,PT06M46.00S,1610612741,1626181,Powell,N. Powell,Powell Free Throw 1 of 2 (11 PTS),Free Throw,Free Throw 1 of 2,,0,0,101.0,63.0
+0022600177,447,322,3,PT06M46.00S,1610612741,1626181,Powell,N. Powell,Powell Free Throw 2 of 2 (12 PTS),Free Throw,Free Throw 2 of 2,,0,0,101.0,64.0
+0022600177,450,320,3,PT06M46.00S,1610612741,1630581,Giddey,J. Giddey,SUB: Okoro FOR Giddey,Substitution,,,0,0,,
+0022600177,451,321,3,PT06M46.00S,1610612741,1641824,Buzelis,M. Buzelis,SUB: Jones FOR Buzelis,Substitution,,,0,0,,
+0022600177,452,323,3,PT06M29.00S,1610612741,1626181,Powell,N. Powell,Powell S.FOUL (P2.T4) (B.Forte),Foul,Shooting,,0,0,,
+0022600177,454,324,3,PT06M29.00S,1610612752,1628973,Brunson,J. Brunson,Brunson Free Throw 1 of 2 (32 PTS),Free Throw,Free Throw 1 of 2,,0,0,102.0,64.0
+0022600177,455,325,3,PT06M29.00S,1610612752,1628973,Brunson,J. Brunson,Brunson Free Throw 2 of 2 (33 PTS),Free Throw,Free Throw 2 of 2,,0,0,103.0,64.0
+0022600177,456,326,3,PT06M19.00S,1610612741,1626181,Powell,N. Powell,Powell Bad Pass Turnover (P2.T9),Turnover,Bad Pass,,0,0,,
+0022600177,456,327,3,PT06M19.00S,1610612752,1630540,McBride,M. McBride,McBride STEAL (1 STL),,,,0,0,,
+0022600177,458,328,3,PT06M10.00S,1610612752,1628973,Brunson,J. Brunson,MISS Brunson 24' 3PT Pullup Jump Shot,Missed Shot,Pullup Jump shot,Missed,3,1,,
+0022600177,459,329,3,PT06M10.00S,1610612741,1643410,Wilson,C. Wilson,Wilson REBOUND (Off:2 Def:2),Rebound,Unknown,,0,0,,
+0022600177,460,330,3,PT06M03.00S,1610612741,1643410,Wilson,C. Wilson,Wilson Bad Pass Turnover (P3.T10),Turnover,Bad Pass,,0,0,,
+0022600177,460,331,3,PT06M03.00S,1610612752,1630540,McBride,M. McBride,McBride STEAL (2 STL),,,,0,0,,
+0022600177,462,332,3,PT05M59.00S,1610612752,1630540,McBride,M. McBride,McBride 3PT Running Jump Shot (3 PTS) (Anunoby 2 AST),Made Shot,Running Jump Shot,Made,3,1,106.0,64.0
+0022600177,464,333,3,PT05M39.00S,1610612741,1643410,Wilson,C. Wilson,MISS Wilson 20' Pullup Jump Shot,Missed Shot,Pullup Jump shot,Missed,2,1,,
+0022600177,465,334,3,PT05M39.00S,1610612752,1626157,Towns,K. Towns,Towns REBOUND (Off:2 Def:10),Rebound,Unknown,,0,0,,
+0022600177,466,335,3,PT05M23.00S,1610612752,1628384,Anunoby,O. Anunoby,MISS Anunoby 24' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,467,336,3,PT05M23.00S,1610612741,1643410,Wilson,C. Wilson,Wilson REBOUND (Off:2 Def:3),Rebound,Unknown,,0,0,,
+0022600177,468,337,3,PT05M17.00S,1610612741,1630171,Okoro,I. Okoro,MISS Okoro 2' Running Layup,Missed Shot,Running Layup Shot,Missed,2,1,,
+0022600177,469,338,3,PT05M17.00S,1610612752,1628384,Anunoby,O. Anunoby,Anunoby REBOUND (Off:1 Def:4),Rebound,Unknown,,0,0,,
+0022600177,470,339,3,PT05M10.00S,1610612752,1628384,Anunoby,O. Anunoby,MISS Anunoby 1' Running Layup,Missed Shot,Running Layup Shot,Missed,2,1,,
+0022600177,470,340,3,PT05M10.00S,1610612741,1630172,Williams,P. Williams,Williams BLOCK (1 BLK),,,,2,0,,
+0022600177,471,341,3,PT05M10.00S,0,1610612752,,,KNICKS Rebound,Rebound,Unknown,,0,0,,
+0022600177,477,342,3,PT05M09.00S,1610612752,1628384,Anunoby,O. Anunoby,SUB: Diawara FOR Anunoby,Substitution,,,0,0,,
+0022600177,478,343,3,PT05M09.00S,1610612752,1626157,Towns,K. Towns,SUB: Drummond FOR Towns,Substitution,,,0,0,,
+0022600177,479,344,3,PT05M09.00S,1610612752,1628969,Bridges,M. Bridges,SUB: Shamet FOR Bridges,Substitution,,,0,0,,
+0022600177,482,345,3,PT05M09.00S,1610612741,1643410,Wilson,C. Wilson,SUB: Essengue FOR Wilson,Substitution,,,0,0,,
+0022600177,483,346,3,PT05M09.00S,1610612741,1626181,Powell,N. Powell,SUB: Hield FOR Powell,Substitution,,,0,0,,
+0022600177,484,347,3,PT05M01.00S,1610612741,1642855,Essengue,N. Essengue,Essengue S.FOUL (P2.PN) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,486,348,3,PT05M01.00S,1610612752,1642885,Diawara,M. Diawara,MISS Diawara Free Throw 1 of 2,Free Throw,Free Throw 1 of 2,,0,0,,
+0022600177,487,349,3,PT05M01.00S,0,1610612752,,,KNICKS Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,488,350,3,PT05M01.00S,1610612752,1642885,Diawara,M. Diawara,Diawara Free Throw 2 of 2 (8 PTS),Free Throw,Free Throw 2 of 2,,0,0,107.0,64.0
+0022600177,489,351,3,PT04M50.00S,1610612741,1630172,Williams,P. Williams,MISS Williams 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,490,352,3,PT04M50.00S,1610612741,1642855,Essengue,N. Essengue,Essengue REBOUND (Off:1 Def:0),Rebound,Unknown,,0,0,,
+0022600177,491,353,3,PT04M45.00S,1610612741,1642855,Essengue,N. Essengue,MISS Essengue 4' Putback Layup,Missed Shot,Putback Layup Shot,Missed,2,1,,
+0022600177,492,354,3,PT04M45.00S,1610612752,1630540,McBride,M. McBride,McBride REBOUND (Off:0 Def:1),Rebound,Unknown,,0,0,,
+0022600177,493,355,3,PT04M23.00S,1610612741,1642855,Essengue,N. Essengue,Essengue S.FOUL (P3.PN) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,495,356,3,PT04M23.00S,1610612752,1629013,Shamet,L. Shamet,MISS Shamet Free Throw 1 of 2,Free Throw,Free Throw 1 of 2,,0,0,,
+0022600177,496,357,3,PT04M23.00S,0,1610612752,,,KNICKS Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,497,359,3,PT04M23.00S,1610612752,1629013,Shamet,L. Shamet,MISS Shamet Free Throw 2 of 2,Free Throw,Free Throw 2 of 2,,0,0,,
+0022600177,499,358,3,PT04M23.00S,1610612741,1630172,Williams,P. Williams,SUB: Miller FOR Williams,Substitution,,,0,0,,
+0022600177,500,360,3,PT04M23.00S,0,1610612752,,,KNICKS Rebound,Rebound,Unknown,,0,0,,
+0022600177,502,361,3,PT04M14.00S,1610612752,1628973,Brunson,J. Brunson,MISS Brunson 4' Driving Layup,Missed Shot,Driving Layup Shot,Missed,2,1,,
+0022600177,503,362,3,PT04M14.00S,1610612752,203083,Drummond,A. Drummond,Drummond REBOUND (Off:3 Def:1),Rebound,Unknown,,0,0,,
+0022600177,504,363,3,PT04M11.00S,1610612752,203083,Drummond,A. Drummond,MISS Drummond 2' Putback Dunk,Missed Shot,Putback Dunk Shot,Missed,2,1,,
+0022600177,505,364,3,PT04M11.00S,1610612741,1631159,Miller,L. Miller,Miller REBOUND (Off:0 Def:2),Rebound,Unknown,,0,0,,
+0022600177,506,365,3,PT04M05.00S,1610612741,1630200,Jones,T. Jones,MISS Jones 2' Running Layup,Missed Shot,Running Layup Shot,Missed,2,1,,
+0022600177,506,366,3,PT04M05.00S,1610612752,1642885,Diawara,M. Diawara,Diawara BLOCK (2 BLK),,,,2,0,,
+0022600177,507,367,3,PT04M05.00S,1610612752,203083,Drummond,A. Drummond,Drummond REBOUND (Off:3 Def:2),Rebound,Unknown,,0,0,,
+0022600177,509,368,3,PT04M01.00S,1610612752,203083,Drummond,A. Drummond,Drummond Bad Pass Turnover (P1.T7),Turnover,Bad Pass,,0,0,,
+0022600177,509,369,3,PT04M01.00S,1610612741,1630171,Okoro,I. Okoro,Okoro STEAL (1 STL),,,,0,0,,
+0022600177,511,370,3,PT03M52.00S,1610612741,1642855,Essengue,N. Essengue,MISS Essengue 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,512,371,3,PT03M52.00S,1610612741,1631159,Miller,L. Miller,Miller REBOUND (Off:1 Def:2),Rebound,Unknown,,0,0,,
+0022600177,513,372,3,PT03M47.00S,1610612741,1627741,Hield,B. Hield,Hield 25' 3PT Jump Shot (7 PTS) (Miller 1 AST),Made Shot,Jump Shot,Made,3,1,107.0,67.0
+0022600177,515,373,3,PT03M23.00S,1610612752,1630540,McBride,M. McBride,McBride 24' 3PT Jump Shot (7 PTS) (Brunson 4 AST),Made Shot,Jump Shot,Made,3,1,110.0,67.0
+0022600177,517,374,3,PT03M23.00S,1610612741,1630171,Okoro,I. Okoro,Okoro S.FOUL (P3.PN) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,519,375,3,PT03M23.00S,1610612752,1630540,McBride,M. McBride,McBride Free Throw 1 of 1 (7 PTS),Free Throw,Free Throw 1 of 1,,0,0,111.0,67.0
+0022600177,520,376,3,PT03M03.00S,1610612741,1627741,Hield,B. Hield,MISS Hield 2' Driving Finger Roll Layup,Missed Shot,Driving Finger Roll Layup Shot,Missed,2,1,,
+0022600177,521,377,3,PT03M03.00S,1610612741,1642855,Essengue,N. Essengue,Essengue REBOUND (Off:2 Def:0),Rebound,Unknown,,0,0,,
+0022600177,522,378,3,PT03M01.00S,1610612741,1642855,Essengue,N. Essengue,MISS Essengue Tip Layup Shot,Missed Shot,Tip Layup Shot,Missed,2,1,,
+0022600177,523,379,3,PT03M01.00S,0,1610612741,,,Bulls Rebound,Rebound,Unknown,,0,0,,
+0022600177,525,380,3,PT02M59.00S,0,1610612752,,,KNICKS Timeout: Regular (Full 4 Short 0),Timeout,Regular,,0,0,,
+0022600177,526,381,3,PT02M59.00S,0,0,,,Instant Replay3rd Period (9:26 PM EST),Instant Replay,Coach Challenge Overturn Ruling,,0,0,111.0,67.0
+0022600177,527,382,3,PT02M51.00S,1610612741,1630200,Jones,T. Jones,Jones Out of Bounds - Bad Pass Turnover Turnover (P1.T11),Turnover,Out of Bounds - Bad Pass Turnover,,0,0,,
+0022600177,528,383,3,PT02M31.00S,1610612752,1628973,Brunson,J. Brunson,MISS Brunson 26' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,529,384,3,PT02M31.00S,1610612741,1630200,Jones,T. Jones,Jones REBOUND (Off:0 Def:2),Rebound,Unknown,,0,0,,
+0022600177,530,385,3,PT02M19.00S,1610612741,1630200,Jones,T. Jones,Jones 25' 3PT Jump Shot (9 PTS) (Hield 1 AST),Made Shot,Jump Shot,Made,3,1,111.0,70.0
+0022600177,532,386,3,PT02M07.00S,1610612752,1629013,Shamet,L. Shamet,Shamet OFF.Foul (P1) (R.Acosta),Foul,Offensive,,0,0,,
+0022600177,534,387,3,PT02M07.00S,1610612752,1629013,Shamet,L. Shamet,Shamet Offensive Foul Turnover (P1.T8),Turnover,Offensive Foul Turnover,,0,0,,
+0022600177,535,388,3,PT01M54.00S,1610612752,1628973,Brunson,J. Brunson,Brunson S.FOUL (P2.T4) (R.Acosta),Foul,Shooting,,0,0,,
+0022600177,537,395,3,PT01M54.00S,1610612741,1630200,Jones,T. Jones,Jones Free Throw 1 of 3 (10 PTS),Free Throw,Free Throw 1 of 3,,0,0,111.0,71.0
+0022600177,538,389,3,PT01M54.00S,0,1610612752,,,KNICKS Timeout: Regular (Full 5 Short 0),Timeout,Regular,,0,0,,
+0022600177,539,390,3,PT01M54.00S,0,0,,,Instant Replay3rd Period (9:28 PM EST),Instant Replay,Coach Challenge Support Ruling,,0,0,111.0,70.0
+0022600177,540,391,3,PT01M54.00S,0,1610612752,,,KNICKS Delay,Foul,Delay Technical,,0,0,,
+0022600177,541,392,3,PT01M54.00S,1610612741,1627741,Hield,B. Hield,MISS Hield Free Throw Technical,Free Throw,Free Throw Technical,,0,0,,
+0022600177,542,393,3,PT01M54.00S,0,1610612741,,,Bulls Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,544,394,3,PT01M54.00S,1610612741,1630171,Okoro,I. Okoro,SUB: Buzelis FOR Okoro,Substitution,,,0,0,,
+0022600177,545,396,3,PT01M54.00S,1610612741,1630200,Jones,T. Jones,Jones Free Throw 2 of 3 (11 PTS),Free Throw,Free Throw 2 of 3,,0,0,111.0,72.0
+0022600177,546,397,3,PT01M54.00S,1610612741,1630200,Jones,T. Jones,Jones Free Throw 3 of 3 (12 PTS),Free Throw,Free Throw 3 of 3,,0,0,111.0,73.0
+0022600177,547,398,3,PT01M30.00S,1610612752,203083,Drummond,A. Drummond,Drummond 4' Hook Shot (4 PTS) (Diawara 2 AST),Made Shot,Hook Shot,Made,2,1,113.0,73.0
+0022600177,549,399,3,PT01M21.00S,1610612741,1641824,Buzelis,M. Buzelis,MISS Buzelis 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,550,400,3,PT01M21.00S,1610612752,1629013,Shamet,L. Shamet,Shamet REBOUND (Off:0 Def:2),Rebound,Unknown,,0,0,,
+0022600177,551,401,3,PT01M08.00S,1610612752,1630540,McBride,M. McBride,McBride Out of Bounds Lost Ball Turnover (P1.T9),Turnover,Out of Bounds Lost Ball Turnover,,0,0,,
+0022600177,555,402,3,PT01M08.00S,1610612752,1628973,Brunson,J. Brunson,SUB: Clarkson FOR Brunson,Substitution,,,0,0,,
+0022600177,556,403,3,PT01M08.00S,1610612752,1630540,McBride,M. McBride,SUB: Kolek FOR McBride,Substitution,,,0,0,,
+0022600177,557,404,3,PT01M08.00S,1610612752,1629013,Shamet,L. Shamet,SUB: Knecht FOR Shamet,Substitution,,,0,0,,
+0022600177,558,405,3,PT00M56.40S,1610612741,1642855,Essengue,N. Essengue,Essengue 1' Dunk (5 PTS) (Jones 3 AST),Made Shot,Dunk Shot,Made,2,1,113.0,75.0
+0022600177,560,406,3,PT00M48.90S,1610612752,1642885,Diawara,M. Diawara,Diawara Bad Pass Turnover (P1.T10),Turnover,Bad Pass,,0,0,,
+0022600177,560,407,3,PT00M48.90S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis STEAL (1 STL),,,,0,0,,
+0022600177,562,408,3,PT00M45.50S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis 1' Running Alley Oop Dunk Shot (12 PTS) (Jones 4 AST),Made Shot,Running Alley Oop Dunk Shot,Made,2,1,113.0,77.0
+0022600177,564,409,3,PT00M32.80S,1610612752,203903,Clarkson,J. Clarkson,MISS Clarkson 13' Driving Floating Jump Shot,Missed Shot,Driving Floating Jump Shot,Missed,2,1,,
+0022600177,565,410,3,PT00M32.80S,1610612752,203083,Drummond,A. Drummond,Drummond REBOUND (Off:4 Def:2),Rebound,Unknown,,0,0,,
+0022600177,566,414,3,PT00M17.30S,1610612752,203903,Clarkson,J. Clarkson,Clarkson Bad Pass Turnover (P1.T11),Turnover,Bad Pass,,0,0,,
+0022600177,566,415,3,PT00M17.30S,1610612741,1627741,Hield,B. Hield,Hield STEAL (1 STL),,,,0,0,,
+0022600177,568,416,3,PT00M13.70S,1610612741,1627741,Hield,B. Hield,MISS Hield 2' Running Layup,Missed Shot,Running Layup Shot,Missed,2,1,,
+0022600177,568,417,3,PT00M13.70S,1610612752,1642261,Knecht,D. Knecht,Knecht BLOCK (1 BLK),,,,2,0,,
+0022600177,569,418,3,PT00M13.70S,1610612741,1630200,Jones,T. Jones,Jones REBOUND (Off:1 Def:2),Rebound,Unknown,,0,0,,
+0022600177,571,419,3,PT00M00.80S,1610612741,1630200,Jones,T. Jones,Jones 2' Driving Layup (14 PTS),Made Shot,Driving Layup Shot,Made,2,1,113.0,79.0
+0022600177,572,420,3,PT00M00.20S,0,0,,,KNICKS Heave,Heave,Team Field Goal Attempt,,0,0,,
+0022600177,573,421,3,PT00M00.20S,0,1610612752,,,KNICKS Rebound,Rebound,Unknown,,0,0,,
+0022600177,574,422,3,PT00M00.00S,0,0,,,End of 3rd Period (9:34 PM EST),period,end,,0,0,113.0,79.0
+0022600177,579,423,4,PT12M00.00S,0,0,,,Start of 4th Period (9:37 PM EST),period,start,,0,0,113.0,79.0
+0022600177,580,424,4,PT11M50.00S,1610612752,203083,Drummond,A. Drummond,Drummond 1' Alley Oop Layup (6 PTS) (Knecht 1 AST),Made Shot,Alley Oop Layup shot,Made,2,1,115.0,79.0
+0022600177,582,425,4,PT11M31.00S,1610612752,203903,Clarkson,J. Clarkson,Clarkson S.FOUL (P3.T1) (B.Forte),Foul,Shooting,,0,0,,
+0022600177,584,426,4,PT11M31.00S,1610612741,1630581,Giddey,J. Giddey,Giddey Free Throw 1 of 2 (8 PTS),Free Throw,Free Throw 1 of 2,,0,0,115.0,80.0
+0022600177,585,427,4,PT11M31.00S,1610612741,1630581,Giddey,J. Giddey,MISS Giddey Free Throw 2 of 2,Free Throw,Free Throw 2 of 2,,0,0,,
+0022600177,586,428,4,PT11M31.00S,1610612752,203083,Drummond,A. Drummond,Drummond REBOUND (Off:4 Def:3),Rebound,Unknown,,0,0,,
+0022600177,587,429,4,PT11M12.00S,1610612752,203903,Clarkson,J. Clarkson,Clarkson 25' 3PT Jump Shot (10 PTS) (Kolek 5 AST),Made Shot,Jump Shot,Made,3,1,118.0,80.0
+0022600177,589,430,4,PT10M57.00S,1610612741,1630581,Giddey,J. Giddey,MISS Giddey 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,590,431,4,PT10M57.00S,1610612752,203083,Drummond,A. Drummond,Drummond REBOUND (Off:4 Def:4),Rebound,Unknown,,0,0,,
+0022600177,591,432,4,PT10M41.00S,1610612752,1642885,Diawara,M. Diawara,MISS Diawara 26' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,592,433,4,PT10M41.00S,1610612752,203083,Drummond,A. Drummond,Drummond REBOUND (Off:5 Def:4),Rebound,Unknown,,0,0,,
+0022600177,593,434,4,PT10M35.00S,1610612752,203083,Drummond,A. Drummond,MISS Drummond 6' Hook Shot,Missed Shot,Hook Shot,Missed,2,1,,
+0022600177,594,435,4,PT10M35.00S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis REBOUND (Off:0 Def:4),Rebound,Unknown,,0,0,,
+0022600177,595,436,4,PT10M25.00S,1610612752,1642885,Diawara,M. Diawara,Diawara S.FOUL (P1.T2) (B.Haskill),Foul,Shooting,,0,0,,
+0022600177,597,437,4,PT10M25.00S,1610612741,1642855,Essengue,N. Essengue,Essengue Free Throw 1 of 2 (6 PTS),Free Throw,Free Throw 1 of 2,,0,0,118.0,81.0
+0022600177,598,439,4,PT10M25.00S,1610612741,1642855,Essengue,N. Essengue,MISS Essengue Free Throw 2 of 2,Free Throw,Free Throw 2 of 2,,0,0,,
+0022600177,600,438,4,PT10M25.00S,1610612752,203083,Drummond,A. Drummond,SUB: Wiseman FOR Drummond,Substitution,,,0,0,,
+0022600177,601,440,4,PT10M25.00S,1610612741,1631159,Miller,L. Miller,Miller REBOUND (Off:2 Def:2),Rebound,Unknown,,0,0,,
+0022600177,602,441,4,PT10M18.00S,1610612741,1630581,Giddey,J. Giddey,MISS Giddey 4' Driving Finger Roll Layup,Missed Shot,Driving Finger Roll Layup Shot,Missed,2,1,,
+0022600177,602,442,4,PT10M18.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman BLOCK (1 BLK),,,,2,0,,
+0022600177,603,443,4,PT10M18.00S,1610612752,1642885,Diawara,M. Diawara,Diawara REBOUND (Off:1 Def:4),Rebound,Unknown,,0,0,,
+0022600177,605,444,4,PT10M13.00S,1610612752,1642261,Knecht,D. Knecht,Knecht 27' 3PT Running Pull-Up Jump Shot (8 PTS) (Diawara 3 AST),Made Shot,Running Pull-Up Jump Shot,Made,3,1,121.0,81.0
+0022600177,607,445,4,PT10M05.00S,1610612752,1642885,Diawara,M. Diawara,Diawara P.FOUL (P2.T3) (B.Forte),Foul,Personal,,0,0,,
+0022600177,609,446,4,PT09M54.00S,1610612741,1630581,Giddey,J. Giddey,Giddey 3' Driving Floating Bank Jump Shot (10 PTS),Made Shot,Driving Floating Bank Jump Shot,Made,2,1,121.0,83.0
+0022600177,610,447,4,PT09M40.00S,1610612752,1642261,Knecht,D. Knecht,MISS Knecht 24' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,611,448,4,PT09M40.00S,1610612741,1642855,Essengue,N. Essengue,Essengue REBOUND (Off:2 Def:1),Rebound,Unknown,,0,0,,
+0022600177,612,449,4,PT09M27.00S,1610612752,1642885,Diawara,M. Diawara,Diawara S.FOUL (P3.T4) (B.Haskill),Foul,Shooting,,0,0,,
+0022600177,614,450,4,PT09M27.00S,1610612741,1630172,Williams,P. Williams,Williams Free Throw 1 of 2 (3 PTS),Free Throw,Free Throw 1 of 2,,0,0,121.0,84.0
+0022600177,615,452,4,PT09M27.00S,1610612741,1630172,Williams,P. Williams,Williams Free Throw 2 of 2 (4 PTS),Free Throw,Free Throw 2 of 2,,0,0,121.0,85.0
+0022600177,617,451,4,PT09M27.00S,1610612741,1642855,Essengue,N. Essengue,SUB: Sellers FOR Essengue,Substitution,,,0,0,,
+0022600177,618,453,4,PT09M08.00S,1610612741,1630172,Williams,P. Williams,Williams P.FOUL (P3.T1) (R.Acosta),Foul,Personal,,0,0,,
+0022600177,622,454,4,PT09M08.00S,1610612752,1642278,Kolek,T. Kolek,SUB: Dadiet FOR Kolek,Substitution,,,0,0,,
+0022600177,623,455,4,PT09M08.00S,1610612752,203903,Clarkson,J. Clarkson,SUB: Alvarado FOR Clarkson,Substitution,,,0,0,,
+0022600177,624,456,4,PT08M53.00S,1610612752,1642885,Diawara,M. Diawara,MISS Diawara 25' 3PT Pullup Jump Shot,Missed Shot,Pullup Jump shot,Missed,3,1,,
+0022600177,625,457,4,PT08M53.00S,1610612741,1631159,Miller,L. Miller,Miller REBOUND (Off:2 Def:3),Rebound,Unknown,,0,0,,
+0022600177,626,458,4,PT08M45.00S,1610612741,1643637,Sellers,J. Sellers,MISS Sellers 25' 3PT Running Pull-Up Jump Shot,Missed Shot,Running Pull-Up Jump Shot,Missed,3,1,,
+0022600177,627,459,4,PT08M45.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:0 Def:1),Rebound,Unknown,,0,0,,
+0022600177,628,460,4,PT08M27.00S,1610612752,1630631,Alvarado,J. Alvarado,MISS Alvarado 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,629,461,4,PT08M27.00S,1610612741,1641824,Buzelis,M. Buzelis,Buzelis REBOUND (Off:0 Def:5),Rebound,Unknown,,0,0,,
+0022600177,630,462,4,PT08M13.00S,1610612741,1643637,Sellers,J. Sellers,Sellers 25' 3PT Jump Shot (6 PTS) (Miller 2 AST),Made Shot,Jump Shot,Made,3,1,121.0,88.0
+0022600177,632,463,4,PT07M59.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman 1' Dunk (2 PTS) (Alvarado 1 AST),Made Shot,Dunk Shot,Made,2,1,123.0,88.0
+0022600177,634,464,4,PT07M45.00S,1610612741,1630172,Williams,P. Williams,MISS Williams 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,635,465,4,PT07M45.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:0 Def:2),Rebound,Unknown,,0,0,,
+0022600177,636,466,4,PT07M26.00S,1610612752,1630631,Alvarado,J. Alvarado,Alvarado Out of Bounds - Bad Pass Turnover Turnover (P1.T12),Turnover,Out of Bounds - Bad Pass Turnover,,0,0,,
+0022600177,637,467,4,PT07M10.00S,1610612741,1641824,Buzelis,M. Buzelis,MISS Buzelis 3' Driving Layup,Missed Shot,Driving Layup Shot,Missed,2,1,,
+0022600177,637,468,4,PT07M10.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman BLOCK (2 BLK),,,,2,0,,
+0022600177,638,469,4,PT07M10.00S,1610612752,1642261,Knecht,D. Knecht,Knecht REBOUND (Off:1 Def:3),Rebound,Unknown,,0,0,,
+0022600177,640,470,4,PT07M00.00S,1610612752,1642359,Dadiet,P. Dadiet,Dadiet 1' Reverse Layup (2 PTS) (Alvarado 2 AST),Made Shot,Reverse Layup Shot,Made,2,1,125.0,88.0
+0022600177,642,471,4,PT06M49.00S,1610612752,1642359,Dadiet,P. Dadiet,Dadiet S.FOUL (P1.PN) (B.Haskill),Foul,Shooting,,0,0,,
+0022600177,644,476,4,PT06M49.00S,1610612741,1631159,Miller,L. Miller,MISS Miller Free Throw 1 of 3,Free Throw,Free Throw 1 of 3,,0,0,,
+0022600177,645,472,4,PT06M49.00S,0,1610612752,,,KNICKS Timeout: Regular (Full 6 Short 0),Timeout,Regular,,0,0,,
+0022600177,646,411,3,PT00M31.40S,1610612752,203083,Drummond,A. Drummond,MISS Drummond 1' Tip Layup Shot,Missed Shot,Tip Layup Shot,Missed,2,1,,
+0022600177,646,412,3,PT00M31.40S,1610612741,1631159,Miller,L. Miller,Miller BLOCK (1 BLK),,,,2,0,,
+0022600177,648,413,3,PT00M31.40S,1610612752,1642885,Diawara,M. Diawara,Diawara REBOUND (Off:1 Def:3),Rebound,Unknown,,0,0,,
+0022600177,649,477,4,PT06M49.00S,0,1610612741,,,Bulls Rebound,Rebound,Normal Rebound,,0,0,,
+0022600177,650,478,4,PT06M49.00S,1610612741,1631159,Miller,L. Miller,Miller Free Throw 2 of 3 (1 PTS),Free Throw,Free Throw 2 of 3,,0,0,125.0,89.0
+0022600177,652,473,4,PT06M49.00S,1610612752,1642885,Diawara,M. Diawara,SUB: Clarkson FOR Diawara,Substitution,,,0,0,,
+0022600177,655,474,4,PT06M49.00S,1610612741,1630581,Giddey,J. Giddey,SUB: Hawkins FOR Giddey,Substitution,,,0,0,,
+0022600177,656,475,4,PT06M49.00S,1610612741,1641824,Buzelis,M. Buzelis,SUB: Swain FOR Buzelis,Substitution,,,0,0,,
+0022600177,657,479,4,PT06M49.00S,1610612741,1631159,Miller,L. Miller,Miller Free Throw 3 of 3 (2 PTS),Free Throw,Free Throw 3 of 3,,0,0,125.0,90.0
+0022600177,658,480,4,PT06M25.00S,1610612752,203903,Clarkson,J. Clarkson,MISS Clarkson 8' Fadeaway Jumper,Missed Shot,Fadeaway Jump Shot,Missed,2,1,,
+0022600177,659,481,4,PT06M25.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:1 Def:2),Rebound,Unknown,,0,0,,
+0022600177,660,482,4,PT06M21.00S,1610612752,1630164,Wiseman,J. Wiseman,MISS Wiseman 2' Putback Layup,Missed Shot,Putback Layup Shot,Missed,2,1,,
+0022600177,661,483,4,PT06M21.00S,0,1610612741,,,Bulls Rebound,Rebound,Unknown,,0,0,,
+0022600177,664,484,4,PT06M10.00S,1610612741,1641722,Hawkins,J. Hawkins,MISS Hawkins 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,665,485,4,PT06M10.00S,1610612752,1642261,Knecht,D. Knecht,Knecht REBOUND (Off:1 Def:4),Rebound,Unknown,,0,0,,
+0022600177,667,486,4,PT05M54.00S,1610612752,1630631,Alvarado,J. Alvarado,Alvarado Bad Pass Turnover (P2.T13),Turnover,Bad Pass,,0,0,,
+0022600177,667,487,4,PT05M54.00S,1610612741,1643637,Sellers,J. Sellers,Sellers STEAL (1 STL),,,,0,0,,
+0022600177,669,488,4,PT05M43.00S,1610612741,1630172,Williams,P. Williams,MISS Williams 4' Driving Finger Roll Layup,Missed Shot,Driving Finger Roll Layup Shot,Missed,2,1,,
+0022600177,669,489,4,PT05M43.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman BLOCK (3 BLK),,,,2,0,,
+0022600177,670,490,4,PT05M43.00S,1610612741,1643517,Swain,D. Swain,Swain REBOUND (Off:1 Def:0),Rebound,Unknown,,0,0,,
+0022600177,672,491,4,PT05M41.00S,1610612741,1643517,Swain,D. Swain,Swain 1' Putback Dunk (3 PTS),Made Shot,Putback Dunk Shot,Made,2,1,125.0,92.0
+0022600177,673,492,4,PT05M41.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman S.FOUL (P1.PN) (B.Forte),Foul,Shooting,,0,0,,
+0022600177,675,493,4,PT05M41.00S,1610612741,1643517,Swain,D. Swain,Swain Free Throw 1 of 1 (3 PTS),Free Throw,Free Throw 1 of 1,,0,0,125.0,93.0
+0022600177,676,494,4,PT05M21.00S,1610612752,1630631,Alvarado,J. Alvarado,MISS Alvarado 2' Driving Finger Roll Layup,Missed Shot,Driving Finger Roll Layup Shot,Missed,2,1,,
+0022600177,677,495,4,PT05M21.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:2 Def:2),Rebound,Unknown,,0,0,,
+0022600177,679,496,4,PT05M17.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman 1' Putback Dunk (4 PTS),Made Shot,Putback Dunk Shot,Made,2,1,127.0,93.0
+0022600177,680,497,4,PT04M55.00S,1610612741,1643637,Sellers,J. Sellers,MISS Sellers 15' Pullup Jump Shot,Missed Shot,Pullup Jump shot,Missed,2,1,,
+0022600177,681,498,4,PT04M55.00S,1610612752,1642261,Knecht,D. Knecht,Knecht REBOUND (Off:1 Def:5),Rebound,Unknown,,0,0,,
+0022600177,682,499,4,PT04M43.00S,1610612752,1642261,Knecht,D. Knecht,Knecht 5' Pullup Jump Shot (10 PTS),Made Shot,Pullup Jump shot,Made,2,1,129.0,93.0
+0022600177,683,500,4,PT04M26.00S,1610612741,1643637,Sellers,J. Sellers,Sellers 3PT Jump Shot (9 PTS) (Miller 3 AST),Made Shot,Jump Shot,Made,3,1,129.0,96.0
+0022600177,685,501,4,PT04M04.00S,1610612752,203903,Clarkson,J. Clarkson,MISS Clarkson 5' Driving Floating Jump Shot,Missed Shot,Driving Floating Jump Shot,Missed,2,1,,
+0022600177,686,502,4,PT04M04.00S,1610612752,203903,Clarkson,J. Clarkson,Clarkson REBOUND (Off:1 Def:0),Rebound,Unknown,,0,0,,
+0022600177,687,503,4,PT04M00.00S,1610612752,203903,Clarkson,J. Clarkson,MISS Clarkson 4' Putback Layup,Missed Shot,Putback Layup Shot,Missed,2,1,,
+0022600177,687,504,4,PT04M00.00S,1610612741,1643637,Sellers,J. Sellers,Sellers BLOCK (1 BLK),,,,2,0,,
+0022600177,688,505,4,PT04M00.00S,1610612741,1643637,Sellers,J. Sellers,Sellers REBOUND (Off:2 Def:1),Rebound,Unknown,,0,0,,
+0022600177,690,506,4,PT03M53.00S,1610612741,1643517,Swain,D. Swain,MISS Swain 24' 3PT Running Jump Shot,Missed Shot,Running Jump Shot,Missed,3,1,,
+0022600177,691,507,4,PT03M53.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:2 Def:3),Rebound,Unknown,,0,0,,
+0022600177,692,508,4,PT03M43.00S,1610612752,1642261,Knecht,D. Knecht,MISS Knecht 27' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,693,509,4,PT03M43.00S,1610612741,1641722,Hawkins,J. Hawkins,Hawkins REBOUND (Off:0 Def:1),Rebound,Unknown,,0,0,,
+0022600177,694,510,4,PT03M35.00S,1610612752,203903,Clarkson,J. Clarkson,Clarkson P.FOUL (P4.PN) (R.Acosta),Foul,Personal,,0,0,,
+0022600177,696,511,4,PT03M35.00S,1610612741,1643637,Sellers,J. Sellers,Sellers Free Throw 1 of 2 (10 PTS),Free Throw,Free Throw 1 of 2,,0,0,129.0,97.0
+0022600177,697,513,4,PT03M35.00S,1610612741,1643637,Sellers,J. Sellers,Sellers Free Throw 2 of 2 (11 PTS),Free Throw,Free Throw 2 of 2,,0,0,129.0,98.0
+0022600177,699,512,4,PT03M35.00S,1610612752,203903,Clarkson,J. Clarkson,SUB: Diawara FOR Clarkson,Substitution,,,0,0,,
+0022600177,700,514,4,PT03M17.00S,1610612752,1642359,Dadiet,P. Dadiet,MISS Dadiet 2' Driving Layup,Missed Shot,Driving Layup Shot,Missed,2,1,,
+0022600177,701,515,4,PT03M17.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:3 Def:3),Rebound,Unknown,,0,0,,
+0022600177,702,516,4,PT03M15.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman 2' Putback Layup (6 PTS),Made Shot,Putback Layup Shot,Made,2,1,131.0,98.0
+0022600177,703,517,4,PT03M15.00S,0,1610612741,,,Bulls Timeout: Regular (Reg.5 Short 0),Timeout,Regular,,0,0,,
+0022600177,704,518,4,PT02M52.00S,1610612741,1630172,Williams,P. Williams,MISS Williams 2' Driving Layup,Missed Shot,Driving Layup Shot,Missed,2,1,,
+0022600177,705,519,4,PT02M52.00S,1610612741,1631159,Miller,L. Miller,Miller REBOUND (Off:3 Def:3),Rebound,Unknown,,0,0,,
+0022600177,706,520,4,PT02M45.00S,1610612741,1641722,Hawkins,J. Hawkins,MISS Hawkins 24' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,707,521,4,PT02M45.00S,1610612752,1642261,Knecht,D. Knecht,Knecht REBOUND (Off:1 Def:6),Rebound,Unknown,,0,0,,
+0022600177,708,522,4,PT02M22.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman 3 Second Violation Turnover (P1.T14),Turnover,3 Second Violation,,0,0,,
+0022600177,709,523,4,PT02M13.00S,1610612741,1631159,Miller,L. Miller,Miller 1' Driving Finger Roll Layup (4 PTS) (Sellers 1 AST),Made Shot,Driving Finger Roll Layup Shot,Made,2,1,131.0,100.0
+0022600177,710,524,4,PT02M13.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman S.FOUL (P2.PN) (B.Forte),Foul,Shooting,,0,0,,
+0022600177,713,525,4,PT02M13.00S,1610612741,1631159,Miller,L. Miller,MISS Miller Free Throw 1 of 1,Free Throw,Free Throw 1 of 1,,0,0,,
+0022600177,714,526,4,PT02M13.00S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:3 Def:4),Rebound,Unknown,,0,0,,
+0022600177,715,527,4,PT01M50.00S,1610612752,1642359,Dadiet,P. Dadiet,MISS Dadiet 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,716,528,4,PT01M50.00S,0,1610612741,,,Bulls Rebound,Rebound,Unknown,,0,0,,
+0022600177,718,529,4,PT01M33.00S,1610612741,1630172,Williams,P. Williams,MISS Williams 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,719,530,4,PT01M33.00S,0,1610612752,,,KNICKS Rebound,Rebound,Unknown,,0,0,,
+0022600177,722,531,4,PT01M10.00S,1610612752,1630631,Alvarado,J. Alvarado,MISS Alvarado 25' 3PT Jump Shot,Missed Shot,Jump Shot,Missed,3,1,,
+0022600177,723,532,4,PT01M10.00S,1610612752,1642885,Diawara,M. Diawara,Diawara REBOUND (Off:2 Def:4),Rebound,Unknown,,0,0,,
+0022600177,724,533,4,PT01M03.00S,1610612752,1642359,Dadiet,P. Dadiet,Dadiet 2' Driving Layup (4 PTS) (Diawara 4 AST),Made Shot,Driving Layup Shot,Made,2,1,133.0,100.0
+0022600177,726,534,4,PT00M46.60S,1610612741,1643637,Sellers,J. Sellers,Sellers 26' 3PT Jump Shot (14 PTS) (Swain 1 AST),Made Shot,Jump Shot,Made,3,1,133.0,103.0
+0022600177,728,535,4,PT00M22.70S,1610612752,1630631,Alvarado,J. Alvarado,MISS Alvarado 2' Driving Layup,Missed Shot,Driving Layup Shot,Missed,2,1,,
+0022600177,729,536,4,PT00M22.70S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman REBOUND (Off:4 Def:4),Rebound,Unknown,,0,0,,
+0022600177,730,537,4,PT00M22.40S,1610612752,1630164,Wiseman,J. Wiseman,Wiseman Tip Layup Shot (8 PTS),Made Shot,Tip Layup Shot,Made,2,1,135.0,103.0
+0022600177,731,538,4,PT00M04.40S,1610612741,1641722,Hawkins,J. Hawkins,Hawkins 1' Driving Layup (2 PTS),Made Shot,Driving Layup Shot,Made,2,1,135.0,105.0
+0022600177,732,540,4,PT00M00.00S,0,0,,,End of 4th Period (10:02 PM EST),period,end,,0,0,135.0,105.0
+0022600177,734,539,4,PT00M00.00S,0,0,,,Instant Replay4th Period (10:02 PM EST),Instant Replay,Support Ruling,,0,0,135.0,105.0
